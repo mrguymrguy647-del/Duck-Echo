@@ -1,9 +1,24 @@
 # Duck Echo roadmap
 
-Ordered tasks for the next builder. Each task fits one session and has
-acceptance criteria. Do them in order unless a dependency note says
-otherwise; the first two are deliberately early because the music phase
-needs them.
+Tasks for the next builder. Each task fits one session and has acceptance
+criteria. Task numbers are stable names, not the order: work in the order
+below, which puts real agents on Duck Echo as early as possible.
+
+**Order:** 1 ✓, 2 ✓, 6, 7, 9, then 3, 4, 5, 8, then 10 onward.
+
+| Step | Task | Status |
+|---|---|---|
+| 1 | 1. Stereo output and pan | done |
+| 2 | 2. Note names | done |
+| 3 | 6. Richer analysis and `compare` | |
+| 4 | 7. Presets and `variations` | |
+| 5 | 9. MCP server | |
+| 6 | 3. Band-limited oscillators | |
+| 7 | 4. Pitched noise and LFOs | |
+| 8 | 5. Per-parameter random ranges | |
+| 9 | 8. Cross-platform determinism in CI | |
+| 10 | 10. Agent workflow guide | |
+| 11+ | 11 to 16 as listed | |
 
 Before starting any task: run `cargo test --workspace`, read
 `docs/ARCHITECTURE.md` and `docs/RECIPE_SPEC.md`, and keep the rules in
@@ -95,35 +110,6 @@ follows.
   with the pattern; a wrong note like `"H4"` gives a clear message at the
   exact path.
 
-### 3. Band-limited oscillators
-
-* PolyBLEP for square and saw (triangle via integrated square or leave
-  naive). Add `aliasing = "retro" | "clean"` on the layer, default `clean`,
-  so `retro` keeps today's byte-identical output.
-* Accept: a 2 kHz saw with `clean` has aliased components at least 40 dB
-  below the fundamental in a spectrum test (add a small FFT helper to
-  `duck-echo-analyze` for tests, it will be reused in task 6); `retro`
-  renders are unchanged.
-
-### 4. Pitched noise and LFOs
-
-* `noise` gains a sample-and-hold mode when `pitch` is set explicitly:
-  add `noise_mode = "white" | "pitched"` on the layer (default `white`).
-* `[layers.lfo]` with `target` (`volume`, `cutoff`, `duty`), `rate`,
-  `depth`, `shape` (`sine`, `triangle`, `square`), `delay`.
-* Accept: unit tests on rate and depth; spec and schema updated; new
-  example `siren.toml` using an LFO on cutoff.
-
-### 5. Per-parameter random ranges
-
-* Any numeric field may be written as `{ min = x, max = y }`; `prepare`
-  resolves it from the seed (its own forked stream, resolved in field order).
-* Validation applies the field's range to both ends and requires
-  `min <= max`.
-* Accept: tests that a ranged field stays within bounds across 100 seeds,
-  that `variation` and ranges compose, and that error paths point at
-  `layers[0].volume.max`.
-
 ### 6. Richer analysis for agents
 
 * Add to `Analysis`: spectral centroid, dominant frequency over time (a few
@@ -146,15 +132,6 @@ follows.
 * Accept: every preset renders clean (extend the examples test to presets);
   list output is JSON with `--json`.
 
-### 8. Cross-platform determinism in CI
-
-* GitHub Actions matrix: ubuntu, macos, windows. Each job renders the
-  examples and uploads SHA-256 of every WAV; a final job asserts all three
-  sets match.
-* Accept: workflow green on all three; a doc note listing the exact
-  guarantees. If a mismatch appears, the fix belongs in `synth::math`, not
-  in the test.
-
 ## Agent interface
 
 ### 9. MCP server crate (`duck-echo-mcp`)
@@ -169,6 +146,49 @@ follows.
 * Accept: an integration test drives the server over stdio through a
   create → edit → render → analyze loop; invalid edits return the `Report`
   shape unchanged; a `README` section shows the Claude Desktop/Code config.
+
+## Phase 1, continued: sound quality and robustness
+
+These were planned before the agent interface and moved after task 9.
+
+### 3. Band-limited oscillators
+
+* PolyBLEP for square and saw (triangle via integrated square or leave
+  naive). Add `aliasing = "retro" | "clean"` on the layer, default `clean`,
+  so `retro` keeps today's byte-identical output.
+* Accept: a 2 kHz saw with `clean` has aliased components at least 40 dB
+  below the fundamental in a spectrum test (reuse the FFT in
+  `duck-echo-analyze` from task 6); `retro` renders are unchanged.
+
+### 4. Pitched noise and LFOs
+
+* `noise` gains a sample-and-hold mode when `pitch` is set explicitly:
+  add `noise_mode = "white" | "pitched"` on the layer (default `white`).
+* `[layers.lfo]` with `target` (`volume`, `cutoff`, `duty`), `rate`,
+  `depth`, `shape` (`sine`, `triangle`, `square`), `delay`.
+* Accept: unit tests on rate and depth; spec and schema updated; new
+  example `siren.toml` using an LFO on cutoff.
+
+### 5. Per-parameter random ranges
+
+* Any numeric field may be written as `{ min = x, max = y }`; `prepare`
+  resolves it from the seed (its own forked stream, resolved in field order).
+* Validation applies the field's range to both ends and requires
+  `min <= max`.
+* Accept: tests that a ranged field stays within bounds across 100 seeds,
+  that `variation` and ranges compose, and that error paths point at
+  `layers[0].volume.max`.
+
+### 8. Cross-platform determinism in CI
+
+* GitHub Actions matrix: ubuntu, macos, windows. Each job renders the
+  examples and uploads SHA-256 of every WAV; a final job asserts all three
+  sets match.
+* Accept: workflow green on all three; a doc note listing the exact
+  guarantees. If a mismatch appears, the fix belongs in `synth::math`, not
+  in the test.
+
+## Agent guide
 
 ### 10. Agent workflow guide
 

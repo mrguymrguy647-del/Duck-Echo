@@ -451,22 +451,36 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     })
 }
 
-/// PCM16 WAV size and fingerprint of every example as rendered by Phase 0
-/// (commit c5acbdb), with `trim_silence` off. Any change to the default
-/// render path must keep these. If one changes on purpose, say so in the
-/// commit and update the value; never update it to make a test pass.
-const PHASE0_GOLDEN: &[(&str, usize, u64)] = &[
+/// PCM16 WAV size and fingerprint of every example as first rendered, with
+/// `trim_silence` off: the first six by Phase 0 (commit c5acbdb), chime and
+/// ricochet by commit c6f131e. Any change to the render path must keep
+/// these. If one changes on purpose, say so in the commit and update the
+/// value; never update it to make a test pass.
+const GOLDEN: &[(&str, usize, u64)] = &[
     ("coin", 27562, 0x5fa2_e4ec_072f_3abb),
     ("explosion", 140282, 0x26f2_8b89_fd8a_4a93),
     ("hit", 10716, 0x1d32_6886_9b8b_82ca),
     ("jump", 24300, 0x40a5_e896_885d_d69c),
     ("laser", 76072, 0x5084_0496_2617_46b2),
     ("powerup", 135872, 0x4587_bbac_ba84_9319),
+    ("chime", 127494, 0xb5a1_c5f4_8c03_8d1f),
+    ("ricochet", 152100, 0xce1b_45c1_7590_5b49),
 ];
 
 #[test]
+fn every_example_is_pinned_by_the_golden_list() {
+    for path in example_files() {
+        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+        assert!(
+            GOLDEN.iter().any(|(n, _, _)| *n == stem),
+            "{stem}.toml is not in GOLDEN; render it once and add its fingerprint"
+        );
+    }
+}
+
+#[test]
 fn default_render_path_is_byte_identical_to_phase0() {
-    for (name, len, hash) in PHASE0_GOLDEN {
+    for (name, len, hash) in GOLDEN {
         let mut recipe = load_file(&examples_dir().join(format!("{name}.toml")));
         recipe.master.trim_silence = false;
         let buf = duck_echo_synth::render(&recipe).unwrap();
