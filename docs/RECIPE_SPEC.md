@@ -253,7 +253,11 @@ layer's jitter does not depend on earlier layers' settings.
 Validation collects every problem in one call: unknown fields, unknown
 enum values, missing fields, wrong types and out-of-range values all come
 back together, in document order, each with its path, line and column. Only
-a syntax error stops early, because nothing after it can be trusted. Errors
+a syntax error stops early, because nothing after it can be trusted. A
+misspelled table or effect type that is clearly a typo (`[[layer]]`,
+`type = "delay"`) has its contents checked as the intended name, so typos
+inside it show up in the same call. Numbers written in quotes (`"440"`,
+`"440hz"`) are rejected with a suggestion to drop the quotes. Errors
 stop rendering; warnings do not. The JSON form is documented in
 `ARCHITECTURE.md`. Typical messages:
 

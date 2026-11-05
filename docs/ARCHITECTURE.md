@@ -266,6 +266,18 @@ Two rules keep the report free of echoes: a value replaced by a placeholder
 suppresses later issues at or under its path, and a misspelled field with a
 suggestion suppresses complaints about the suggested field's default.
 
+When a misspelled key or enum value has a *confident* suggestion (a known
+alias, a case or separator slip, or at most two typos that are few
+relative to the length), its contents are checked as the suggested name in
+the same call: `[[layer]]` is checked as `layers`, an effect with
+`type = "delay"` as an echo. Problems inside are reported at the name
+actually written (`layer[0].pich.strat`). If the intended key is not also
+present, the contents are decoded under the suggested name so range checks
+run on them too, and their paths are mapped back to the written name.
+Weaker guesses are still offered as a suggestion but their contents are
+not checked, to avoid misleading nested errors. A number written in quotes
+(`"440"`, `"440hz"`) gets a suggestion to write it without quotes.
+
 ```json
 {
   "ok": false,

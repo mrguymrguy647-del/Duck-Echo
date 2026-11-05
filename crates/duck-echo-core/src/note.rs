@@ -70,8 +70,28 @@ fn note_error(text: &str, why: &str, suggestion: Option<String>) -> NoteError {
     }
 }
 
+/// If `text` is a number written as a string, optionally with an `Hz`
+/// unit (`"440"`, `"440hz"`, `"261.6 Hz"`), the number as written.
+pub fn quoted_number(text: &str) -> Option<&str> {
+    let t = text.trim();
+    let t = if t.to_ascii_lowercase().ends_with("hz") {
+        t[..t.len() - 2].trim_end()
+    } else {
+        t
+    };
+    (!t.is_empty() && t.parse::<f64>().is_ok_and(f64::is_finite)).then_some(t)
+}
+
 /// MIDI note number (C-1 = 0, A4 = 69) of a note name.
 pub fn note_number(text: &str) -> Result<i32, NoteError> {
+    if let Some(number) = quoted_number(text) {
+        return Err(NoteError {
+            message: format!(
+                "\"{text}\" is a number in quotes; write {number} without quotes (frequencies are in Hz), or use a note name such as \"C5\""
+            ),
+            suggestion: Some(number.to_string()),
+        });
+    }
     let trimmed = text.trim();
     let mut chars = trimmed.chars();
     let Some(letter) = chars.next() else {
@@ -302,6 +322,23 @@ mod tests {
             parse_note(" C4").unwrap_err().suggestion.as_deref(),
             Some("C4")
         );
+    }
+
+    #[test]
+    fn quoted_numbers_suggest_the_bare_number() {
+        for (text, want) in [
+            ("440", "440"),
+            ("440hz", "440"),
+            ("261.6 Hz", "261.6"),
+            (" 880HZ ", "880"),
+        ] {
+            let e = parse_note(text).unwrap_err();
+            assert_eq!(e.suggestion.as_deref(), Some(want), "{text}");
+            assert!(e.message.contains("without quotes"), "{}", e.message);
+        }
+        assert_eq!(quoted_number("hz"), None);
+        assert_eq!(quoted_number("C4"), None);
+        assert_eq!(quoted_number("inf"), None);
     }
 
     #[test]

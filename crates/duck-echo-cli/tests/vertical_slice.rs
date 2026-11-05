@@ -777,3 +777,104 @@ fn schema_offers_number_or_note_name() {
         "#/$defs/Frequency"
     );
 }
+
+/// A misspelled key or tag with a confident suggestion has its contents
+/// checked as the intended name, in the same call.
+#[test]
+fn misspelled_entries_are_checked_as_the_suggested_name() {
+    let toml_src = r#"version = 0
+
+[[layer]]
+sorce = "sine"
+volume = 3
+[layer.pich]
+strat = 440
+
+[[effects]]
+type = "delay"
+feedbak = 0.5
+mix = 2
+"#;
+    let json_src = r#"{"version": 0,
+ "layer": [{"sorce": "sine", "volume": 3, "pich": {"strat": 440}}],
+ "effects": [{"type": "delay", "feedbak": 0.5, "mix": 2}]}"#;
+    for (src, format) in [(toml_src, Format::Toml), (json_src, Format::Json)] {
+        let report = load_str(src, format).unwrap_err();
+        let mut got: Vec<(&str, Code, Option<&str>)> = report
+            .errors
+            .iter()
+            .map(|e| (e.path.as_str(), e.code, e.suggestion.as_deref()))
+            .collect();
+        got.sort_by_key(|g| g.0);
+        assert_eq!(
+            got,
+            [
+                ("effects[0].feedbak", Code::UnknownField, Some("feedback")),
+                ("effects[0].mix", Code::OutOfRange, None),
+                ("effects[0].type", Code::UnknownVariant, Some("echo")),
+                ("layer", Code::UnknownField, Some("layers")),
+                ("layer[0].pich", Code::UnknownField, Some("pitch")),
+                ("layer[0].pich.strat", Code::UnknownField, Some("start")),
+                ("layer[0].sorce", Code::UnknownField, Some("source")),
+                ("layer[0].volume", Code::OutOfRange, None),
+            ],
+            "{format:?}:\n{report}"
+        );
+        assert!(report.errors.iter().all(|e| e.line.is_some()), "{report}");
+        // No "recipe has no layers": the misspelled table stands in for it.
+        assert!(!report.errors.iter().any(|e| e.code == Code::Invalid));
+    }
+}
+
+#[test]
+fn misspelled_entry_next_to_the_real_one_hides_nothing() {
+    // Both `pitch` and `pich`: the real one's range error must survive.
+    let src = "version = 0\n[[layers]]\n[layers.pitch]\nstart = 0\n[layers.pich]\nstrat = 1\n";
+    let report = load_str(src, Format::Toml).unwrap_err();
+    let paths: Vec<&str> = report.errors.iter().map(|e| e.path.as_str()).collect();
+    assert!(paths.contains(&"layers[0].pitch.start"), "{report}");
+    assert!(paths.contains(&"layers[0].pich.strat"), "{report}");
+
+    // A required field written with a typo is one error, not two.
+    let report = load_str("verison = 0\n[[layers]]\n", Format::Toml).unwrap_err();
+    assert_eq!(report.errors.len(), 1, "{report}");
+    assert_eq!(report.errors[0].suggestion.as_deref(), Some("version"));
+
+    // A weak guess does not check contents: no nested noise.
+    let report = load_str(
+        "version = 0\n[[layers]]\n[layers.pitchbend]\namount = 2\n",
+        Format::Toml,
+    )
+    .unwrap_err();
+    assert_eq!(report.errors.len(), 1, "{report}");
+    assert_eq!(report.errors[0].suggestion.as_deref(), Some("pitch"));
+}
+
+#[test]
+fn quoted_numbers_suggest_writing_the_number() {
+    for (src, format, path, want) in [
+        (
+            "version = 0\n[[layers]]\n[layers.pitch]\nstart = \"440\"\n",
+            Format::Toml,
+            "layers[0].pitch.start",
+            "440",
+        ),
+        (
+            r#"{"version":0,"layers":[{"pitch":{"end":"880hz"}}]}"#,
+            Format::Json,
+            "layers[0].pitch.end",
+            "880",
+        ),
+        (
+            "version = 0\n[[layers]]\nvolume = \"0.5\"\n",
+            Format::Toml,
+            "layers[0].volume",
+            "0.5",
+        ),
+    ] {
+        let e = first_error(src, format);
+        assert_eq!(e.path, path);
+        assert_eq!(e.suggestion.as_deref(), Some(want), "{}", e.message);
+        assert!(e.message.contains("without quotes"), "{}", e.message);
+    }
+}

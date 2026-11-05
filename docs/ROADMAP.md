@@ -60,6 +60,14 @@ Found in a review of Phase 0 and fixed before task 1.
   (stereo, note names) leave existing renders alone.
 - [x] **R4. Coin comment.** `coin.toml` said "a fifth" for steps
   `[0, 5]`, which is a fourth.
+- [x] **R5. Check inside misspelled entries.** An unknown key or effect
+  `type` with a confident suggestion (`[[layer]]` for `layers`, `"delay"`
+  for `echo`) now has its contents validated as the suggested name in the
+  same call, reported at the written path; range checks run on it too.
+  Confidence comes from `load::suggest`; weak guesses only suggest.
+  Test: `misspelled_entries_are_checked_as_the_suggested_name`.
+- [x] **R6. Quoted numbers.** `"440"` or `"440hz"` for a pitch (and a
+  quoted number for any numeric field) now suggests the bare number.
 
 ## Phase 1: finish sound effects
 

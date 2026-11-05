@@ -17,7 +17,7 @@
 //! (checked with [`crate::note::parse_note`]). A unit test fails if the
 //! schema ever uses anything else.
 
-use crate::load::did_you_mean;
+use crate::load::{suggest, Suggestion};
 use crate::report::{Code, Issue};
 use crate::tree::{Node, Pos, Value};
 use serde_json::{Map, Value as J};
@@ -35,6 +35,10 @@ pub struct Checked {
     /// The document with bad parts removed, ready for typed decoding.
     /// `None` only if the root itself is unusable.
     pub pruned: Option<J>,
+    /// `(decoded path, written path)` for misspelled entries whose contents
+    /// were decoded under the confidently suggested name, innermost first.
+    /// Semantic issues under a decoded path belong at the written path.
+    pub renames: Vec<(String, String)>,
 }
 
 /// The recipe schema, generated once.
@@ -56,12 +60,14 @@ pub fn check_against(root: &Node, schema: &J) -> Checked {
         defs,
         issues: Vec::new(),
         poisoned: Vec::new(),
+        renames: Vec::new(),
     };
     let pruned = w.walk(schema, root, "");
     Checked {
         issues: w.issues,
         poisoned: w.poisoned,
         pruned,
+        renames: w.renames,
     }
 }
 
@@ -92,6 +98,7 @@ struct Walker<'s> {
     defs: &'s Map<String, J>,
     issues: Vec<Issue>,
     poisoned: Vec<String>,
+    renames: Vec<(String, String)>,
 }
 
 impl<'s> Walker<'s> {
@@ -263,6 +270,8 @@ impl<'s> Walker<'s> {
 
         let mut out = Map::new();
         let mut seen: Vec<&str> = Vec::new();
+        // Required fields supplied through a misspelled key.
+        let mut filled: Vec<String> = Vec::new();
         for e in entries {
             let p = join(path, &e.key);
             if seen.contains(&e.key.as_str()) {
@@ -291,14 +300,40 @@ impl<'s> Walker<'s> {
                         .filter(|(_, v)| self.resolve(v).get("const").is_none())
                         .map(|(k, _)| k.clone())
                         .collect();
+                    let sugg = suggest(&e.key, &options);
                     let mut issue =
-                        Issue::error(Code::UnknownField, p, format!("unknown field `{}`", e.key))
+                        Issue::error(Code::UnknownField, &p, format!("unknown field `{}`", e.key))
                             .got(e.key.clone());
-                    if let Some(sugg) = did_you_mean(&e.key, &options) {
-                        issue = issue.suggest(sugg);
+                    if let Some(sg) = &sugg {
+                        issue = issue.suggest(sg.name.clone());
                     }
                     issue = issue.one_of(options);
                     self.issues.push(at(issue, e.key_pos));
+                    if let Some(sg) = sugg {
+                        let present = entries.iter().any(|x| x.key == sg.name);
+                        let target = join(path, &sg.name);
+                        match props.get(&sg.name) {
+                            Some(ps) if sg.confident => {
+                                // Check the contents as the intended field,
+                                // reporting at the name actually written.
+                                let checked = self.walk(ps, &e.node, &p);
+                                if !present && !out.contains_key(&sg.name) {
+                                    match checked {
+                                        Some(v) => {
+                                            out.insert(sg.name.clone(), v);
+                                            filled.push(sg.name.clone());
+                                            self.renames.push((target, p.clone()));
+                                        }
+                                        None => self.poisoned.push(target),
+                                    }
+                                }
+                            }
+                            // The intended field sits at its default;
+                            // complaints about that default are noise.
+                            _ if !present => self.poisoned.push(target),
+                            _ => {}
+                        }
+                    }
                 }
                 None => {
                     if let Some(v) = e.node.to_json() {
@@ -308,7 +343,7 @@ impl<'s> Walker<'s> {
             }
         }
         for r in required {
-            if !seen.contains(&r) {
+            if !seen.contains(&r) && !filled.iter().any(|f| f == r) {
                 let p = join(path, r);
                 let ps = props.get(r);
                 let mut issue = Issue::error(
@@ -337,10 +372,19 @@ impl<'s> Walker<'s> {
         if options.iter().any(|o| o == s) {
             return Some(J::String(s.clone()));
         }
+        let sugg = suggest(s, options);
         let mut issue =
             Issue::error(Code::UnknownVariant, path, format!("unknown value `{s}`")).got(s.clone());
-        if let Some(sugg) = did_you_mean(s, options) {
-            issue = issue.suggest(sugg);
+        if let Some(Suggestion { name, confident }) = &sugg {
+            issue = issue.suggest(name.clone());
+            if *confident {
+                // Carry on as if the intended value was written, so checks
+                // that depend on it (such as `duty` on `square`) still run.
+                self.issues
+                    .push(at(issue.one_of(options.iter().cloned()), node.pos));
+                self.poisoned.push(path.to_string());
+                return Some(J::String(name.clone()));
+            }
         }
         self.issues
             .push(at(issue.one_of(options.iter().cloned()), node.pos));
@@ -382,29 +426,49 @@ impl<'s> Walker<'s> {
                 return self.walk(b, node, path);
             }
         }
+        let sugg = suggest(name, &options);
         let mut issue = Issue::error(
             Code::UnknownVariant,
-            tag_path,
+            &tag_path,
             format!("unknown value `{name}`"),
         )
         .got(name.clone());
-        if let Some(sugg) = did_you_mean(name, &options) {
-            issue = issue.suggest(sugg);
+        if let Some(sg) = &sugg {
+            issue = issue.suggest(sg.name.clone());
         }
         self.issues.push(at(issue.one_of(options), entry.node.pos));
-        None
+        let sg = sugg.filter(|sg| sg.confident)?;
+        // Check the rest of the entry as the intended kind, so typos in its
+        // fields are reported in the same call.
+        let branch = branches
+            .iter()
+            .find(|b| tag_const(self.resolve(b), tag).as_deref() == Some(sg.name.as_str()))?;
+        let mut fixed = node.clone();
+        if let Value::Table(entries) = &mut fixed.value {
+            for e in entries.iter_mut().filter(|e| e.key == tag) {
+                e.node.value = Value::Str(sg.name.clone());
+            }
+        }
+        self.poisoned.push(tag_path);
+        self.walk(branch, &fixed, path)
     }
 
     fn type_mismatch(&mut self, path: &str, node: &Node, expected: &str) {
-        self.issues.push(at(
-            Issue::error(
-                Code::TypeMismatch,
-                path,
-                format!("expected {expected}, got {}", node.value.describe()),
-            )
-            .got(node.value.to_got()),
-            node.pos,
-        ));
+        let mut message = format!("expected {expected}, got {}", node.value.describe());
+        let mut suggestion = None;
+        if let Value::Str(text) = &node.value {
+            if expected.contains("a number") || expected.contains("an integer") {
+                if let Some(number) = crate::note::quoted_number(text) {
+                    message.push_str("; write the number without quotes");
+                    suggestion = Some(number.to_string());
+                }
+            }
+        }
+        let mut issue = Issue::error(Code::TypeMismatch, path, message).got(node.value.to_got());
+        if let Some(s) = suggestion {
+            issue = issue.suggest(s);
+        }
+        self.issues.push(at(issue, node.pos));
     }
 
     /// The property name every branch fixes with a `const`.

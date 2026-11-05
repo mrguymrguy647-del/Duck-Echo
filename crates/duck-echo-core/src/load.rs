@@ -64,6 +64,9 @@ struct Parsed {
     poisoned: Vec<String>,
     /// The positioned document, used to give semantic issues a line.
     tree: Option<tree::Node>,
+    /// (decoded path, written path) for misspelled entries that were decoded
+    /// under their suggested name, innermost first.
+    renames: Vec<(String, String)>,
 }
 
 fn parse_full(src: &str, format: Format) -> Parsed {
@@ -79,6 +82,7 @@ fn parse_full(src: &str, format: Format) -> Parsed {
                 report: Report::from_error(*issue),
                 poisoned: Vec::new(),
                 tree: None,
+                renames: Vec::new(),
             }
         }
     };
@@ -94,33 +98,22 @@ fn parse_full(src: &str, format: Format) -> Parsed {
                 report: Report::new(),
                 poisoned: Vec::new(),
                 tree: Some(tree),
+                renames: Vec::new(),
             },
             Err(report) => Parsed {
                 recipe: None,
                 report,
                 poisoned: Vec::new(),
                 tree: Some(tree),
+                renames: Vec::new(),
             },
         };
     }
     let mut report = Report::new();
-    let mut poisoned = checked.poisoned;
     let mut issues = checked.issues;
     // Report in document order, whatever order the parser stored keys in.
     issues.sort_by_key(|i| (i.line.unwrap_or(usize::MAX), i.column.unwrap_or(0)));
     for issue in issues {
-        // A misspelled field means the intended field is sitting at its
-        // default; complaints about that default are noise.
-        if issue.code == Code::UnknownField {
-            if let Some(sugg) = &issue.suggestion {
-                let parent = issue.path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-                poisoned.push(if parent.is_empty() {
-                    sugg.clone()
-                } else {
-                    format!("{parent}.{sugg}")
-                });
-            }
-        }
         report.push(issue);
     }
     let recipe = checked
@@ -129,8 +122,9 @@ fn parse_full(src: &str, format: Format) -> Parsed {
     Parsed {
         recipe,
         report,
-        poisoned,
+        poisoned: checked.poisoned,
         tree: Some(tree),
+        renames: checked.renames,
     }
 }
 
@@ -153,6 +147,13 @@ pub fn load_str(src: &str, format: Format) -> Result<Loaded, Report> {
     if let Some(recipe) = &parsed.recipe {
         let semantic = validate(recipe);
         for mut issue in semantic.errors.into_iter().chain(semantic.warnings) {
+            // Report issues inside a misspelled entry at the name written.
+            // Outer renames were recorded last, so apply them first.
+            for (decoded, written) in parsed.renames.iter().rev() {
+                if is_under(&issue.path, decoded) {
+                    issue.path = format!("{written}{}", &issue.path[decoded.len()..]);
+                }
+            }
             if parsed
                 .poisoned
                 .iter()
@@ -441,13 +442,36 @@ const ALIASES: &[(&str, &str)] = &[
     ("lin", "linear"),
 ];
 
+/// A likely intended name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suggestion {
+    /// The suggested valid name.
+    pub name: String,
+    /// True for a known alias, a case or separator slip, or a small edit
+    /// (at most two typos, and few relative to the length). Only confident
+    /// suggestions are used to check the contents of a misspelled entry as
+    /// if it had the suggested name.
+    pub confident: bool,
+}
+
 /// Best guess at what an agent meant by `name`, given the valid `candidates`.
 pub fn did_you_mean(name: &str, candidates: &[String]) -> Option<String> {
+    suggest(name, candidates).map(|s| s.name)
+}
+
+/// Like [`did_you_mean`], with a confidence flag.
+pub fn suggest(name: &str, candidates: &[String]) -> Option<Suggestion> {
     let lower = name.to_ascii_lowercase();
+    let sure = |c: &str| {
+        Some(Suggestion {
+            name: c.to_string(),
+            confident: true,
+        })
+    };
     // 1. Exact alias.
     for (alias, target) in ALIASES {
         if *alias == lower && candidates.iter().any(|c| c == target) {
-            return Some(target.to_string());
+            return sure(target);
         }
     }
     // 2. Case or separator slip (e.g. `sampleRate`, `sample-rate`).
@@ -455,7 +479,7 @@ pub fn did_you_mean(name: &str, candidates: &[String]) -> Option<String> {
     let camel_split = split_camel(name);
     for c in candidates {
         if *c == normalized || *c == camel_split {
-            return Some(c.clone());
+            return sure(c);
         }
     }
     // 3. Closest by string similarity.
@@ -467,7 +491,14 @@ pub fn did_you_mean(name: &str, candidates: &[String]) -> Option<String> {
         }
     }
     match best {
-        Some((score, c)) if score >= 0.78 => Some(c.clone()),
+        Some((score, c)) if score >= 0.78 => {
+            let edits = strsim::osa_distance(&lower, c);
+            let longest = lower.chars().count().max(c.chars().count());
+            Some(Suggestion {
+                name: c.clone(),
+                confident: edits <= 2 && edits * 3 <= longest,
+            })
+        }
         _ => None,
     }
 }
@@ -506,5 +537,19 @@ mod tests {
         );
         assert_eq!(did_you_mean("Volume", &fields).as_deref(), Some("volume"));
         assert_eq!(did_you_mean("zzzzzz", &fields), None);
+    }
+
+    #[test]
+    fn suggestion_confidence() {
+        let fields: Vec<String> = ["layers", "pitch", "volume", "effects"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let conf = |n: &str| suggest(n, &fields).map(|s| (s.name, s.confident));
+        assert_eq!(conf("layer"), Some(("layers".into(), true)));
+        assert_eq!(conf("fx"), Some(("effects".into(), true)));
+        assert_eq!(conf("pich"), Some(("pitch".into(), true)));
+        // A long extra word is a guess, not a typo.
+        assert_eq!(conf("pitchbend"), Some(("pitch".into(), false)));
     }
 }
