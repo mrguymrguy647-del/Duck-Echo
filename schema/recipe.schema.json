@@ -419,6 +419,11 @@
           "description": "Target peak in dBFS when `normalize` is on, range -40..=0. Default `-1`.",
           "format": "float",
           "type": "number"
+        },
+        "trim_silence": {
+          "default": false,
+          "description": "Cut the end of the render after the last sample above -60 dBFS (the\nanalyzer's silence threshold). Removes the silent part of computed\neffect tails. Offline only; has no effect when `duration` is set.\nDefault `false`.",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -569,7 +574,8 @@
       "default": {
         "gain": 1.0,
         "normalize": false,
-        "normalize_peak_db": -1.0
+        "normalize_peak_db": -1.0,
+        "trim_silence": false
       },
       "description": "Master output stage, applied after the master `effects`."
     },

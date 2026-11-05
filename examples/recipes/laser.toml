@@ -2,6 +2,9 @@
 version = 0
 name = "laser"
 
+[master]
+trim_silence = true   # drop the silent end of the effect tail
+
 [[layers]]
 source = "saw"
 volume = 0.6

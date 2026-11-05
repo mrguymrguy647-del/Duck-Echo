@@ -36,6 +36,14 @@ Found in a review of Phase 0 and fixed before task 1.
   0.2 dB. Loudness is computed per channel and summed, ready for stereo.
   Note for task 10: the Phase 0 coin reads about -5 LUFS, far louder than
   typical UI targets, so the guide's targets will drive preset levels.
+- [x] **R3. Trailing silence.** Computed lengths left 25 to 28% silence
+  at the end of explosion, laser and powerup because effect tails are
+  worst-case estimates. Added opt-in `master.trim_silence` (cuts after the
+  last sample above -60 dBFS, offline, after clipping). The default path
+  is unchanged and pinned by `default_render_path_is_byte_identical_to_phase0`,
+  which fingerprints every example's WAV against Phase 0. The three
+  examples now use trimming. Use that golden test to prove later changes
+  (stereo, note names) leave existing renders alone.
 - [x] **R4. Coin comment.** `coin.toml` said "a fifth" for steps
   `[0, 5]`, which is a fourth.
 

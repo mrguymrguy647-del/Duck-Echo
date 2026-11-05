@@ -329,12 +329,29 @@ pub fn render(recipe: &Recipe) -> Result<AudioBuffer, Report> {
     for s in &mut samples {
         *s = s.clamp(-1.0, 1.0);
     }
+    if recipe.master.trim_silence && recipe.duration.is_none() {
+        trim_trailing_silence(&mut samples, 1);
+    }
 
     Ok(AudioBuffer {
         sample_rate: recipe.sample_rate,
         channels: 1,
         samples,
     })
+}
+
+/// Drop trailing frames whose samples are all at or below
+/// [`duck_echo_core::TRIM_THRESHOLD`], keeping at least one frame. The cut
+/// leaves a step of at most -60 dBFS at the end, which is inaudible.
+fn trim_trailing_silence(samples: &mut Vec<f32>, channels: usize) {
+    let frames = samples.len() / channels;
+    let last = (0..frames).rev().find(|&f| {
+        samples[f * channels..(f + 1) * channels]
+            .iter()
+            .any(|s| s.abs() > duck_echo_core::TRIM_THRESHOLD)
+    });
+    let keep = last.map(|f| f + 1).unwrap_or(1).min(frames);
+    samples.truncate(keep * channels);
 }
 
 /// Whether a source uses the seed. Handy for tools that want to know if a

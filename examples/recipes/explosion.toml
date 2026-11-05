@@ -4,6 +4,9 @@ version = 0
 name = "explosion"
 seed = 7
 
+[master]
+trim_silence = true   # drop the silent end of the effect tail
+
 [[layers]]
 name = "boom"
 source = "noise"

@@ -84,6 +84,13 @@ impl Validator {
             -40.0,
             0.0,
         );
+        if r.master.trim_silence && r.duration.is_some() {
+            self.warn(
+                Code::Unused,
+                "master.trim_silence",
+                "trim_silence has no effect when `duration` is set; the render keeps exactly `duration` seconds",
+            );
+        }
 
         if r.layers.is_empty() {
             self.report.push(Issue::error(

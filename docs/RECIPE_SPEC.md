@@ -40,6 +40,12 @@ which renders a 0.205 s square-wave blip at 440 Hz.
 | `gain` | number | `1.0` | 0..4 | Linear gain after the master effects. |
 | `normalize` | bool | `false` | | Scale the whole render so its peak equals `normalize_peak_db`. Offline only; realtime playback ignores it. |
 | `normalize_peak_db` | number | `-1` | -40..0 | Target peak in dBFS. |
+| `trim_silence` | bool | `false` | | Cut the render after its last sample above -60 dBFS. Offline only. Ignored, with a warning, when `duration` is set. |
+
+Order of the offline steps: master effects, gain, normalize, clip to
+-1..1, trim. Trimming only removes trailing frames, so a trimmed render is
+an exact prefix of the untrimmed one, and `analyze` reports no trailing
+silence for it (both use the same -60 dBFS threshold).
 
 Output is hard-clipped to -1..1 after normalization. Analysis reports
 clipping, so leave `normalize` off while designing and turn it on when a
@@ -191,6 +197,12 @@ Tails: echo lasts `delay × repeats` where repeats is how many times
 distortion and bitcrush add nothing. Each tail is capped at 10 s. The limit
 for the whole recipe is 60 s, enforced by validation.
 
+These tails are worst cases: they assume a full-level input right at the
+end of the layer, so a sound that has already faded leaves silence at the
+end (25 to 28% of the Phase 0 explosion, laser and powerup). The computed
+length is kept as is so existing renders stay byte-identical; set
+`master.trim_silence = true` to drop that silence.
+
 ## Variation
 
 `variation` makes a single recipe a family of sounds. For each layer the
@@ -256,10 +268,10 @@ All in `examples/recipes/`, all render without clipping:
 |---|---|
 | `coin.toml` | square, arpeggio with `repeat = false` |
 | `jump.toml` | exponential pitch sweep, resonant lowpass sweep, `duty` |
-| `laser.toml` | saw, fast downward sweep, vibrato, master echo |
-| `explosion.toml` | noise with a lowpass sweep, sine thump, distortion, reverb, `seed` |
+| `laser.toml` | saw, fast downward sweep, vibrato, master echo, `trim_silence` |
+| `explosion.toml` | noise with a lowpass sweep, sine thump, distortion, reverb, `seed`, `trim_silence` |
 | `hit.toml` | bandpass noise burst plus a square drop, bitcrush with `rate` |
-| `powerup.toml` | two layers with `offset`, arpeggio over a sweep, `normalize` |
+| `powerup.toml` | two layers with `offset`, arpeggio over a sweep, `normalize`, `trim_silence` |
 
 ## Deferred (not in v0, never silently ignored)
 

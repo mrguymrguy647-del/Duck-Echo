@@ -311,7 +311,9 @@ fn duration_override_and_tails() {
 
 #[test]
 fn voice_streams_in_arbitrary_block_sizes() {
-    let recipe = load_file(&examples_dir().join("laser.toml"));
+    let mut recipe = load_file(&examples_dir().join("laser.toml"));
+    // Trimming is an offline post-process; compare the raw stream.
+    recipe.master.trim_silence = false;
     let whole = duck_echo_synth::render(&recipe).unwrap();
     let mut voice = duck_echo_synth::prepare(&recipe).unwrap();
     let mut out = Vec::new();
@@ -440,4 +442,77 @@ fn array_items_keep_their_indices_when_one_is_broken() {
             "layers[1].effects[0].size"
         ]
     );
+}
+
+/// FNV-1a 64: tiny, dependency-free fingerprint for golden WAV bytes.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
+        (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// PCM16 WAV size and fingerprint of every example as rendered by Phase 0
+/// (commit c5acbdb), with `trim_silence` off. Any change to the default
+/// render path must keep these. If one changes on purpose, say so in the
+/// commit and update the value; never update it to make a test pass.
+const PHASE0_GOLDEN: &[(&str, usize, u64)] = &[
+    ("coin", 27562, 0x5fa2_e4ec_072f_3abb),
+    ("explosion", 140282, 0x26f2_8b89_fd8a_4a93),
+    ("hit", 10716, 0x1d32_6886_9b8b_82ca),
+    ("jump", 24300, 0x40a5_e896_885d_d69c),
+    ("laser", 76072, 0x5084_0496_2617_46b2),
+    ("powerup", 135872, 0x4587_bbac_ba84_9319),
+];
+
+#[test]
+fn default_render_path_is_byte_identical_to_phase0() {
+    for (name, len, hash) in PHASE0_GOLDEN {
+        let mut recipe = load_file(&examples_dir().join(format!("{name}.toml")));
+        recipe.master.trim_silence = false;
+        let buf = duck_echo_synth::render(&recipe).unwrap();
+        let wav = encode_wav(&buf, WavFormat::Pcm16).unwrap();
+        assert_eq!(
+            (wav.len(), fnv1a64(&wav)),
+            (*len, *hash),
+            "{name}: render differs from Phase 0"
+        );
+    }
+}
+
+/// Review fix 3: trim_silence removes the silent tail and nothing else.
+#[test]
+fn trim_silence_only_cuts_the_silent_end() {
+    for name in ["explosion", "laser", "powerup"] {
+        let trimmed_recipe = load_file(&examples_dir().join(format!("{name}.toml")));
+        assert!(trimmed_recipe.master.trim_silence, "{name} should use trim");
+        let mut full_recipe = trimmed_recipe.clone();
+        full_recipe.master.trim_silence = false;
+
+        let full = duck_echo_synth::render(&full_recipe).unwrap();
+        let trimmed = duck_echo_synth::render(&trimmed_recipe).unwrap();
+        assert!(trimmed.samples.len() < full.samples.len());
+        assert_eq!(
+            trimmed.samples[..],
+            full.samples[..trimmed.samples.len()],
+            "{name}: trimmed render must be a prefix of the full one"
+        );
+
+        let before = analyze(&full.samples, full.sample_rate, 1);
+        assert!(before.trailing_silence_seconds / before.duration_seconds > 0.2);
+        // Analyze the WAV as written, after 16-bit quantization.
+        let wav = encode_wav(&trimmed, WavFormat::Pcm16).unwrap();
+        let back = duck_echo_audio::decode_wav(&wav).unwrap();
+        let after = analyze(&back.samples, back.sample_rate, 1);
+        assert_eq!(after.trailing_silence_seconds, 0.0, "{name}");
+    }
+
+    // A forced duration wins over trimming, with a warning.
+    let loaded = load_str(
+        "version = 0\nduration = 1.0\n[master]\ntrim_silence = true\n[[layers]]\n",
+        Format::Toml,
+    )
+    .unwrap();
+    assert_eq!(loaded.report.warnings[0].path, "master.trim_silence");
+    let buf = duck_echo_synth::render(&loaded.recipe).unwrap();
+    assert_eq!(buf.frames(), 44100);
 }

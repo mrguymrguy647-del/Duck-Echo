@@ -4,6 +4,7 @@ version = 0
 name = "powerup"
 
 [master]
+trim_silence = true   # drop the silent end of the effect tail
 normalize = true
 normalize_peak_db = -1
 

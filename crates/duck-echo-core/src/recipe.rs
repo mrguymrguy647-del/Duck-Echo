@@ -146,7 +146,16 @@ pub struct Master {
     pub normalize: bool,
     /// Target peak in dBFS when `normalize` is on, range -40..=0. Default `-1`.
     pub normalize_peak_db: f32,
+    /// Cut the end of the render after the last sample above -60 dBFS (the
+    /// analyzer's silence threshold). Removes the silent part of computed
+    /// effect tails. Offline only; has no effect when `duration` is set.
+    /// Default `false`.
+    pub trim_silence: bool,
 }
+
+/// Trailing samples at or below this magnitude are removed by
+/// `master.trim_silence`. Equals -60 dBFS, the analyzer's silence threshold.
+pub const TRIM_THRESHOLD: f32 = 0.001;
 
 impl Default for Master {
     fn default() -> Self {
@@ -154,6 +163,7 @@ impl Default for Master {
             gain: default_gain(),
             normalize: false,
             normalize_peak_db: default_normalize_peak_db(),
+            trim_silence: false,
         }
     }
 }
