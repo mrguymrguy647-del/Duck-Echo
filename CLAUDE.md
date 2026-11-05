@@ -20,6 +20,11 @@ before changing anything.
 - `Voice::process` must stay allocation-free and lock-free.
 - Keep dependencies minimal; justify each new one in `ARCHITECTURE.md`.
 - Never implement voice cloning or anything that imitates a real person.
+- The CLI and the MCP server share their operations through
+  `duck-echo-tools`; add behaviour there, not in one front end only.
+- Renders of every example and preset are pinned by fingerprint tests.
+  Change a fingerprint only when the sound is meant to change, and say so
+  in the commit.
 
 ## Workflow
 

@@ -1,0 +1,24 @@
+[package]
+name = "duck-echo-mcp"
+description = "Duck Echo MCP server: the agent tools over stdio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "duck-echo-mcp"
+path = "src/main.rs"
+
+[dependencies]
+duck-echo-core = { workspace = true }
+duck-echo-audio = { workspace = true, features = ["wav"] }
+duck-echo-tools = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

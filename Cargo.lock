@@ -140,6 +140,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "duck-echo-mcp"
+version = "0.1.0"
+dependencies = [
+ "duck-echo-audio",
+ "duck-echo-core",
+ "duck-echo-tools",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "duck-echo-synth"
 version = "0.1.0"
 dependencies = [

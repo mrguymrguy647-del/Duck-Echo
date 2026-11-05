@@ -258,3 +258,17 @@ pub fn variations(
         renders,
     })
 }
+
+pub mod edit;
+
+pub use duck_echo_analyze::{Analysis, Comparison};
+
+/// Render a validated recipe in memory.
+pub fn render_buffer(recipe: &duck_echo_core::Recipe) -> Result<AudioBuffer, ToolError> {
+    Ok(duck_echo_synth::render(recipe)?)
+}
+
+/// Compare two buffers.
+pub fn compare_buffers(a: &AudioBuffer, b: &AudioBuffer) -> Comparison {
+    duck_echo_analyze::compare(signal(a), signal(b))
+}

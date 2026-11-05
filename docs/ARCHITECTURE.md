@@ -38,7 +38,8 @@ crates/
                            load a WAV or render a recipe, compare, and (from
                            task 7 on) presets, variations and edits.
   duck-echo-cli/           the `duck-echo` binary and the end-to-end tests.
-  duck-echo-mcp/           (planned) MCP server exposing the agent tools.
+  duck-echo-mcp/           the `duck-echo-mcp` binary: the agent tools as an MCP
+                           server over stdio.
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 examples/recipes/          the example recipes (TOML, plus coin.json)
@@ -56,7 +57,7 @@ cli ──> tools ──> synth ──> core
  │        ├────> audio (with wav feature)
  │        └────> core
  └────> core, synth, analyze, audio (directly, for render and validate)
-mcp (planned) ──> tools (and core)
+mcp ──> tools (and core, audio)
 ear (planned) ──> core, audio, analyze
 ```
 
@@ -223,28 +224,51 @@ A `sample` source with `[layers.sample] path = "..."` plays a short
 recording through the same envelope, pitch (as playback rate), filter and
 effects. The hash of the file goes into the recipe so determinism holds.
 
-## Agent tools for the MCP server (design)
+## Agent tools: the MCP server
 
-All tools take and return JSON. Recipes are passed inline as JSON objects or
-by path. Every tool that touches a recipe runs validation and returns the
-same `Report` shape the CLI prints with `--json`.
+`duck-echo-mcp` serves these tools over stdio. All take and return JSON
+objects; the work is done by `duck-echo-tools`, the same code the CLI uses.
+A recipe argument is either `recipe` (an inline JSON object) or `path` (a
+`.toml`/`.json` file, or `preset:NAME`).
 
-| Tool | Input | Output | Notes |
-|---|---|---|---|
-| `get_schema` | none | JSON Schema | Same document as `duck-echo schema`. |
-| `list_presets` | optional tag/query | list of `{name, tags, description, recipe}` | Starts from `examples/recipes`; a preset library is a roadmap task. |
-| `validate` | `recipe` | `Report` | No side effects. |
-| `create` | `recipe` (JSON), `path` | `{path, report}` | Writes TOML. Refuses to overwrite unless `overwrite: true`. |
-| `edit` | `path`, `patch` (JSON merge patch or `{path, value}` list) | `{recipe, report}` | Applies, validates, writes only when valid. Returns the updated recipe so the agent sees the result. |
-| `render` | `recipe` or `path`, `output`, optional `seed`, `format` | `{output, duration, analysis, warnings}` | Same as the CLI `render --json`. |
-| `analyze` | `wav` path | `Analysis` | Also the "listen" tool until the Ear arrives; later gains `ear: true` to add Ear descriptions. |
-| `compare` | two wav paths or two recipes | `{a, b, delta: {peak_db, lufs, duration, ...}, correlation}` | Lets an agent check that an edit moved the sound the intended way. |
-| `variations` | `recipe`, `count`, `variation` | list of `{seed, analysis}` | Renders N seeds and reports each; agent picks by numbers. |
-| `export` | `recipe` or `wav`, `target: "duck_forge"`, options | `{files}` | Format to be decided with the Duck Forge owner (roadmap). |
+| Tool | Input | Output |
+|---|---|---|
+| `get_schema` | none | The recipe JSON Schema, same as `duck-echo schema`. |
+| `list_presets` | optional `tag` | `{presets: [{name, category, description, tags}]}`. |
+| `get_preset` | `name` | `{name, category, description, tags, recipe, toml}`: the recipe as a JSON object and its TOML source with comments. |
+| `validate` | recipe | The `Report`. An invalid recipe is a normal answer here, not a tool error. |
+| `create` | `path`, `recipe`, optional `overwrite` | `{ok, path, warnings}`. Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. |
+| `edit` | recipe, `ops`, optional `write` | `{ok, recipe, warnings, written, path}`. Each op is `{path, value}` or `{path, remove: true}`, with paths as in error messages; an index equal to the length appends. Edits apply to the document as written (defaults stay implicit), and a file is rewritten only when the result is valid. Comments are not kept. |
+| `render` | recipe, `output`, optional `seed`, `format` | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`. |
+| `analyze` | `path` (WAV, recipe or preset) or `recipe` | The `Analysis` (see `ANALYSIS.md`). |
+| `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
+| `variations` | recipe, optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
+| `export` | (task 13) | Not built: the Duck Forge format is still to be agreed. |
 
-Design rules: tools are idempotent where possible, never block on audio
-playback, and always return the recipe they ended with so the agent does not
-have to re-read files. Errors use the `Report` shape, not free text.
+Rules the server keeps:
+
+* **One error shape.** A failed call sets `isError` and returns the
+  validation `Report` shape, whether the recipe was invalid, an argument was
+  misspelled (with a suggestion, at path `arguments.<name>`), or a file was
+  missing. Line numbers are dropped for inline recipes, since they would
+  refer to text the agent never wrote.
+* **Results as data.** Every result is a JSON object, sent both as
+  `structuredContent` and as text.
+* **Paths stay inside the root.** File paths resolve against `--root`
+  (default: the working directory); a path that leaves it is refused.
+  Results show paths relative to the root.
+* **Never silently.** Edits that cannot apply say which op and why; an
+  invalid result changes no file.
+
+**Protocol.** MCP over stdio is newline-delimited JSON-RPC 2.0, and Duck
+Echo needs only `initialize`, `ping`, `tools/list` and `tools/call`. The
+server implements these directly on `serde_json`
+(`crates/duck-echo-mcp/src/protocol.rs`, about 150 lines) instead of using
+the official Rust SDK, which is async and would bring tokio and a large
+dependency tree into a synchronous program. It negotiates protocol versions
+2024-11-05 through 2025-11-25. If Duck Echo later needs resources, prompts,
+progress notifications or HTTP transport, replacing that one file with the
+SDK is the way; the tools module does not depend on it.
 
 ## Duck Ear bridge (design)
 
@@ -327,6 +351,10 @@ in the same order.
 | strsim | core | "Did you mean" suggestions. |
 | hound | audio | WAV read and write, zero dependencies of its own. |
 | clap | cli | Argument parsing. |
+
+The MCP server and the tools crate add no external dependencies: the
+protocol layer is plain `serde_json` (see above), and `toml` writes edited
+recipes.
 
 Synth and analyze bring no external dependencies beyond serde for the
 analysis report. No `rand`, no DSP crates, no async runtime.

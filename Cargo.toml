@@ -7,6 +7,7 @@ members = [
     "crates/duck-echo-analyze",
     "crates/duck-echo-tools",
     "crates/duck-echo-cli",
+    "crates/duck-echo-mcp",
 ]
 
 [workspace.package]

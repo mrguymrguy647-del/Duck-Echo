@@ -55,6 +55,40 @@ Recipes are TOML on disk and JSON in tool calls; both are the same schema.
 Anywhere a recipe is expected, `preset:NAME` names a built-in preset, for
 example `duck-echo render preset:coin -o coin.wav`.
 
+## Use it from an agent (MCP)
+
+`duck-echo-mcp` serves the Duck Echo tools over the Model Context Protocol:
+`get_schema`, `list_presets`, `get_preset`, `validate`, `create`, `edit`,
+`render`, `analyze`, `compare` and `variations`. File paths are relative to
+`--root` and cannot leave it.
+
+```bash
+cargo build --release
+```
+
+Claude Code, from the folder where sounds should live:
+
+```bash
+claude mcp add duck-echo -- /path/to/Duck-Echo/target/release/duck-echo-mcp --root .
+```
+
+Claude Desktop, in `claude_desktop_config.json` (absolute paths):
+
+```json
+{
+  "mcpServers": {
+    "duck-echo": {
+      "command": "/path/to/Duck-Echo/target/release/duck-echo-mcp",
+      "args": ["--root", "/path/to/my-game/sounds"]
+    }
+  }
+}
+```
+
+A typical agent loop: `list_presets`, `get_preset`, `create` a file from it,
+`edit` fields by path, `render`, then `analyze` or `compare` to check the
+result by numbers. Tool details: `docs/ARCHITECTURE.md`.
+
 ## Documents
 
 * `docs/RECIPE_SPEC.md`: every field, default and range, plus examples.
@@ -73,6 +107,7 @@ crates/duck-echo-synth    deterministic renderer
 crates/duck-echo-analyze  measurements and compare
 crates/duck-echo-tools    operations shared by the CLI and the MCP server
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
+crates/duck-echo-mcp      the duck-echo-mcp binary: MCP server over stdio
 presets                   30 tagged starting points (see presets/README.md)
 examples/recipes          coin, jump, laser, explosion, hit, powerup,
                           ricochet (stereo), chime (note names)

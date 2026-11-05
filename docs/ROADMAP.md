@@ -12,7 +12,7 @@ below, which puts real agents on Duck Echo as early as possible.
 | 2 | 2. Note names | done |
 | 3 | 6. Richer analysis and `compare` | done |
 | 4 | 7. Presets and `variations` | done |
-| 5 | 9. MCP server | |
+| 5 | 9. MCP server | done |
 | 6 | 3. Band-limited oscillators | |
 | 7 | 4. Pitched noise and LFOs | |
 | 8 | 5. Per-parameter random ranges | |
@@ -177,7 +177,26 @@ power. Original task text follows.
 
 ## Agent interface
 
-### 9. MCP server crate (`duck-echo-mcp`)
+### 9. MCP server crate (`duck-echo-mcp`) [done]
+
+Done: ten tools over stdio, documented in `ARCHITECTURE.md`, with setup for
+Claude Code and Claude Desktop in the README. Choices that differ from the
+plan below:
+
+* **No SDK.** The stdio protocol layer is written directly on `serde_json`
+  instead of the official Rust MCP SDK, which is async and would add tokio
+  and a large dependency tree. Only `protocol.rs` would change to adopt the
+  SDK later, for example to add resources or HTTP transport.
+* **`get_preset` added**, and `list_presets` returns metadata only, so a
+  listing stays small.
+* **`--root`** confines all file access to one directory, since clients
+  like Claude Desktop give the server no other sandbox.
+* **`export` waits for task 13.**
+
+Shared operations (presets, variations, edits, render-to-file) live in
+`duck-echo-tools` so the CLI and server behave the same. For task 10: the
+`instructions` string sent at `initialize` is the shortest description of
+the agent loop; keep it in step with the guide. Original task text follows.
 
 * Implement the tools designed in `ARCHITECTURE.md`: `get_schema`,
   `list_presets`, `validate`, `create`, `edit`, `render`, `analyze`,
