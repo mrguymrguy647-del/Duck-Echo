@@ -6,7 +6,7 @@ tags = ["movement", "jump", "rising", "short"]
 
 [master]
 normalize = true
-normalize_peak_db = -3
+normalize_peak_db = -10.3
 trim_silence = true
 
 [[layers]]

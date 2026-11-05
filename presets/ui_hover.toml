@@ -6,7 +6,7 @@ tags = ["ui", "hover", "soft"]
 
 [master]
 normalize = true
-normalize_peak_db = -3
+normalize_peak_db = -14.8
 trim_silence = true
 
 [[layers]]

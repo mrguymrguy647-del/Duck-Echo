@@ -4,7 +4,8 @@ Tasks for the next builder. Each task fits one session and has acceptance
 criteria. Task numbers are stable names, not the order: work in the order
 below, which puts real agents on Duck Echo as early as possible.
 
-**Order:** 1 ✓, 2 ✓, 6, 7, 9, then 3, 4, 5, 8, then 10 onward.
+**Order:** 1 ✓, 2 ✓, 6 ✓, 7 ✓, 9 ✓, then 3, 4, 5, 8, then 10 (with the
+proposed 17 next to it), then 11 onward.
 
 | Step | Task | Status |
 |---|---|---|
@@ -18,6 +19,7 @@ below, which puts real agents on Duck Echo as early as possible.
 | 8 | 5. Per-parameter random ranges | |
 | 9 | 8. Cross-platform determinism in CI | |
 | 10 | 10. Agent workflow guide | |
+| 10b | 17. Loudness normalization in the recipe (proposed) | |
 | 11+ | 11 to 16 as listed | |
 
 Before starting any task: run `cargo test --workspace`, read
@@ -96,6 +98,16 @@ Found in a review of Phase 0 and fixed before task 1.
   read "tone and noise"; every pitched preset keeps "tonal". Test:
   `summary_words_match_what_the_presets_are`. Analysis only; no render
   changed.
+- [x] **R10. Presets levelled by loudness.** At -3 dBFS peak the presets
+  ranged from -4 LUFS (ui_error, alarm) to -17.5 LUFS (explosions), so
+  feedback sounds were 13 dB louder than explosions. Each preset's
+  `normalize_peak_db` is now set so it hits its category's loudness
+  target within 0.25 LU (table in `presets/README.md`, constants in
+  `presets::LOUDNESS_TARGETS`), with at least 1 dB of peak headroom. All
+  preset fingerprints were re-pinned on purpose; example renders are
+  unchanged. Tail-heavy presets needed a second pass because
+  `trim_silence` uses an absolute -60 dBFS threshold, so a quieter render
+  is trimmed sooner. Follow-up: task 17.
 
 ## Phase 1: finish sound effects
 
@@ -179,16 +191,14 @@ Done. 30 presets in `presets/` across seven categories (the six planned
 plus `movement`), compiled into the tools crate so the CLI and MCP server
 find them anywhere. Choices: tags live in the recipe as new metadata
 fields `description` and `tags` rather than in comments or an index, so
-JSON tool calls see them; presets are peak-normalized to -3 dBFS and
-trimmed; `preset:NAME` works wherever a recipe path does. Every preset's
+JSON tool calls see them; presets are levelled to per-category loudness
+targets (R10) and trimmed; `preset:NAME` works wherever a recipe path does. Every preset's
 render is pinned like the examples. `variations` reports `seeds_matter:
 false` with a note when nothing depends on the seed, instead of writing
 identical files. Conventions and how to add a preset: `presets/README.md`.
-Notes for the agent guide (task 10): preset loudness ranges from about -4
-LUFS (alarm, ui_error) to -17 LUFS (explosions, metal clang) at the same
-peak, which shows why peak and loudness must both be checked; the
-`big_explosion` reads "tonal" because its sub-bass sine carries most of the
-power. Original task text follows.
+Note: presets were first peak-normalized to -3 dBFS, which left their
+loudness from -4 to -17.5 LUFS; R10 re-levelled them by loudness per
+category. Original task text follows.
 
 * `presets/` directory with 20 to 30 tagged recipes (ui, pickup, weapon,
   impact, ambient, alert). Each has `name` and a `# tags:` comment turned
@@ -274,6 +284,19 @@ These were planned before the agent interface and moved after task 9.
   guarantees. If a mismatch appears, the fix belongs in `synth::math`, not
   in the test.
 
+### 17. Loudness normalization in the recipe (proposed)
+
+* Presets are levelled by a fixed `normalize_peak_db` that a script chose,
+  so an edited preset drifts off its target. Add
+  `master.normalize = "loudness"` with `master.loudness_lufs` and a peak
+  ceiling, so a recipe keeps its level through edits.
+* The render path must stay deterministic across platforms, so the K
+  filters and gating need `synth::math` versions (no libm); the analysis
+  crate's f64 version stays the reference and a test compares them.
+* Accept: every preset expressed this way renders within 0.1 LU of target
+  and below its ceiling; example renders unchanged; schema and spec
+  updated.
+
 ## Agent guide
 
 ### 10. Agent workflow guide
@@ -284,6 +307,10 @@ These were planned before the agent interface and moved after task 9.
   impacts, lengths by category) and a checklist for "done".
 * Use `loudness_method` in the guide: compare `k_weighted_ungated` values
   (clips under 400 ms) with each other, not with gated values.
+* Use the per-category loudness targets in `presets/README.md` (impact -16,
+  weapon -17, alert -18, pickup -19, movement -20, ui -22, ambient -24
+  LUFS) as the guide's level targets, and explain why peak alone is not
+  enough: at equal peak the presets once spanned 13 dB of loudness.
 * Accept: another agent given only the guide and the MCP server produces a
   usable coin, hit and explosion in one session.
 

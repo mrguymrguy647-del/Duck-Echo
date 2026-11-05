@@ -6,7 +6,7 @@ tags = ["pickup", "key", "item"]
 
 [master]
 normalize = true
-normalize_peak_db = -3
+normalize_peak_db = -6.6
 trim_silence = true
 
 [[layers]]

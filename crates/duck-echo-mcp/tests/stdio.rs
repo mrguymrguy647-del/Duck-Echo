@@ -161,7 +161,7 @@ fn create_edit_render_analyze_loop() {
     let (edited, err) = s.call(
         "edit",
         json!({"path": "sfx/coin.toml", "ops": [
-            {"path": "master.normalize_peak_db", "value": -9},
+            {"path": "master.normalize_peak_db", "value": -25},
             {"path": "layers[0].pitch.start", "value": "E6"}
         ]}),
     );
@@ -178,7 +178,7 @@ fn create_edit_render_analyze_loop() {
     assert!(!err, "{rendered}");
     assert_eq!(rendered["output"], "out/coin.wav");
     assert!(root.join("out/coin.wav").exists());
-    assert!((rendered["analysis"]["peak_dbfs"].as_f64().unwrap() + 9.0).abs() < 0.05);
+    assert!((rendered["analysis"]["peak_dbfs"].as_f64().unwrap() + 25.0).abs() < 0.05);
 
     let (analysis, err) = s.call("analyze", json!({"path": "out/coin.wav"}));
     assert!(!err);

@@ -46,7 +46,7 @@ curve = "exponential"
 | `duck-echo render <recipe> [-o out.wav] [--seed N] [--format pcm16\|pcm24\|float32] [--json]` | Renders to WAV. `--json` adds the analysis of the result. |
 | `duck-echo analyze <wav-or-recipe> [--compact]` | JSON measurements headed by a one-line `summary`: duration, peak, RMS, loudness in LUFS with its method, clipping, silence, attack, decay, crest factor, brightness, tonality and a pitch track. A recipe is rendered in memory. See `docs/ANALYSIS.md`. |
 | `duck-echo compare <a> <b> [--compact]` | What changed from A to B (loudness, brightness, length, attack, ...), waveform correlation, and both analyses. WAV files or recipes. |
-| `duck-echo presets list [--tag T] [--json]` | The 30 built-in presets with category and description. |
+| `duck-echo presets list [--tag T] [--json]` | The 30 built-in presets with category, loudness target and description. |
 | `duck-echo presets show <name> [--json]` | A preset's recipe, to copy and edit. |
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
 | `duck-echo schema` | The JSON Schema for recipes, with descriptions and defaults. |

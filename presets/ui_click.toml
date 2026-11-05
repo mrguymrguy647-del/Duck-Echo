@@ -6,7 +6,7 @@ tags = ["ui", "click", "short"]
 
 [master]
 normalize = true
-normalize_peak_db = -3
+normalize_peak_db = -17.6
 trim_silence = true
 
 [[layers]]

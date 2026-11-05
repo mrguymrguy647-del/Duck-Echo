@@ -3,8 +3,9 @@
 //!
 //! Conventions (checked by tests): the file name is the recipe `name`; the
 //! recipe has a `description` and exactly one category tag from
-//! [`CATEGORIES`]; it is peak-normalized to -3 dBFS and trims its silent
-//! tail, so every preset starts at a predictable level and cannot clip.
+//! [`CATEGORIES`]; it is levelled to its category's loudness target in
+//! [`LOUDNESS_TARGETS`] (through `master.normalize_peak_db`, never above
+//! -1 dBFS peak) and trims its silent tail.
 
 use crate::ToolError;
 use duck_echo_core::{load_str, Format, Loaded};
@@ -14,6 +15,30 @@ use serde::{Deserialize, Serialize};
 pub const CATEGORIES: &[&str] = &[
     "ui", "pickup", "weapon", "impact", "movement", "alert", "ambient",
 ];
+
+/// Loudness target per category, in LUFS (as `analyze` measures it:
+/// gated for clips of 400 ms or more, `k_weighted_ungated` below). Impacts
+/// are the loudest a typical explosion can be with 1 dB of peak headroom
+/// (its peak sits about 14 dB above its loudness); the others step down so
+/// that feedback sounds never mask gameplay and ambient beds sit under
+/// everything. They are starting levels for a game mix, not a mix.
+pub const LOUDNESS_TARGETS: &[(&str, f32)] = &[
+    ("impact", -16.0),
+    ("weapon", -17.0),
+    ("alert", -18.0),
+    ("pickup", -19.0),
+    ("movement", -20.0),
+    ("ui", -22.0),
+    ("ambient", -24.0),
+];
+
+/// The loudness target for a category.
+pub fn target_lufs(category: &str) -> Option<f32> {
+    LOUDNESS_TARGETS
+        .iter()
+        .find(|(c, _)| *c == category)
+        .map(|(_, t)| *t)
+}
 
 /// A preset's name and TOML source.
 #[derive(Debug, Clone, Copy)]
@@ -76,6 +101,8 @@ pub struct PresetInfo {
     pub name: String,
     /// The category tag.
     pub category: String,
+    /// The category's loudness target in LUFS; the preset is levelled to it.
+    pub target_lufs: Option<f32>,
     /// One-sentence description.
     pub description: String,
     /// All tags, category first.
@@ -116,6 +143,7 @@ pub fn info(preset: &Preset) -> Result<PresetInfo, ToolError> {
         .unwrap_or_default();
     Ok(PresetInfo {
         name: preset.name.to_string(),
+        target_lufs: target_lufs(&category),
         category,
         description: recipe.description.unwrap_or_default(),
         tags: recipe.tags,

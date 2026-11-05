@@ -230,7 +230,14 @@ fn presets(action: PresetsAction) -> ExitCode {
             Ok(list) if json => print_json(&list, false),
             Ok(list) => {
                 for p in list {
-                    println!("{:<14} {:<9} {}", p.name, p.category, p.description);
+                    let target = p
+                        .target_lufs
+                        .map(|t| format!("{t:.0} LUFS"))
+                        .unwrap_or_default();
+                    println!(
+                        "{:<14} {:<9} {:<9} {}",
+                        p.name, p.category, target, p.description
+                    );
                 }
                 ExitCode::SUCCESS
             }

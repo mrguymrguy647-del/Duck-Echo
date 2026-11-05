@@ -113,7 +113,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "list_presets",
             "List presets",
-            "List built-in presets: name, category (ui, pickup, weapon, impact, movement, alert, ambient), description and tags. Presets are good starting points; all peak at -3 dBFS.",
+            "List built-in presets: name, category (ui, pickup, weapon, impact, movement, alert, ambient), description and tags. Presets are good starting points, each levelled to its category's loudness target (`target_lufs`: impact -16, weapon -17, alert -18, pickup -19, movement -20, ui -22, ambient -24 LUFS).",
             json!({ "tag": { "type": "string", "description": "Only presets with this tag, for example `ui` or `explosion`." } }),
             &[],
             true,

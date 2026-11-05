@@ -9,7 +9,7 @@ channels = 2
 
 [master]
 normalize = true
-normalize_peak_db = -3
+normalize_peak_db = -12.5
 trim_silence = true
 
 [[layers]]

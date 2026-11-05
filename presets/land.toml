@@ -8,7 +8,7 @@ seed = 6
 
 [master]
 normalize = true
-normalize_peak_db = -3
+normalize_peak_db = -9.2
 trim_silence = true
 
 [[layers]]

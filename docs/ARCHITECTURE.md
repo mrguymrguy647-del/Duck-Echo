@@ -234,7 +234,7 @@ A recipe argument is either `recipe` (an inline JSON object) or `path` (a
 | Tool | Input | Output |
 |---|---|---|
 | `get_schema` | none | The recipe JSON Schema, same as `duck-echo schema`. |
-| `list_presets` | optional `tag` | `{presets: [{name, category, description, tags}]}`. |
+| `list_presets` | optional `tag` | `{presets: [{name, category, target_lufs, description, tags}]}`. Presets are levelled to per-category loudness targets (see `presets/README.md`). |
 | `get_preset` | `name` | `{name, category, description, tags, recipe, toml}`: the recipe as a JSON object and its TOML source with comments. |
 | `validate` | recipe | The `Report`. An invalid recipe is a normal answer here, not a tool error. |
 | `create` | `path`, `recipe`, optional `overwrite` | `{ok, path, warnings}`. Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. |

@@ -6,7 +6,7 @@ tags = ["pickup", "coin", "bright"]
 
 [master]
 normalize = true
-normalize_peak_db = -3
+normalize_peak_db = -16.8
 trim_silence = true
 
 [[layers]]

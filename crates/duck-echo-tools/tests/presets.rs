@@ -61,11 +61,13 @@ fn every_preset_follows_the_conventions_and_renders_clean() {
             .collect();
         assert_eq!(cats.len(), 1, "{}: needs exactly one category tag", p.name);
         assert_eq!(&r.tags[0], cats[0], "{}: category tag goes first", p.name);
+        assert!(r.master.normalize, "{}", p.name);
         assert!(
-            r.master.normalize && r.master.normalize_peak_db == -3.0,
-            "{}",
+            r.master.normalize_peak_db <= -1.0,
+            "{}: keep 1 dB of peak headroom",
             p.name
         );
+        let target = presets::target_lufs(cats[0]).expect("every category has a target");
         assert!(r.master.trim_silence, "{}", p.name);
 
         let buf = duck_echo_synth::render(r).unwrap();
@@ -77,10 +79,18 @@ fn every_preset_follows_the_conventions_and_renders_clean() {
             a.summary
         );
         assert!(
-            (a.peak_dbfs.unwrap() + 3.0).abs() < 0.01,
+            (a.peak_dbfs.unwrap() - r.master.normalize_peak_db).abs() < 0.01,
             "{}: peak {:?}",
             p.name,
             a.peak_dbfs
+        );
+        let lufs = a.loudness_lufs.unwrap();
+        assert!(
+            (lufs - target).abs() <= 0.25,
+            "{}: {lufs:.2} LUFS, target {target} for {}; set normalize_peak_db to about {:.1}",
+            p.name,
+            cats[0],
+            r.master.normalize_peak_db + (target - lufs)
         );
         assert_eq!(a.trailing_silence_seconds, 0.0, "{}", p.name);
         assert!(a.leading_silence_seconds < 0.01, "{}", p.name);
@@ -97,41 +107,43 @@ fn every_preset_follows_the_conventions_and_renders_clean() {
     }
 }
 
-/// PCM16 WAV size and fingerprint of every preset as first rendered (by a
-/// release build; this test runs unoptimized, so it also checks that the
-/// optimization level does not change the bytes). Update a value only when
-/// the preset is changed on purpose, and say so in the commit.
+/// PCM16 WAV size and fingerprint of every preset, rendered by a release
+/// build (this test runs unoptimized, so it also checks that the
+/// optimization level does not change the bytes). All were re-pinned when
+/// presets moved from -3 dBFS peak to per-category loudness targets
+/// (R10); before that each was pinned at its first render. Update a value
+/// only when the preset is changed on purpose, and say so in the commit.
 const PRESET_GOLDEN: &[(&str, usize, u64)] = &[
-    ("alarm", 93094, 0xcda5_b9b0_e948_9f7b),
-    ("big_explosion", 189306, 0x307a_6895_eeaa_da1e),
-    ("blaster", 12360, 0xb677_6d2a_bf50_e967),
-    ("charge_up", 74994, 0xb6e1_d805_f95b_183b),
-    ("coin", 27532, 0xaad4_3882_a3fe_a3ed),
-    ("engine_hum", 220500, 0x4331_3642_b0f2_f9d4),
-    ("explosion", 95868, 0xc41e_208e_a54a_dec1),
-    ("extra_life", 53110, 0xb3da_8bb2_5483_042a),
-    ("footstep", 4950, 0xe2e0_0206_6e3b_8130),
-    ("gem", 56380, 0xdd5a_001f_6531_2481),
-    ("hit", 10644, 0x912f_0605_4316_bb3a),
-    ("jump", 24274, 0x55d5_14f9_d281_88ae),
-    ("key_pickup", 58044, 0xe7ad_5631_9f7a_b1b3),
-    ("land", 7178, 0x41a5_2e75_6634_d239),
-    ("laser", 59708, 0xcd90_48ea_e9da_3f03),
-    ("low_health", 29450, 0xa86e_7ad0_6b66_0c40),
-    ("menu_open", 13244, 0xbc14_c7fc_cbd6_bae5),
-    ("metal_clang", 105574, 0x6cef_911e_7a2c_1d84),
-    ("missile", 61694, 0x4bf3_cfd7_2f5f_cf39),
-    ("powerup", 100342, 0xc84f_1e51_abae_8eaf),
-    ("punch", 10652, 0x8385_557b_375c_ecf3),
-    ("shotgun", 39432, 0x42a3_256e_fb63_059f),
-    ("thud", 17798, 0xa293_8ed0_c1fb_6db8),
-    ("ui_cancel", 20490, 0xe3a5_96bc_c9b2_db70),
-    ("ui_click", 3220, 0xfc50_bd9f_9753_9855),
-    ("ui_confirm", 35374, 0x68d9_6d5a_0e3c_0e66),
-    ("ui_error", 33732, 0x3e67_adc3_012f_99ca),
-    ("ui_hover", 5768, 0xb329_c2b4_1c85_0bdb),
-    ("warning_beep", 42640, 0x3198_abb8_1eef_6edd),
-    ("wind", 563372, 0x3f3f_8f7c_c875_e6dd),
+    ("alarm", 93066, 0x8e7d_fd7d_83d2_635e),
+    ("big_explosion", 189320, 0xc190_f382_0999_f029),
+    ("blaster", 12360, 0x135b_d162_6095_a4e5),
+    ("charge_up", 74992, 0xc662_f351_9906_9362),
+    ("coin", 27410, 0x00ea_28a8_611a_35df),
+    ("engine_hum", 220326, 0xcaa3_989f_57bb_7b83),
+    ("explosion", 98486, 0xab7d_2062_4f63_4afd),
+    ("extra_life", 53024, 0x6b96_a508_fe7a_6d78),
+    ("footstep", 4940, 0x917d_12c3_80e0_c738),
+    ("gem", 50998, 0x7819_da53_7e4f_1e41),
+    ("hit", 10564, 0xf5f3_6801_82ce_69af),
+    ("jump", 24238, 0x5aee_742e_2fa0_7068),
+    ("key_pickup", 56158, 0xea77_66b7_9245_c852),
+    ("land", 7156, 0x6ad6_bef9_f9ff_b352),
+    ("laser", 57968, 0xa449_9bae_9ef0_7470),
+    ("low_health", 29442, 0x3f90_88db_4603_f3a4),
+    ("menu_open", 13232, 0xa19f_55e3_01a3_b1db),
+    ("metal_clang", 105586, 0xaa10_b2f1_b330_698e),
+    ("missile", 61692, 0x28af_d954_4e7a_56b3),
+    ("powerup", 91470, 0x2107_e9f4_87d6_9c52),
+    ("punch", 10630, 0xcffa_739a_3ff8_c656),
+    ("shotgun", 39360, 0xf399_2caa_cc94_e9c8),
+    ("thud", 17790, 0xa484_4080_8f8d_20b0),
+    ("ui_cancel", 20340, 0x7a05_e514_f740_4531),
+    ("ui_click", 3198, 0x15e1_a957_20cf_0cb9),
+    ("ui_confirm", 30682, 0x903a_f3ba_c1c9_ddd5),
+    ("ui_error", 33696, 0x1d21_377b_6b75_e0cc),
+    ("ui_hover", 5734, 0xe4f9_fd7d_bfcb_009b),
+    ("warning_beep", 42634, 0xee89_b207_bd72_582d),
+    ("wind", 560624, 0xcc48_19ca_0fd4_7b14),
 ];
 
 #[test]
@@ -142,6 +154,19 @@ fn preset_renders_are_pinned() {
         let wav = encode_wav(&duck_echo_synth::render(&recipe).unwrap(), WavFormat::Pcm16).unwrap();
         assert_eq!((wav.len(), fnv1a64(&wav)), (*len, *hash), "{name} changed");
     }
+}
+
+#[test]
+fn loudness_targets_cover_every_category_in_order() {
+    let cats: Vec<&str> = presets::LOUDNESS_TARGETS.iter().map(|(c, _)| *c).collect();
+    for c in CATEGORIES {
+        assert!(cats.contains(c), "{c} has no loudness target");
+    }
+    assert!(presets::LOUDNESS_TARGETS
+        .windows(2)
+        .all(|w| w[0].1 > w[1].1));
+    let coin = presets::info(presets::get("coin").unwrap()).unwrap();
+    assert_eq!(coin.target_lufs, Some(-19.0));
 }
 
 #[test]
