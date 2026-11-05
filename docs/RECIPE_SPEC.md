@@ -27,6 +27,7 @@ which renders a 0.205 s square-wave blip at 440 Hz.
 | `name` | string | none | | For humans and agents; ignored by the renderer. |
 | `seed` | integer | `0` | 0..2^63 | Drives the noise source and `variation`. Same recipe and seed give identical audio. |
 | `sample_rate` | integer | `44100` | 8000..192000 | Output rate in Hz. |
+| `channels` | integer | `1` | 1..2 | `1` mono, `2` stereo (see Stereo). |
 | `variation` | number | `0` | 0..1 | How far the seed may jitter the sound (see Variation). |
 | `duration` | number | computed | 0.001..60 | Force the output length. Omit to compute it. |
 | `master` | table | defaults | | Master output stage. |
@@ -60,6 +61,7 @@ stack of layers must not clip.
 | `volume` | number | `0.8` | 0..2 | Linear level, applied after the envelope and before the filter. |
 | `offset` | number | `0` | 0..30 | Start time of the layer. |
 | `duty` | number | `0.5` | 0.01..0.99 | Pulse width for `square`. Other sources ignore it (warning). |
+| `pan` | number | `0` | -1..1 | Stereo position, left to right. Mono recipes ignore it (warning). |
 | `envelope` | table | defaults | | Volume envelope. |
 | `pitch` | table | defaults | | Pitch over time. |
 | `filter` | table | none | | Optional filter. |
@@ -136,6 +138,25 @@ clamped below 45% of the sample rate.
 Cutoff is clamped to 45% of the sample rate. Coefficients update every 16
 samples, which is inaudible for sweeps but means the filter is not sample
 accurate.
+
+### Stereo
+
+With `channels = 2` the output is interleaved stereo.
+
+* Each layer is still a mono source. Its oscillator, envelope, filter and
+  its own `effects` run in mono, then `pan` places the result with an
+  equal-power law: gains `sin((1 - pan)·π/4)` left and
+  `sin((1 + pan)·π/4)` right. Centre gives both channels -3 dB
+  (bit-identical), hard left or right gives full level on one side and
+  silence on the other. Running layer effects before the pan means a
+  distortion or bitcrush behaves the same whatever the pan.
+* Master `effects` run on each channel with their own state, so an echo
+  on the left never carries the right channel's sound.
+* `gain`, `normalize` (one peak over both channels), clipping and
+  `trim_silence` (a frame is silent only when both channels are) apply to
+  both channels together.
+* A mono recipe renders exactly as before; `channels` and `pan` change
+  nothing unless `channels = 2`.
 
 ## `effects[]` (master and per layer)
 
@@ -272,13 +293,13 @@ All in `examples/recipes/`, all render without clipping:
 | `explosion.toml` | noise with a lowpass sweep, sine thump, distortion, reverb, `seed`, `trim_silence` |
 | `hit.toml` | bandpass noise burst plus a square drop, bitcrush with `rate` |
 | `powerup.toml` | two layers with `offset`, arpeggio over a sweep, `normalize`, `trim_silence` |
+| `ricochet.toml` | `channels = 2`, two layers panned left and right, master reverb |
 
 ## Deferred (not in v0, never silently ignored)
 
 These are not accepted by the schema yet; using them is an `unknown_field`
 error until implemented. See `ROADMAP.md` for the order.
 
-* Stereo output and per-layer `pan`.
 * Note names for pitch (`"C5"`, `"A#3"`) alongside Hz.
 * Pitched noise (sample-and-hold noise at the layer pitch, NES style).
 * Band-limited oscillators (anti-aliasing).

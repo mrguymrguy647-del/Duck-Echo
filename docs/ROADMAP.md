@@ -49,7 +49,18 @@ Found in a review of Phase 0 and fixed before task 1.
 
 ## Phase 1: finish sound effects
 
-### 1. Stereo output and per-layer pan
+### 1. Stereo output and per-layer pan [done]
+
+Done. Decision worth knowing: layer effects run on the mono layer signal
+*before* the pan, and only master effects run per channel. Running a
+nonlinear layer effect (distortion, bitcrush) after the pan would make
+its sound depend on the pan position, because the pan gain changes how
+hard it is driven; linear ones (echo, reverb) give the same result either
+way. A per-layer `spread` for
+stereo echo and reverb is still open. `analyze` now reports
+`per_channel` levels and sums loudness over channels. Example:
+`ricochet.toml`.
+
 
 * Add `channels` to the recipe (`1` or `2`, default `1`) and `pan` to the
   layer (`-1..1`, default `0`, equal-power law).

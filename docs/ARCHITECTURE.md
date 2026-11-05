@@ -79,7 +79,7 @@ server and a future UI reuse the libraries rather than shelling out.
  synth::prepare  variation jitter from seed, lengths, allocations -> Voice
         │
         ▼
- Voice::process  block by block, allocation-free, mono f32
+ Voice::process  block by block, allocation-free, f32 (interleaved if stereo)
         │
         ▼
  synth::render   offline wrapper: normalize (optional), clip -> AudioBuffer
@@ -101,9 +101,10 @@ Per layer, the signal path inside `Voice::process` is:
 oscillator (pitch curve: sweep + arpeggio + vibrato)
   × envelope × volume
   → filter (biquad, cutoff sweep updated every 16 samples)
-  → layer effects (in order)
-  → summed into the mix at `offset`
-master: effects (in order) → gain → [offline: normalize] → clip
+  → layer effects (in order), still mono
+  → [stereo: equal-power pan] summed into the mix at `offset`
+master: effects (in order, one state per channel) → gain
+        → [offline: normalize → clip → trim_silence]
 ```
 
 Lengths are computed, never guessed: each layer lasts `offset + envelope

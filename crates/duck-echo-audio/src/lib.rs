@@ -1,11 +1,10 @@
 //! Audio buffer type and WAV I/O for Duck Echo.
 //!
 //! Samples are `f32` in -1..=1, interleaved when there is more than one
-//! channel. This phase renders mono; the type already carries a channel count
-//! so stereo can be added without changing callers.
+//! channel. Recipes render mono or stereo; the channel count travels with
+//! the buffer.
 
 use std::fmt;
-use std::path::Path;
 
 /// A block of audio samples.
 #[derive(Debug, Clone, PartialEq)]
@@ -96,6 +95,7 @@ pub enum WavFormat {
 #[cfg(feature = "wav")]
 mod wav {
     use super::*;
+    use std::path::Path;
 
     impl From<hound::Error> for WavError {
         fn from(e: hound::Error) -> Self {

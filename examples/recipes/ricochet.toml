@@ -1,0 +1,51 @@
+# Ricochet: a bright ping on the left, a quieter bounce on the right a
+# moment later, in a small room. Shows stereo output and per-layer pan.
+version = 0
+name = "ricochet"
+channels = 2
+
+[master]
+trim_silence = true
+
+[[layers]]
+name = "hit"
+source = "square"
+duty = 0.2
+volume = 0.6
+pan = -0.7
+
+[layers.envelope]
+attack = 0.001
+hold = 0.01
+decay = 0.12
+
+[layers.pitch]
+start = 3200
+end = 1400
+curve = "exponential"
+
+[[layers]]
+name = "bounce"
+source = "triangle"
+volume = 0.5
+pan = 0.8
+offset = 0.11
+
+[layers.envelope]
+attack = 0.002
+decay = 0.25
+
+[layers.pitch]
+start = 2600
+end = 700
+curve = "exponential"
+
+[layers.pitch.vibrato]
+rate = 30
+depth = 0.6
+
+[[effects]]
+type = "reverb"
+size = 0.3
+decay = 0.5
+mix = 0.2

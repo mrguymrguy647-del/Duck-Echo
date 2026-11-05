@@ -65,7 +65,7 @@ crates/duck-echo-audio    AudioBuffer and WAV I/O
 crates/duck-echo-synth    deterministic renderer
 crates/duck-echo-analyze  measurements
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
-examples/recipes          coin, jump, laser, explosion, hit, powerup
+examples/recipes          coin, jump, laser, explosion, hit, powerup, ricochet (stereo)
 ```
 
 ## Development

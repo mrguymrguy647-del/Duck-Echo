@@ -42,12 +42,17 @@ const STREAM_LAYER: u64 = 0x4C41_5945;
 #[derive(Debug, Clone)]
 pub struct Voice {
     sample_rate: u32,
+    channels: usize,
     total_frames: usize,
     position: usize,
     gain: f32,
     layers: Vec<LayerVoice>,
-    master_effects: Vec<EffectState>,
+    /// Master effect chain, one independent copy per channel.
+    master_effects: Vec<Vec<EffectState>>,
+    /// One layer's mono signal for the current block.
     scratch: Vec<f32>,
+    /// Planar per-channel mix for the current block (stereo only).
+    mix: Vec<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +69,8 @@ struct LayerVoice {
     filter: Option<(Biquad, Sweep)>,
     control_counter: usize,
     effects: Vec<EffectState>,
+    /// Equal-power left and right gains from `pan`.
+    pan_gains: [f32; 2],
 }
 
 /// Validate, plan and allocate. Errors are the validation report.
@@ -109,18 +116,29 @@ pub fn prepare_unchecked(recipe: &Recipe) -> Voice {
         None => (last_end + (master_tail * sr).round() as usize).max(1),
     };
 
+    let channels = recipe.channels.clamp(1, 2) as usize;
     Voice {
         sample_rate: recipe.sample_rate,
+        channels,
         total_frames,
         position: 0,
         gain: recipe.master.gain,
         layers,
-        master_effects: recipe
-            .effects
-            .iter()
-            .map(|e| EffectState::new(e, sr))
+        master_effects: (0..channels)
+            .map(|_| {
+                recipe
+                    .effects
+                    .iter()
+                    .map(|e| EffectState::new(e, sr))
+                    .collect()
+            })
             .collect(),
         scratch: vec![0.0; RENDER_BLOCK],
+        mix: if channels > 1 {
+            vec![0.0; RENDER_BLOCK * channels]
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -187,17 +205,58 @@ impl LayerVoice {
                 .iter()
                 .map(|e| EffectState::new(e, sr))
                 .collect(),
+            pan_gains: pan_gains(layer.pan),
         }
     }
 
     /// Add this layer's contribution for global frames
-    /// `block_start .. block_start + out.len()` into `out`.
+    /// `block_start .. block_start + out.len()` into the mono `out`.
     fn process(&mut self, block_start: usize, out: &mut [f32], scratch: &mut [f32]) {
-        let block_end = block_start + out.len();
+        if let Some((offset, n)) = self.render(block_start, out.len(), scratch) {
+            for (o, s) in out[offset..offset + n].iter_mut().zip(scratch[..n].iter()) {
+                *o += *s;
+            }
+        }
+    }
+
+    /// Stereo version of [`Self::process`]: the layer's mono signal is
+    /// placed with its pan gains.
+    fn process_stereo(
+        &mut self,
+        block_start: usize,
+        left: &mut [f32],
+        right: &mut [f32],
+        scratch: &mut [f32],
+    ) {
+        if let Some((offset, n)) = self.render(block_start, left.len(), scratch) {
+            let [gl, gr] = self.pan_gains;
+            let range = offset..offset + n;
+            for ((l, r), s) in left[range.clone()]
+                .iter_mut()
+                .zip(right[range].iter_mut())
+                .zip(scratch[..n].iter())
+            {
+                *l += *s * gl;
+                *r += *s * gr;
+            }
+        }
+    }
+
+    /// Render this layer's mono signal (oscillator, envelope, filter, layer
+    /// effects) for the part of the block it covers into `scratch[..n]`.
+    /// Returns the offset into the block and `n`, or `None` when the layer
+    /// is silent for the whole block.
+    fn render(
+        &mut self,
+        block_start: usize,
+        block_len: usize,
+        scratch: &mut [f32],
+    ) -> Option<(usize, usize)> {
+        let block_end = block_start + block_len;
         let begin = self.start_frame.max(block_start);
         let end = self.end_frame.min(block_end);
         if begin >= end {
-            return;
+            return None;
         }
         let n = end - begin;
         let buf = &mut scratch[..n];
@@ -227,23 +286,38 @@ impl LayerVoice {
             self.local += 1;
         }
 
-        // 3. Layer effects.
+        // 3. Layer effects, on the mono layer signal (before panning).
         for fx in &mut self.effects {
             fx.process(buf);
         }
 
-        // 4. Mix.
-        let offset = begin - block_start;
-        for (o, s) in out[offset..offset + n].iter_mut().zip(buf.iter()) {
-            *o += *s;
-        }
+        Some((begin - block_start, n))
     }
+}
+
+/// Equal-power pan law: `pan` -1..=1 maps to a quarter turn, so the centre
+/// gives both channels `cos(π/4) ≈ 0.707` (-3 dB) and hard left or right
+/// gives one channel full level and the other silence.
+///
+/// Both gains come from the same `sin` with mirrored arguments, so a centred
+/// layer is bit-identical in both channels and `pan = p` mirrors `-p`.
+fn pan_gains(pan: f32) -> [f32; 2] {
+    let pan = pan.clamp(-1.0, 1.0);
+    [
+        math::sin_turns((1.0 - pan) * 0.125),
+        math::sin_turns((1.0 + pan) * 0.125),
+    ]
 }
 
 impl Voice {
     /// Output sample rate.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    /// Output channels (1 or 2).
+    pub fn channels(&self) -> usize {
+        self.channels
     }
 
     /// Total length in frames.
@@ -266,19 +340,56 @@ impl Voice {
         self.position >= self.total_frames
     }
 
-    /// Fill `out` with the next mono frames and return how many were
-    /// written. Writes zeros past the end. Allocation-free; `out` may be at
-    /// most [`RENDER_BLOCK`] long per call (longer slices are processed in
-    /// pieces). Output is not clipped; the caller clips or normalizes.
+    /// Fill `out` with the next frames, interleaved when stereo, and return
+    /// how many frames were written. Writes zeros past the end (and into a
+    /// trailing partial frame, if `out.len()` is not a multiple of
+    /// [`Self::channels`]). Allocation-free and lock-free; any length works
+    /// (it is processed in pieces of at most [`RENDER_BLOCK`] frames).
+    /// Output is not clipped; the caller clips or normalizes.
     pub fn process(&mut self, out: &mut [f32]) -> usize {
         let mut written = 0;
-        for chunk in out.chunks_mut(RENDER_BLOCK) {
-            written += self.process_chunk(chunk);
+        for chunk in out.chunks_mut(RENDER_BLOCK * self.channels) {
+            written += if self.channels == 1 {
+                self.process_mono(chunk)
+            } else {
+                self.process_stereo(chunk)
+            };
         }
         written
     }
 
-    fn process_chunk(&mut self, out: &mut [f32]) -> usize {
+    fn process_stereo(&mut self, out: &mut [f32]) -> usize {
+        out.iter_mut().for_each(|s| *s = 0.0);
+        if self.finished() {
+            return 0;
+        }
+        let n = (out.len() / 2).min(self.total_frames - self.position);
+        let (left, right) = self.mix.split_at_mut(RENDER_BLOCK);
+        let (left, right) = (&mut left[..n], &mut right[..n]);
+        left.iter_mut().for_each(|s| *s = 0.0);
+        right.iter_mut().for_each(|s| *s = 0.0);
+        for layer in &mut self.layers {
+            layer.process_stereo(self.position, left, right, &mut self.scratch);
+        }
+        for (buf, chain) in [&mut *left, &mut *right]
+            .into_iter()
+            .zip(self.master_effects.iter_mut())
+        {
+            for fx in chain {
+                fx.process(buf);
+            }
+        }
+        for (i, frame) in out[..n * 2].chunks_exact_mut(2).enumerate() {
+            frame[0] = left[i] * self.gain;
+            frame[1] = right[i] * self.gain;
+        }
+        self.position += n;
+        n
+    }
+
+    /// The mono path, kept exactly as in Phase 0 so mono renders stay
+    /// byte-identical.
+    fn process_mono(&mut self, out: &mut [f32]) -> usize {
         out.iter_mut().for_each(|s| *s = 0.0);
         if self.finished() {
             return 0;
@@ -288,7 +399,7 @@ impl Voice {
         for layer in &mut self.layers {
             layer.process(self.position, block, &mut self.scratch);
         }
-        for fx in &mut self.master_effects {
+        for fx in &mut self.master_effects[0] {
             fx.process(block);
         }
         if self.gain != 1.0 {
@@ -301,19 +412,21 @@ impl Voice {
     }
 }
 
-/// Render a recipe offline to a mono buffer, applying `master.normalize`
-/// and clipping to -1..=1. Errors are the validation report.
+/// Render a recipe offline to a buffer (interleaved when stereo),
+/// applying `master.normalize`, clipping to -1..=1 and
+/// `master.trim_silence`. Errors are the validation report.
 pub fn render(recipe: &Recipe) -> Result<AudioBuffer, Report> {
     let mut voice = prepare(recipe)?;
-    let mut samples = vec![0.0f32; voice.total_frames()];
+    let channels = voice.channels();
+    let mut samples = vec![0.0f32; voice.total_frames() * channels];
     let mut pos = 0;
     while pos < samples.len() {
-        let end = (pos + RENDER_BLOCK).min(samples.len());
+        let end = (pos + RENDER_BLOCK * channels).min(samples.len());
         let n = voice.process(&mut samples[pos..end]);
         if n == 0 {
             break;
         }
-        pos += n;
+        pos += n * channels;
     }
 
     if recipe.master.normalize {
@@ -330,12 +443,12 @@ pub fn render(recipe: &Recipe) -> Result<AudioBuffer, Report> {
         *s = s.clamp(-1.0, 1.0);
     }
     if recipe.master.trim_silence && recipe.duration.is_none() {
-        trim_trailing_silence(&mut samples, 1);
+        trim_trailing_silence(&mut samples, channels);
     }
 
     Ok(AudioBuffer {
         sample_rate: recipe.sample_rate,
-        channels: 1,
+        channels: channels as u16,
         samples,
     })
 }

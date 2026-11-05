@@ -2,7 +2,9 @@
 //!
 //! [`analyze`] takes float samples and returns an [`Analysis`] with length,
 //! peak, RMS, loudness, clipping and silence. Multi-channel input is
-//! averaged to mono first.
+//! measured across all channels (peak, clipping, loudness summed per
+//! BS.1770; a frame is silent only when every channel is), with
+//! per-channel peak and RMS in `per_channel`.
 
 use serde::{Deserialize, Serialize};
 
@@ -52,11 +54,11 @@ pub struct Analysis {
     pub frames: usize,
     /// Length in seconds.
     pub duration_seconds: f64,
-    /// Largest absolute sample, linear 0..=1.
+    /// Largest absolute sample over all channels, linear 0..=1.
     pub peak: f32,
     /// Largest absolute sample in dBFS (`null` when silent).
     pub peak_dbfs: Option<f32>,
-    /// Root mean square level, linear.
+    /// Root mean square level over all samples of all channels, linear.
     pub rms: f32,
     /// RMS level in dBFS (`null` when silent).
     pub rms_dbfs: Option<f32>,
@@ -67,6 +69,8 @@ pub struct Analysis {
     /// `bs1770_gated` for clips of at least 400 ms, `k_weighted_ungated`
     /// for shorter ones, `null` when `loudness_lufs` is `null`.
     pub loudness_method: Option<LoudnessMethod>,
+    /// Peak and RMS of each channel, in channel order.
+    pub per_channel: Vec<ChannelLevels>,
     /// Clipping report.
     pub clipping: Clipping,
     /// Seconds of silence before the first non-silent sample.
@@ -81,6 +85,19 @@ pub struct Analysis {
     pub silence_threshold_dbfs: f32,
 }
 
+/// Level of one channel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChannelLevels {
+    /// Largest absolute sample, linear.
+    pub peak: f32,
+    /// Peak in dBFS (`null` when silent).
+    pub peak_dbfs: Option<f32>,
+    /// Root mean square level, linear.
+    pub rms: f32,
+    /// RMS in dBFS (`null` when silent).
+    pub rms_dbfs: Option<f32>,
+}
+
 /// Clipping report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clipping {
@@ -88,7 +105,7 @@ pub struct Clipping {
     pub clipped: bool,
     /// Number of samples at or above the clip threshold.
     pub clipped_samples: usize,
-    /// Longest run of consecutive clipped samples.
+    /// Longest run of consecutive clipped samples within one channel.
     pub longest_run: usize,
     /// Threshold used, linear.
     pub threshold: f32,
@@ -104,57 +121,77 @@ fn to_dbfs(x: f32) -> Option<f32> {
 
 /// Analyze interleaved samples.
 pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
-    let mono: Vec<f32> = if channels <= 1 {
-        samples.to_vec()
-    } else {
-        let ch = channels as usize;
-        samples
-            .chunks_exact(ch)
-            .map(|f| f.iter().sum::<f32>() / ch as f32)
-            .collect()
-    };
-    let frames = mono.len();
+    let ch = channels.max(1) as usize;
+    let frames = samples.len() / ch;
+    let samples = &samples[..frames * ch];
+    let planar: Vec<Vec<f32>> = (0..ch)
+        .map(|c| samples.iter().skip(c).step_by(ch).copied().collect())
+        .collect();
     let sr = sample_rate as f64;
 
     let mut peak = 0.0f32;
-    let mut sum_sq = 0.0f64;
-    let mut sum = 0.0f64;
+    let mut sum_sq_all = 0.0f64;
+    let mut sum_all = 0.0f64;
     let mut clipped_samples = 0;
     let mut longest_run = 0;
-    let mut run = 0;
-    for &s in &mono {
-        let a = s.abs();
-        peak = peak.max(a);
-        sum_sq += (s as f64) * (s as f64);
-        sum += s as f64;
-        if a >= CLIP_THRESHOLD {
-            clipped_samples += 1;
-            run += 1;
-            longest_run = longest_run.max(run);
-        } else {
-            run = 0;
+    let mut per_channel = Vec::with_capacity(ch);
+    for chan in &planar {
+        let mut ch_peak = 0.0f32;
+        let mut sum_sq = 0.0f64;
+        let mut run = 0;
+        for &s in chan {
+            let a = s.abs();
+            ch_peak = ch_peak.max(a);
+            sum_sq += (s as f64) * (s as f64);
+            sum_all += s as f64;
+            if a >= CLIP_THRESHOLD {
+                clipped_samples += 1;
+                run += 1;
+                longest_run = longest_run.max(run);
+            } else {
+                run = 0;
+            }
         }
+        peak = peak.max(ch_peak);
+        sum_sq_all += sum_sq;
+        let rms = if frames > 0 {
+            (sum_sq / frames as f64).sqrt() as f32
+        } else {
+            0.0
+        };
+        per_channel.push(ChannelLevels {
+            peak: ch_peak,
+            peak_dbfs: to_dbfs(ch_peak),
+            rms,
+            rms_dbfs: to_dbfs(rms),
+        });
     }
-    let rms = if frames > 0 {
-        (sum_sq / frames as f64).sqrt() as f32
+    let total = samples.len();
+    let rms = if total > 0 {
+        (sum_sq_all / total as f64).sqrt() as f32
     } else {
         0.0
     };
-    let dc_offset = if frames > 0 {
-        (sum / frames as f64) as f32
+    let dc_offset = if total > 0 {
+        (sum_all / total as f64) as f32
     } else {
         0.0
     };
 
-    let silence_lin = SILENCE_THRESHOLD_LINEAR;
-    let first = mono.iter().position(|s| s.abs() > silence_lin);
-    let last = mono.iter().rposition(|s| s.abs() > silence_lin);
+    let active = |f: usize| {
+        samples[f * ch..(f + 1) * ch]
+            .iter()
+            .any(|s| s.abs() > SILENCE_THRESHOLD_LINEAR)
+    };
+    let first = (0..frames).find(|&f| active(f));
+    let last = (0..frames).rev().find(|&f| active(f));
     let (leading, trailing, is_silent) = match (first, last) {
         (Some(f), Some(l)) => (f as f64 / sr, (frames - 1 - l) as f64 / sr, false),
         _ => (frames as f64 / sr, 0.0, true),
     };
 
-    let (loudness_lufs, loudness_method) = match loudness(&[&mono], sample_rate) {
+    let slices: Vec<&[f32]> = planar.iter().map(Vec::as_slice).collect();
+    let (loudness_lufs, loudness_method) = match loudness(&slices, sample_rate) {
         Some((l, m)) => (Some(l), Some(m)),
         None => (None, None),
     };
@@ -170,6 +207,7 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
         rms_dbfs: to_dbfs(rms),
         loudness_lufs,
         loudness_method,
+        per_channel,
         clipping: Clipping {
             clipped: clipped_samples > 0,
             clipped_samples,

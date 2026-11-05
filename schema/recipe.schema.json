@@ -377,6 +377,12 @@
           "format": "float",
           "type": "number"
         },
+        "pan": {
+          "default": 0.0,
+          "description": "Stereo position, -1 (left) ..= 1 (right), equal-power. Only used\nwhen the recipe has `channels = 2`. Default `0` (centre).",
+          "format": "float",
+          "type": "number"
+        },
         "pitch": {
           "$ref": "#/$defs/Pitch",
           "default": {
@@ -545,6 +551,14 @@
   "additionalProperties": false,
   "description": "A complete sound recipe. This is the root document of a `.toml` file or a\nJSON tool call.",
   "properties": {
+    "channels": {
+      "default": 1,
+      "description": "Output channels: `1` (mono, default) or `2` (stereo). In stereo each\nlayer is placed with its `pan`.",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0,
+      "type": "integer"
+    },
     "duration": {
       "description": "Force the total output length in seconds, range 0.001..=60.\nWhen omitted the length is computed from the layers and effect tails.",
       "format": "float",

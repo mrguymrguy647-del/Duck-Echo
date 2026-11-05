@@ -75,6 +75,7 @@ impl Validator {
             );
         }
         self.range("sample_rate", r.sample_rate as f32, 8000.0, 192_000.0);
+        self.range("channels", r.channels as f32, 1.0, 2.0);
         self.range("variation", r.variation, 0.0, 1.0);
         self.range_opt("duration", r.duration, 0.001, MAX_DURATION);
         self.range("master.gain", r.master.gain, 0.0, 4.0);
@@ -101,6 +102,13 @@ impl Validator {
         }
         for (i, layer) in r.layers.iter().enumerate() {
             self.layer(&format!("layers[{i}]"), layer, r.sample_rate);
+            if r.channels == 1 && layer.pan != 0.0 {
+                self.warn(
+                    Code::Unused,
+                    &format!("layers[{i}].pan"),
+                    "pan only affects stereo output; set `channels = 2` at the top level",
+                );
+            }
         }
         for (i, effect) in r.effects.iter().enumerate() {
             self.effect(&format!("effects[{i}]"), effect, r.sample_rate);
@@ -132,6 +140,7 @@ impl Validator {
         self.range(&format!("{p}.volume"), l.volume, 0.0, 2.0);
         self.range(&format!("{p}.offset"), l.offset, 0.0, 30.0);
         self.range(&format!("{p}.duty"), l.duty, 0.01, 0.99);
+        self.range(&format!("{p}.pan"), l.pan, -1.0, 1.0);
         if l.source != Source::Square && l.duty != 0.5 {
             self.warn(
                 Code::Unused,

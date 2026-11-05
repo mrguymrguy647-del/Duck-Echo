@@ -20,6 +20,9 @@ pub const DEFAULT_SAMPLE_RATE: u32 = 44_100;
 fn default_sample_rate() -> u32 {
     DEFAULT_SAMPLE_RATE
 }
+fn default_channels() -> u16 {
+    1
+}
 fn default_volume() -> f32 {
     0.8
 }
@@ -111,6 +114,11 @@ pub struct Recipe {
     #[serde(default = "default_sample_rate")]
     pub sample_rate: u32,
 
+    /// Output channels: `1` (mono, default) or `2` (stereo). In stereo each
+    /// layer is placed with its `pan`.
+    #[serde(default = "default_channels")]
+    pub channels: u16,
+
     /// How much the seed may jitter pitch and envelope times, 0..=1.
     /// `0` (default) means the seed only affects noise. `1` jitters pitch by
     /// up to +-3 semitones and envelope times by up to +-30%.
@@ -196,6 +204,11 @@ pub struct Layer {
     #[serde(default = "default_duty")]
     pub duty: f32,
 
+    /// Stereo position, -1 (left) ..= 1 (right), equal-power. Only used
+    /// when the recipe has `channels = 2`. Default `0` (centre).
+    #[serde(default)]
+    pub pan: f32,
+
     /// Volume envelope.
     #[serde(default)]
     pub envelope: Envelope,
@@ -221,6 +234,7 @@ impl Default for Layer {
             volume: default_volume(),
             offset: 0.0,
             duty: default_duty(),
+            pan: 0.0,
             envelope: Envelope::default(),
             pitch: Pitch::default(),
             filter: None,
@@ -555,6 +569,7 @@ impl Recipe {
             name: None,
             seed: 0,
             sample_rate: DEFAULT_SAMPLE_RATE,
+            channels: 1,
             variation: 0.0,
             duration: None,
             master: Master::default(),

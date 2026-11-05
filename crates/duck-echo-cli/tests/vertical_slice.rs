@@ -516,3 +516,173 @@ fn trim_silence_only_cuts_the_silent_end() {
     let buf = duck_echo_synth::render(&loaded.recipe).unwrap();
     assert_eq!(buf.frames(), 44100);
 }
+
+fn db(x: f32) -> f32 {
+    20.0 * x.log10()
+}
+
+fn rms(xs: &[f32]) -> f32 {
+    (xs.iter().map(|&s| (s as f64) * (s as f64)).sum::<f64>() / xs.len() as f64).sqrt() as f32
+}
+
+fn channel(buf: &duck_echo_audio::AudioBuffer, c: usize) -> Vec<f32> {
+    buf.samples
+        .iter()
+        .skip(c)
+        .step_by(buf.channels as usize)
+        .copied()
+        .collect()
+}
+
+const TWO_TONES: &str = r#"
+version = 0
+channels = 2
+[[layers]]
+source = "sine"
+volume = 0.5
+pan = -1
+[layers.envelope]
+hold = 0.3
+decay = 0
+[layers.pitch]
+start = 440
+[[layers]]
+source = "saw"
+volume = 0.3
+pan = 1
+[layers.envelope]
+hold = 0.2
+decay = 0
+[layers.pitch]
+start = 660
+"#;
+
+/// Roadmap task 1: hard-panned layers land in their own channel at the
+/// level they would have alone in mono.
+#[test]
+fn stereo_hard_pan_puts_each_layer_in_its_channel() {
+    let stereo = load_str(TWO_TONES, Format::Toml).unwrap().recipe;
+    let buf = duck_echo_synth::render(&stereo).unwrap();
+    assert_eq!(buf.channels, 2);
+    let (left, right) = (channel(&buf, 0), channel(&buf, 1));
+
+    for (keep, side, label) in [(0usize, &left, "left"), (1, &right, "right")] {
+        let mut solo = stereo.clone();
+        solo.channels = 1;
+        solo.layers = vec![solo.layers[keep].clone()];
+        solo.layers[0].pan = 0.0;
+        solo.duration = Some(buf.duration_seconds() as f32);
+        let mono = duck_echo_synth::render(&solo).unwrap();
+        let diff = db(rms(side)) - db(rms(&mono.samples));
+        assert!(diff.abs() < 0.1, "{label}: {diff} dB from the solo layer");
+    }
+    // No leakage: the left channel holds only the sine, which ends at
+    // 0.305 s; the right channel's saw ends at 0.205 s.
+    let after = |xs: &[f32], t: f64| xs[(t * 44100.0) as usize..].iter().all(|s| s.abs() < 1e-6);
+    assert!(
+        after(&right, 0.21),
+        "left layer leaked into the right channel"
+    );
+    assert!(!after(&left, 0.21));
+
+    let a = analyze(&buf.samples, buf.sample_rate, buf.channels);
+    assert_eq!(a.channels, 2);
+    assert_eq!(a.per_channel.len(), 2);
+    assert!((a.per_channel[0].peak - 0.5).abs() < 0.01);
+    assert!((a.per_channel[1].peak - 0.3).abs() < 0.01);
+}
+
+#[test]
+fn centre_pan_is_minus_three_db_per_channel() {
+    let mut recipe = load_file(&examples_dir().join("coin.toml"));
+    let mono = duck_echo_synth::render(&recipe).unwrap();
+    recipe.channels = 2;
+    let stereo = duck_echo_synth::render(&recipe).unwrap();
+    let (left, right) = (channel(&stereo, 0), channel(&stereo, 1));
+    assert_eq!(
+        left, right,
+        "centred layer must be identical in both channels"
+    );
+    let diff = db(rms(&left)) - db(rms(&mono.samples));
+    assert!((diff + 3.01).abs() < 0.01, "{diff}");
+}
+
+#[test]
+fn master_effects_run_independently_per_channel() {
+    // With a master echo, removing the right-only layer must leave the left
+    // channel bit-identical. A shared effect state would leak it across.
+    let src = format!(
+        "{TWO_TONES}\n[[effects]]\ntype = \"echo\"\ndelay = 0.1\nfeedback = 0.5\nmix = 0.5\n"
+    );
+    let both = load_str(&src, Format::Toml).unwrap().recipe;
+    let mut left_only = both.clone();
+    left_only.layers.truncate(1);
+    left_only.duration = Some(1.0);
+    let mut both = both;
+    both.duration = Some(1.0);
+    let a = duck_echo_synth::render(&both).unwrap();
+    let b = duck_echo_synth::render(&left_only).unwrap();
+    assert_eq!(channel(&a, 0), channel(&b, 0));
+    assert_ne!(channel(&a, 1), channel(&b, 1));
+}
+
+#[test]
+fn stereo_streams_in_arbitrary_block_sizes() {
+    let mut recipe = load_file(&examples_dir().join("ricochet.toml"));
+    recipe.master.trim_silence = false;
+    let whole = duck_echo_synth::render(&recipe).unwrap();
+    let mut voice = duck_echo_synth::prepare(&recipe).unwrap();
+    assert_eq!(voice.channels(), 2);
+    let mut out = Vec::new();
+    // Odd length: the trailing partial frame is zeroed and not counted.
+    let mut block = [0.0f32; 2 * 97 + 1];
+    loop {
+        let n = voice.process(&mut block);
+        if n == 0 {
+            break;
+        }
+        assert_eq!(block[2 * 97], 0.0);
+        out.extend_from_slice(&block[..n * 2]);
+    }
+    let clipped: Vec<f32> = out.iter().map(|s| s.clamp(-1.0, 1.0)).collect();
+    assert_eq!(clipped, whole.samples);
+}
+
+#[test]
+fn stereo_wav_round_trips_and_trims_by_frame() {
+    let recipe = load_file(&examples_dir().join("ricochet.toml"));
+    let buf = duck_echo_synth::render(&recipe).unwrap();
+    assert_eq!(buf.samples.len() % 2, 0);
+    let wav = encode_wav(&buf, WavFormat::Pcm16).unwrap();
+    let back = duck_echo_audio::decode_wav(&wav).unwrap();
+    assert_eq!(back.channels, 2);
+    assert_eq!(back.frames(), buf.frames());
+    let a = analyze(&back.samples, back.sample_rate, back.channels);
+    assert_eq!(a.trailing_silence_seconds, 0.0);
+    assert!(!a.clipping.clipped);
+}
+
+#[test]
+fn channel_and_pan_validation() {
+    let report = load_str(
+        "version = 0\nchannels = 3\n[[layers]]\npan = 1.5\n",
+        Format::Toml,
+    )
+    .unwrap_err();
+    let got: Vec<(&str, Code)> = report
+        .errors
+        .iter()
+        .map(|e| (e.path.as_str(), e.code))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("channels", Code::OutOfRange),
+            ("layers[0].pan", Code::OutOfRange)
+        ]
+    );
+
+    let loaded = load_str("version = 0\n[[layers]]\npan = 0.5\n", Format::Toml).unwrap();
+    assert_eq!(loaded.report.warnings[0].path, "layers[0].pan");
+    assert_eq!(loaded.report.warnings[0].code, Code::Unused);
+}
