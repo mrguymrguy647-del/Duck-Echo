@@ -63,6 +63,45 @@ example `duck-echo render preset:coin -o coin.wav`.
 `--root` and cannot leave it: absolute paths, `..` and symbolic links that
 lead out are refused, and `render` only writes `.wav` files.
 
+### Playtest in this repository (project `.mcp.json`)
+
+The repository ships a project-scoped `.mcp.json` that starts the server
+for anyone who opens Claude Code here. It runs
+`cargo run --release -q -p duck-echo-mcp -- --root <repo>/playtest`, so
+the server is built when needed, and every file the tools write lands in
+`playtest/`. That folder is git-ignored apart from its `.gitkeep`.
+
+1. Build once before the first session:
+
+   ```bash
+   cargo build --release -p duck-echo-mcp
+   ```
+
+   A cold release build takes about a minute, longer than Claude Code's
+   default 30-second server start timeout. Without this step the first
+   start can time out. After the build, starting takes well under a
+   second. To let the first start build instead, raise the timeout, for
+   example to two minutes:
+
+   ```bash
+   MCP_TIMEOUT=120000 claude
+   ```
+
+2. Start Claude Code from the repository root and approve the `duck-echo`
+   server when asked. Project servers need approval once. Check them with
+   `/mcp` in a session, or with:
+
+   ```bash
+   claude mcp list
+   ```
+
+Only the MCP protocol is written to stdout. Cargo's build output and the
+server's log line go to stderr, and the server stops with a message on
+stderr if `playtest/` cannot be found (for example when Claude Code is
+started from a subdirectory).
+
+### Your own projects
+
 ```bash
 cargo build --release
 ```
@@ -110,6 +149,7 @@ crates/duck-echo-tools    operations shared by the CLI and the MCP server
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
 crates/duck-echo-mcp      the duck-echo-mcp binary: MCP server over stdio
 presets                   30 tagged starting points (see presets/README.md)
+playtest                  scratch root for the project MCP server (.mcp.json)
 examples/recipes          coin, jump, laser, explosion, hit, powerup,
                           ricochet (stereo), chime (note names)
 ```

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "duck-echo": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--release",
+        "-q",
+        "-p",
+        "duck-echo-mcp",
+        "--",
+        "--root",
+        "${CLAUDE_PROJECT_DIR:-.}/playtest"
+      ]
+    }
+  }
+}

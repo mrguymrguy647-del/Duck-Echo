@@ -1,3 +1,6 @@
 /target
 *.wav
 !examples/**/*.wav
+# Scratch space for the project MCP server (.mcp.json); keep only the folder.
+/playtest/*
+!/playtest/.gitkeep

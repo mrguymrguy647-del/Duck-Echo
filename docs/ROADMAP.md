@@ -311,6 +311,9 @@ These were planned before the agent interface and moved after task 9.
   weapon -17, alert -18, pickup -19, movement -20, ui -22, ambient -24
   LUFS) as the guide's level targets, and explain why peak alone is not
   enough: at equal peak the presets once spanned 13 dB of loudness.
+* The repository's `.mcp.json` serves the tools with `playtest/` as the
+  root (README, "Playtest in this repository"); use it to try the guide
+  with a real agent.
 * Accept: another agent given only the guide and the MCP server produces a
   usable coin, hit and explosion in one session.
 
