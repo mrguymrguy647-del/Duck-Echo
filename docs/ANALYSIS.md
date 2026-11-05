@@ -26,8 +26,8 @@ to the last sample above that level.
 | `attack_seconds` | From the first non-silent sample until the short-term peak level first reaches 90% of the sound's peak. The short-term level is the largest sample in the previous 20 ms (1 ms steps), which stays steady for content down to 50 Hz. It measures the time to the *loudest* moment: when a later note or layer is slightly louder than the first (two-note chimes, a layer entering later), this reads long even though the sound starts sharply. Check `pitch_track` levels in that case. |
 | `decay_seconds` | From the last sample at 90% of the peak until the moment after which no sample in the next 20 ms reaches 10% of the peak (-20 dB). A held note does not count as decay. `null` if it never falls that far. |
 | `spectral_centroid_hz` | Magnitude-weighted mean frequency over the active span. Higher is brighter. Naive square and saw waves read very bright because of their many harmonics. |
-| `tonality` | Share of power in spectral peaks at least 10 dB above their neighbourhood (median of ±16 FFT bins). Tones near 1, broadband noise near 0. Noise confined to a band narrower than about 700 Hz also reads tonal. |
-| `pitch_track` | Up to 8 evenly spaced 46 ms windows inside the active span, each with `time_seconds`, `dominant_hz` (strongest frequency, usually the fundamental of chip waveforms), `level_dbfs` and `tonality`. `dominant_hz` and `tonality` are `null` in windows below -60 dBFS RMS; `dominant_hz` means little when the window's tonality is low. |
+| `tonality` | Share of A-weighted power in spectral peaks at least 10 dB above their neighbourhood (median of ±16 FFT bins). Peaks are found on the raw spectrum; the power is weighted with the A curve (IEC 61672, 0 dB at 1 kHz) so each frequency counts roughly as loud as it sounds, and a sub-bass thump under a noise blast does not make the blast tonal. Measured with 46 ms and 186 ms frames and the higher value kept: short frames follow sweeps, long ones resolve the close harmonics of low tones. Tones near 1, broadband noise near 0. Noise confined to a band narrower than about 700 Hz can still read tonal. |
+| `pitch_track` | Up to 8 evenly spaced 46 ms windows inside the active span, each with `time_seconds`, `dominant_hz` (strongest raw frequency, usually the fundamental of chip waveforms), `level_dbfs` and `tonality` (same method as above, with a 186 ms frame around the same centre). `dominant_hz` and `tonality` are `null` in windows below -60 dBFS RMS; `dominant_hz` means little when the window's tonality is low. |
 | `silence_threshold_dbfs` | The -60 dBFS threshold used above. |
 
 Spectral fields use the mean of the channels; level fields use all
@@ -39,8 +39,8 @@ channels.
 |---|---|
 | very dark, dark, mid, bright, very bright | Centroid below 300, 800, 2500, 6000 Hz, or above. |
 | sharp, quick, soft, slow attack | Attack below 10, 50, 200 ms, or above. |
-| tonal, tone and noise, noisy | Tonality at least 0.7, between, or at most 0.3. |
-| pitch rising / falling from X to Y Hz | First and last windows with tonality above 0.3 differ by more than one semitone; otherwise "around X Hz". |
+| tonal, tone and noise, noisy | Tonality at least 0.6, between, or at most 0.3. |
+| pitch rising / falling from X to Y Hz | Uses pitch-track windows with tonality above 0.3 and a level within 20 dB of the loudest window, so a faint tail does not decide the direction. First and last such windows differ by more than one semitone; otherwise "around X Hz". No pitch is given for noisy sounds. |
 | `~` before LUFS | Short-clip loudness (`k_weighted_ungated`). |
 | CLIPPING (N samples) | Any clipped sample. |
 | silent tail | Trailing silence above 20% of the length. |

@@ -223,3 +223,51 @@ fn variations_render_distinct_seeds_and_explain_when_they_cannot() {
         other => panic!("{other:?}"),
     }
 }
+
+fn character(name: &str) -> String {
+    let recipe = presets::load(presets::get(name).unwrap()).unwrap().recipe;
+    let a = duck_echo_tools::analyze_buffer(&duck_echo_synth::render(&recipe).unwrap());
+    for word in ["tone and noise", "tonal", "noisy"] {
+        if a.summary.split(", ").any(|part| part.starts_with(word)) {
+            return word.to_string();
+        }
+    }
+    panic!("{name}: no character word in {}", a.summary);
+}
+
+#[test]
+fn summary_words_match_what_the_presets_are() {
+    for name in [
+        "shotgun",
+        "explosion",
+        "big_explosion",
+        "missile",
+        "wind",
+        "footstep",
+        "blaster",
+    ] {
+        let c = character(name);
+        assert!(c == "noisy" || c == "tone and noise", "{name} reads {c}");
+    }
+    for name in [
+        "alarm",
+        "charge_up",
+        "coin",
+        "engine_hum",
+        "extra_life",
+        "gem",
+        "jump",
+        "key_pickup",
+        "low_health",
+        "menu_open",
+        "metal_clang",
+        "powerup",
+        "ui_cancel",
+        "ui_confirm",
+        "ui_error",
+        "ui_hover",
+        "warning_beep",
+    ] {
+        assert_eq!(character(name), "tonal", "{name}");
+    }
+}

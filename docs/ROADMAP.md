@@ -85,6 +85,18 @@ Found in a review of Phase 0 and fixed before task 1.
   Lesson: every new tool argument that names a file must go through
   `Root::read` or `Root::write`, never `PathBuf::from`.
 
+- [x] **R9. Summary words on noisy sounds.** Tonality used raw power, so
+  a low thump dominated: the shotgun read "tonal" and big_explosion read
+  "pitch rising" from a window 45 dB below its loudest. Tonality is now
+  A-weighted, measured at 46 ms and 186 ms (the longer frame keeps low
+  harmonic tones such as engine_hum tonal), the "tonal" bar moved from 0.7
+  to 0.6 because weighting lowers fast sweeps, and pitch words ignore
+  windows more than 20 dB below the loudest. Shotgun, both explosions and
+  missile now read noisy; hit and land (noise bursts over short tones)
+  read "tone and noise"; every pitched preset keeps "tonal". Test:
+  `summary_words_match_what_the_presets_are`. Analysis only; no render
+  changed.
+
 ## Phase 1: finish sound effects
 
 ### 1. Stereo output and per-layer pan [done]

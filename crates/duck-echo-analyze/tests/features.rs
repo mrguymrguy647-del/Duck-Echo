@@ -216,3 +216,55 @@ fn json_output_only_adds_keys() {
         assert!(v["clipping"].get(key).is_some(), "missing clipping.{key}");
     }
 }
+
+#[test]
+fn a_weighting_matches_the_standard() {
+    use duck_echo_analyze::features::a_weight_power;
+    let db = |f: f64| 10.0 * a_weight_power(f).log10();
+    // IEC 61672 reference values.
+    assert!(db(1000.0).abs() < 0.05);
+    assert!((db(100.0) + 19.1).abs() < 0.1, "{}", db(100.0));
+    assert!((db(50.0) + 30.2).abs() < 0.1, "{}", db(50.0));
+    assert!((db(10_000.0) + 2.5).abs() < 0.1, "{}", db(10_000.0));
+}
+
+#[test]
+fn sub_bass_tone_under_noise_reads_noisy() {
+    // Most raw power is the 60 Hz sine, but the ear hears mostly the noise.
+    let tone = sine(60.0, 0.5, 0.6);
+    let hiss = noise(0.5, 0.2);
+    let mix: Vec<f32> = tone.iter().zip(&hiss).map(|(a, b)| a + b).collect();
+    let a = analyze(&mix, SR, 1);
+    assert!(a.tonality.unwrap() < 0.3, "tonality {:?}", a.tonality);
+    assert!(a.summary.contains("noisy"), "{}", a.summary);
+}
+
+#[test]
+fn low_harmonic_tone_reads_tonal() {
+    // A 55 Hz saw: harmonics only 2.5 bins apart at 46 ms, resolved by the
+    // longer frames.
+    let saw: Vec<f32> = (0..SR as usize)
+        .map(|i| {
+            let ph = (55.0 * i as f32 / SR as f32).fract();
+            0.5 * (2.0 * ph - 1.0)
+        })
+        .collect();
+    let a = analyze(&saw, SR, 1);
+    assert!(a.tonality.unwrap() > 0.9, "tonality {:?}", a.tonality);
+    assert!(a.summary.contains("tonal, around 55 Hz"), "{}", a.summary);
+}
+
+#[test]
+fn faint_tail_does_not_decide_pitch_direction() {
+    // A loud 1 kHz tone, then a tail at 300 Hz 40 dB down.
+    let mut s = sine(1000.0, 0.4, 0.5);
+    s.extend(sine(300.0, 0.3, 0.005));
+    let a = analyze(&s, SR, 1);
+    let quiet = a
+        .pitch_track
+        .iter()
+        .any(|p| p.dominant_hz.is_some_and(|f| (f - 300.0).abs() < 10.0));
+    assert!(quiet, "the tail should still appear in the track");
+    assert!(a.summary.contains("around 1000 Hz"), "{}", a.summary);
+    assert!(!a.summary.contains("falling"), "{}", a.summary);
+}

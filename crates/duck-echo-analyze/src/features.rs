@@ -5,10 +5,13 @@
 //!
 //! * **Spectral centroid**: magnitude-weighted mean frequency of the sound,
 //!   over the non-silent part. Higher means brighter.
-//! * **Tonality** (0..1): the share of power in spectral peaks that stand at
-//!   least 10 dB above their neighbourhood (the median of ±16 bins). Tones
-//!   and their harmonics read near 1, broadband noise near 0. Noise
-//!   squeezed into a band narrower than about 700 Hz also reads as tonal.
+//! * **Tonality** (0..1): the share of A-weighted power in spectral peaks
+//!   that stand at least 10 dB above their neighbourhood (the median of ±16
+//!   bins), measured with 46 ms and 186 ms frames and the higher kept. Peaks are found on the raw spectrum; the power is weighted with
+//!   the A curve so each frequency counts roughly as loud as it sounds, and
+//!   a sub-bass thump under a noise blast does not make the blast "tonal".
+//!   Tones and their harmonics read near 1, broadband noise near 0. Noise
+//!   squeezed into a band narrower than about 700 Hz can still read tonal.
 //! * **Pitch track**: up to 8 evenly spaced windows over the non-silent
 //!   part, each with the dominant (strongest) frequency, its level and
 //!   tonality. The dominant frequency is usually the fundamental of chip
@@ -75,15 +78,39 @@ fn min_bin(sample_rate: u32, n: usize) -> usize {
     ((20.0 * n as f64 / sample_rate as f64).ceil() as usize).max(1)
 }
 
-/// Power in prominent peaks and total power, over bins from `lo`.
-fn peak_and_total(p: &[f64], lo: usize) -> (f64, f64) {
+/// A-weighting (IEC 61672) as a power gain at `f` Hz, 1 at 1 kHz.
+pub fn a_weight_power(f: f64) -> f64 {
+    let f2 = f * f;
+    let (c1, c2, c3, c4) = (
+        20.6f64 * 20.6,
+        107.7f64 * 107.7,
+        737.9f64 * 737.9,
+        12194.0f64 * 12194.0,
+    );
+    let ra = c4 * f2 * f2 / ((f2 + c1) * ((f2 + c2) * (f2 + c3)).sqrt() * (f2 + c4));
+    // +2.00 dB puts 1 kHz at 0 dB.
+    let amp = ra * 10f64.powf(2.0 / 20.0);
+    amp * amp
+}
+
+/// A-weighting power gain for each FFT bin.
+fn a_weights(sample_rate: u32, n: usize) -> Vec<f64> {
+    (0..=n / 2)
+        .map(|k| a_weight_power(k as f64 * sample_rate as f64 / n as f64))
+        .collect()
+}
+
+/// A-weighted power in prominent peaks and A-weighted total power, over
+/// bins from `lo`. Prominence is judged on the raw spectrum `p`; `w` only
+/// weights the sums.
+fn peak_and_total(p: &[f64], w: &[f64], lo: usize) -> (f64, f64) {
     const RADIUS: usize = 16;
     let hi = p.len().saturating_sub(1);
     let mut peak = 0.0;
     let mut total = 0.0;
     let mut neighbours = Vec::with_capacity(2 * RADIUS);
     for k in lo..hi {
-        total += p[k];
+        total += w[k] * p[k];
         neighbours.clear();
         let a = k.saturating_sub(RADIUS).max(lo);
         let b = (k + RADIUS).min(hi - 1);
@@ -96,7 +123,7 @@ fn peak_and_total(p: &[f64], lo: usize) -> (f64, f64) {
             .select_nth_unstable_by(mid, |x, y| x.total_cmp(y))
             .1;
         if p[k] >= 10.0 * median {
-            peak += p[k];
+            peak += w[k] * p[k];
         }
     }
     (peak, total)
@@ -138,11 +165,11 @@ pub fn spectral(mono: &[f32], sample_rate: u32, active: Option<(usize, usize)>) 
     };
     let n = fft_size(sample_rate);
     let lo = min_bin(sample_rate, n);
+    let weights = a_weights(sample_rate, n);
     let bin_hz = sample_rate as f64 / n as f64;
 
-    // Whole-sound centroid and tonality from half-overlapping frames.
+    // Whole-sound centroid from half-overlapping frames.
     let mut mag_sum = vec![0.0f64; n / 2 + 1];
-    let (mut peak_power, mut total_power) = (0.0, 0.0);
     let mut start = first;
     loop {
         let end = (start + n).min(last + 1);
@@ -152,9 +179,6 @@ pub fn spectral(mono: &[f32], sample_rate: u32, active: Option<(usize, usize)>) 
             for (m, &pk) in mag_sum.iter_mut().zip(&p) {
                 *m += pk.sqrt();
             }
-            let (pp, tp) = peak_and_total(&p, lo);
-            peak_power += pp;
-            total_power += tp;
         }
         if end > last {
             break;
@@ -167,7 +191,14 @@ pub fn spectral(mono: &[f32], sample_rate: u32, active: Option<(usize, usize)>) 
         let num: f64 = (lo..hi).map(|k| k as f64 * bin_hz * mag_sum[k]).sum();
         (num / weight) as f32
     });
-    let tonality = (total_power > 0.0).then(|| (peak_power / total_power) as f32);
+    // Two resolutions: 46 ms frames follow sweeps; 186 ms frames resolve the
+    // close harmonics of low tones (a 55 Hz saw). Noise is noise at both,
+    // so the higher reading is kept. Shorter frames are not used: they
+    // make narrow noise bands look like peaks.
+    let tonality = [n, n * 4]
+        .into_iter()
+        .filter_map(|size| overall_tonality(mono, sample_rate, first, last, size))
+        .reduce(f32::max);
 
     // Pitch track: evenly spaced windows kept inside the active span, so
     // none is mostly padding.
@@ -179,6 +210,9 @@ pub fn spectral(mono: &[f32], sample_rate: u32, active: Option<(usize, usize)>) 
         let mid = (first + last) / 2;
         (mid, mid)
     };
+    let long = n * 4;
+    let long_lo = min_bin(sample_rate, long);
+    let long_weights = a_weights(sample_rate, long);
     let track = (0..points)
         .map(|i| {
             let centre = if points == 1 || lo_c == hi_c {
@@ -197,8 +231,17 @@ pub fn spectral(mono: &[f32], sample_rate: u32, active: Option<(usize, usize)>) 
                 dominant_hz: p.as_ref().and_then(|p| dominant_hz(p, lo, sample_rate, n)),
                 level_dbfs: (level > 0.0).then(|| 20.0 * level.log10()),
                 tonality: p.as_ref().and_then(|p| {
-                    let (pp, tp) = peak_and_total(p, lo);
-                    (tp > 0.0).then(|| (pp / tp) as f32)
+                    // Same two resolutions as the whole-sound value: this
+                    // window, and a 4x longer one around the same centre
+                    // (kept inside the active span).
+                    let (pp, tp) = peak_and_total(p, &weights, lo);
+                    let short = (tp > 0.0).then(|| (pp / tp) as f32);
+                    let la = centre.saturating_sub(long / 2).max(first);
+                    let lb = (la + long).min(last + 1);
+                    let lp = power_spectrum(&mono[la..lb], long);
+                    let (lpp, ltp) = peak_and_total(&lp, &long_weights, long_lo);
+                    let wide = (ltp > 0.0).then(|| (lpp / ltp) as f32);
+                    short.into_iter().chain(wide).reduce(f32::max)
                 }),
             }
         })
@@ -209,6 +252,36 @@ pub fn spectral(mono: &[f32], sample_rate: u32, active: Option<(usize, usize)>) 
         tonality,
         track,
     }
+}
+
+/// Tonality of the active span `first..=last` measured with FFT frames of
+/// `n` samples, half overlapping.
+fn overall_tonality(
+    mono: &[f32],
+    sample_rate: u32,
+    first: usize,
+    last: usize,
+    n: usize,
+) -> Option<f32> {
+    let lo = min_bin(sample_rate, n);
+    let weights = a_weights(sample_rate, n);
+    let (mut peak_power, mut total_power) = (0.0, 0.0);
+    let mut start = first;
+    loop {
+        let end = (start + n).min(last + 1);
+        let frame = &mono[start..end];
+        if rms(frame) > SILENCE_THRESHOLD_LINEAR {
+            let p = power_spectrum(frame, n);
+            let (pp, tp) = peak_and_total(&p, &weights, lo);
+            peak_power += pp;
+            total_power += tp;
+        }
+        if end > last {
+            break;
+        }
+        start += n / 2;
+    }
+    (total_power > 0.0).then(|| (peak_power / total_power) as f32)
 }
 
 /// Attack and decay times.
@@ -302,13 +375,19 @@ pub mod words {
         (0.050, "quick attack"),
         (0.200, "soft attack"),
     ];
-    /// Tonality at or above this reads "tonal".
-    pub const TONAL: f32 = 0.7;
+    /// Tonality at or above this reads "tonal". (0.7 before tonality was
+    /// A-weighted; weighting lowers fast sweeps, whose smeared upper
+    /// harmonics now count for what they sound like.)
+    pub const TONAL: f32 = 0.6;
     /// Tonality at or below this reads "noisy"; in between, "tone and noise".
     pub const NOISY: f32 = 0.3;
     /// A dominant frequency change beyond this many semitones between the
     /// first and last tonal windows reads as rising or falling pitch.
     pub const PITCH_MOVE_SEMITONES: f32 = 1.0;
+    /// Pitch-track windows more than this many dB below the loudest window
+    /// are ignored when describing pitch: a faint tail does not decide
+    /// whether the sound rises or falls.
+    pub const PITCH_WINDOW_RANGE_DB: f32 = 20.0;
     /// Trailing silence above this share of the length is called out.
     pub const LONG_TAIL_SHARE: f64 = 0.2;
 }
@@ -353,11 +432,21 @@ pub fn summary(a: &Analysis) -> String {
         } else {
             "tone and noise"
         };
-        // Pitch is only meaningful in windows that are not mostly noise.
+        // Pitch is only meaningful in windows that are not mostly noise and
+        // not far below the loudest part of the sound.
+        let loudest = a
+            .pitch_track
+            .iter()
+            .filter_map(|p| p.level_dbfs)
+            .fold(f32::NEG_INFINITY, f32::max);
         let pitched: Vec<f32> = a
             .pitch_track
             .iter()
             .filter(|p| p.tonality.is_some_and(|t| t > NOISY))
+            .filter(|p| {
+                p.level_dbfs
+                    .is_some_and(|l| l >= loudest - PITCH_WINDOW_RANGE_DB)
+            })
             .filter_map(|p| p.dominant_hz)
             .collect();
         let pitch = match (pitched.first(), pitched.last()) {
