@@ -1,12 +1,22 @@
 //! Loading recipes from TOML or JSON with exact error paths.
 //!
-//! Deserialization errors from serde are turned into [`Issue`]s with the
-//! field path they occurred at (via `serde_path_to_error`), the source line
-//! when the format provides it, and a "did you mean" suggestion for unknown
-//! field names and enum values.
+//! The pipeline reports every problem in one call:
+//!
+//! 1. Syntax: the text is parsed into a positioned tree ([`crate::tree`]).
+//!    A syntax error stops here, since nothing after it can be trusted.
+//! 2. Structure: the tree is walked against the JSON Schema
+//!    ([`crate::structure`]), collecting every unknown field, unknown enum
+//!    value, missing field and type mismatch, and pruning them.
+//! 3. Types: a clean document is decoded straight from the source with
+//!    serde; a document with structural errors is decoded from the pruned
+//!    tree so that step 4 can still run.
+//! 4. Semantics: [`validate`] checks ranges and rules. Issues under a path
+//!    that step 2 already reported are dropped as duplicates.
 
 use crate::recipe::Recipe;
 use crate::report::{Code, Issue, Report};
+use crate::structure::{self, is_under};
+use crate::tree::{self, line_col};
 use crate::validate::validate;
 use std::path::Path;
 
@@ -43,23 +53,128 @@ pub struct Loaded {
     pub report: Report,
 }
 
-/// Parse a recipe without semantic validation. Use [`load_str`] for the
-/// full pipeline.
-pub fn parse_str(src: &str, format: Format) -> Result<Recipe, Report> {
-    match format {
-        Format::Toml => parse_toml(src),
-        Format::Json => parse_json(src),
+/// Outcome of steps 1 to 3 of the pipeline.
+struct Parsed {
+    /// The decoded recipe; for a document with structural errors this is
+    /// the pruned version, used only for further checking.
+    recipe: Option<Recipe>,
+    /// Syntax and structural issues.
+    report: Report,
+    /// Paths whose semantic issues are duplicates of structural ones.
+    poisoned: Vec<String>,
+    /// The positioned document, used to give semantic issues a line.
+    tree: Option<tree::Node>,
+}
+
+fn parse_full(src: &str, format: Format) -> Parsed {
+    let tree = match format {
+        Format::Toml => tree::parse_toml(src),
+        Format::Json => tree::parse_json(src),
+    };
+    let tree = match tree {
+        Ok(t) => t,
+        Err(issue) => {
+            return Parsed {
+                recipe: None,
+                report: Report::from_error(*issue),
+                poisoned: Vec::new(),
+                tree: None,
+            }
+        }
+    };
+    let checked = structure::check(&tree);
+    if checked.issues.is_empty() {
+        let decoded = match format {
+            Format::Toml => typed_toml(src),
+            Format::Json => typed_json(src),
+        };
+        return match decoded {
+            Ok(recipe) => Parsed {
+                recipe: Some(recipe),
+                report: Report::new(),
+                poisoned: Vec::new(),
+                tree: Some(tree),
+            },
+            Err(report) => Parsed {
+                recipe: None,
+                report,
+                poisoned: Vec::new(),
+                tree: Some(tree),
+            },
+        };
+    }
+    let mut report = Report::new();
+    let mut poisoned = checked.poisoned;
+    let mut issues = checked.issues;
+    // Report in document order, whatever order the parser stored keys in.
+    issues.sort_by_key(|i| (i.line.unwrap_or(usize::MAX), i.column.unwrap_or(0)));
+    for issue in issues {
+        // A misspelled field means the intended field is sitting at its
+        // default; complaints about that default are noise.
+        if issue.code == Code::UnknownField {
+            if let Some(sugg) = &issue.suggestion {
+                let parent = issue.path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
+                poisoned.push(if parent.is_empty() {
+                    sugg.clone()
+                } else {
+                    format!("{parent}.{sugg}")
+                });
+            }
+        }
+        report.push(issue);
+    }
+    let recipe = checked
+        .pruned
+        .and_then(|v| serde_json::from_value::<Recipe>(v).ok());
+    Parsed {
+        recipe,
+        report,
+        poisoned,
+        tree: Some(tree),
     }
 }
 
-/// Parse and validate a recipe. On success the report holds only warnings.
+/// Parse a recipe without semantic validation. Use [`load_str`] for the
+/// full pipeline. On error the report lists every syntax and structural
+/// problem (but not range problems).
+pub fn parse_str(src: &str, format: Format) -> Result<Recipe, Report> {
+    let parsed = parse_full(src, format);
+    match parsed.recipe {
+        Some(recipe) if parsed.report.is_ok() => Ok(recipe),
+        _ => Err(parsed.report),
+    }
+}
+
+/// Parse and validate a recipe, reporting every problem at once. On
+/// success the report holds only warnings.
 pub fn load_str(src: &str, format: Format) -> Result<Loaded, Report> {
-    let recipe = parse_str(src, format)?;
-    let report = validate(&recipe);
-    if report.is_ok() {
-        Ok(Loaded { recipe, report })
-    } else {
-        Err(report)
+    let parsed = parse_full(src, format);
+    let mut report = parsed.report;
+    if let Some(recipe) = &parsed.recipe {
+        let semantic = validate(recipe);
+        for mut issue in semantic.errors.into_iter().chain(semantic.warnings) {
+            if parsed
+                .poisoned
+                .iter()
+                .any(|root| is_under(&issue.path, root))
+            {
+                continue;
+            }
+            if issue.line.is_none() {
+                if let Some((l, c)) = parsed
+                    .tree
+                    .as_ref()
+                    .and_then(|t| tree::position_of(t, &issue.path))
+                {
+                    issue = issue.at(l, c);
+                }
+            }
+            report.push(issue);
+        }
+    }
+    match parsed.recipe {
+        Some(recipe) if report.is_ok() => Ok(Loaded { recipe, report }),
+        _ => Err(report),
     }
 }
 
@@ -85,7 +200,10 @@ pub fn to_json(recipe: &Recipe) -> String {
     serde_json::to_string_pretty(recipe).expect("recipe serializes to JSON")
 }
 
-fn parse_toml(src: &str) -> Result<Recipe, Report> {
+/// Typed decode straight from TOML text. Only reached for documents the
+/// structural check passed, so errors here mean the walker missed a case;
+/// they are still reported with a path.
+fn typed_toml(src: &str) -> Result<Recipe, Report> {
     let de = toml::de::Deserializer::parse(src).map_err(|e| {
         let mut issue = Issue::error(Code::Syntax, "", e.message().to_string());
         if let Some(span) = e.span() {
@@ -102,7 +220,8 @@ fn parse_toml(src: &str) -> Result<Recipe, Report> {
     })
 }
 
-fn parse_json(src: &str) -> Result<Recipe, Report> {
+/// Typed decode straight from JSON text. See [`typed_toml`].
+fn typed_json(src: &str) -> Result<Recipe, Report> {
     let mut de = serde_json::Deserializer::from_str(src);
     serde_path_to_error::deserialize(&mut de).map_err(|e| {
         let path = path_string(e.path());
@@ -165,19 +284,6 @@ fn join_path(parent: &str, field: &str) -> String {
     } else {
         format!("{parent}.{field}")
     }
-}
-
-fn line_col(src: &str, byte_offset: usize) -> (usize, usize) {
-    let offset = byte_offset.min(src.len());
-    let before = &src[..offset];
-    let line = before.matches('\n').count() + 1;
-    let col = before
-        .rsplit('\n')
-        .next()
-        .map(|s| s.chars().count())
-        .unwrap_or(0)
-        + 1;
-    (line, col)
 }
 
 /// Turn a serde error message into a structured issue. serde's messages have

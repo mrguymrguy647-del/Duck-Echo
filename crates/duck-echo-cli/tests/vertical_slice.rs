@@ -321,3 +321,118 @@ fn voice_streams_in_arbitrary_block_sizes() {
     let clipped: Vec<f32> = out.iter().map(|s| s.clamp(-1.0, 1.0)).collect();
     assert_eq!(clipped, whole.samples);
 }
+
+/// Review fix 1: one call reports every structural and range problem.
+#[test]
+fn one_call_reports_all_six_mistakes_in_toml_and_json() {
+    let toml_src = r#"
+version = 0
+sampel_rate = 48000
+
+[[layers]]
+sorce = "sine"
+volume = 3
+
+[layers.pitch]
+strat = 440
+
+[[layers]]
+envelope = { atack = 0.01, decay = 99 }
+
+[[effects]]
+type = "echo"
+feedbak = 0.5
+"#;
+    let json_src = r#"{
+  "version": 0,
+  "sampel_rate": 48000,
+  "layers": [
+    { "sorce": "sine", "volume": 3, "pitch": { "strat": 440 } },
+    { "envelope": { "atack": 0.01, "decay": 99 } }
+  ],
+  "effects": [ { "type": "echo", "feedbak": 0.5 } ]
+}"#;
+    let expected = [
+        ("sampel_rate", Code::UnknownField, Some("sample_rate")),
+        ("layers[0].sorce", Code::UnknownField, Some("source")),
+        ("layers[0].volume", Code::OutOfRange, None),
+        ("layers[0].pitch.strat", Code::UnknownField, Some("start")),
+        (
+            "layers[1].envelope.atack",
+            Code::UnknownField,
+            Some("attack"),
+        ),
+        ("layers[1].envelope.decay", Code::OutOfRange, None),
+        ("effects[0].feedbak", Code::UnknownField, Some("feedback")),
+    ];
+    for (src, format) in [(toml_src, Format::Toml), (json_src, Format::Json)] {
+        let report = load_str(src, format).unwrap_err();
+        assert!(report.warnings.is_empty(), "{format:?}: {report}");
+        let mut got: Vec<(&str, Code, Option<&str>)> = report
+            .errors
+            .iter()
+            .map(|e| (e.path.as_str(), e.code, e.suggestion.as_deref()))
+            .collect();
+        got.sort_by_key(|g| g.0);
+        let mut want = expected.to_vec();
+        want.sort_by_key(|w| w.0);
+        // Seven entries: the six mistakes in the review plus the
+        // `sampel_rate` typo, so both formats are exercised on root keys.
+        assert_eq!(got, want, "{format:?}:\n{report}");
+        for e in &report.errors {
+            assert!(e.line.is_some(), "{format:?}: no line for {}", e.path);
+        }
+    }
+}
+
+#[test]
+fn structural_errors_do_not_hide_each_other() {
+    // A broken effect tag, a wrong container type, a wrong scalar type and
+    // a non-finite number, all in one document.
+    let src = "version = \"zero\"\nlayers = 5\n[[effects]]\ndelay = 1\n[[effects]]\ntype = \"delay\"\n[master]\nnormalize = \"yes\"\ngain = nan\n";
+    let report = load_str(src, Format::Toml).unwrap_err();
+    let got: Vec<(&str, Code)> = report
+        .errors
+        .iter()
+        .map(|e| (e.path.as_str(), e.code))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("version", Code::TypeMismatch),
+            ("layers", Code::TypeMismatch),
+            ("effects[0].type", Code::MissingField),
+            ("effects[1].type", Code::UnknownVariant),
+            ("master.normalize", Code::TypeMismatch),
+            ("master.gain", Code::OutOfRange),
+        ],
+        "{report}"
+    );
+    // The broken `layers` must not also produce a "no layers" error, and
+    // the broken `version` must not produce an "unsupported version" one.
+    assert_eq!(report.errors.len(), 6);
+    assert_eq!(report.errors[3].suggestion.as_deref(), Some("echo"));
+}
+
+#[test]
+fn typo_does_not_also_report_the_defaulted_field() {
+    // `layer` instead of `layers`: one error with a suggestion, not a second
+    // "recipe has no layers" error about the default.
+    let report = load_str("version = 0\n[[layer]]\n", Format::Toml).unwrap_err();
+    assert_eq!(report.errors.len(), 1, "{report}");
+    assert_eq!(report.errors[0].suggestion.as_deref(), Some("layers"));
+}
+
+#[test]
+fn array_items_keep_their_indices_when_one_is_broken() {
+    let src = r#"{"version":0,"layers":[{"pitch":{"arpeggio":{"steps":[0,"x",7]}}},{"effects":[{"type":"reverb","size":2}]}]}"#;
+    let report = load_str(src, Format::Json).unwrap_err();
+    let paths: Vec<&str> = report.errors.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "layers[0].pitch.arpeggio.steps[1]",
+            "layers[1].effects[0].size"
+        ]
+    );
+}

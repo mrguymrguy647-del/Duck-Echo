@@ -101,7 +101,9 @@ impl Validator {
 
         // Total length check uses the un-jittered values; variation may
         // stretch times by up to 30%, which the renderer caps separately.
-        if r.duration.is_none() {
+        // Skipped when any individual value is already out of range: the
+        // length would only repeat that error.
+        if r.duration.is_none() && self.report.errors.is_empty() {
             let est = estimate_length(r);
             if est > MAX_DURATION {
                 self.report.push(

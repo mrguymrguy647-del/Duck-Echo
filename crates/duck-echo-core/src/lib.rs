@@ -12,6 +12,8 @@ pub mod load;
 pub mod recipe;
 pub mod report;
 pub mod schema;
+pub mod structure;
+pub mod tree;
 pub mod validate;
 
 pub use load::{load_path, load_str, parse_str, to_json, to_toml, Format, Loaded};

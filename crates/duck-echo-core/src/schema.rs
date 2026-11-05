@@ -26,23 +26,33 @@ fn tidy_defaults(v: &mut serde_json::Value) {
         serde_json::Value::Object(map) => {
             for (k, child) in map.iter_mut() {
                 if k == "default" {
-                    if let Some(f) = child.as_f64() {
-                        if child.is_f64() {
-                            let narrow = f as f32;
-                            if (narrow as f64 - f).abs() <= f.abs() * 1e-7 {
-                                if let Ok(n) = serde_json::from_str::<serde_json::Value>(&format!(
-                                    "{narrow:?}"
-                                )) {
-                                    *child = n;
-                                }
-                            }
-                        }
-                    }
+                    narrow_floats(child);
+                } else {
+                    tidy_defaults(child);
                 }
-                tidy_defaults(child);
             }
         }
         serde_json::Value::Array(items) => items.iter_mut().for_each(tidy_defaults),
+        _ => {}
+    }
+}
+
+/// Rewrite every float inside a default value (including nested object
+/// defaults such as `envelope`) from its shortest `f32` text.
+fn narrow_floats(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Number(n) if n.is_f64() => {
+            let f = n.as_f64().unwrap_or_default();
+            let narrow = f as f32;
+            if (narrow as f64 - f).abs() <= f.abs() * 1e-7 {
+                if let Ok(tidy) = serde_json::from_str::<serde_json::Value>(&format!("{narrow:?}"))
+                {
+                    *v = tidy;
+                }
+            }
+        }
+        serde_json::Value::Object(map) => map.values_mut().for_each(narrow_floats),
+        serde_json::Value::Array(items) => items.iter_mut().for_each(narrow_floats),
         _ => {}
     }
 }

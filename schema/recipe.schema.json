@@ -344,8 +344,8 @@
         "envelope": {
           "$ref": "#/$defs/Envelope",
           "default": {
-            "attack": 0.004999999888241291,
-            "decay": 0.20000000298023224,
+            "attack": 0.005,
+            "decay": 0.2,
             "hold": 0.0,
             "release": 0.0,
             "sustain": 0.0,

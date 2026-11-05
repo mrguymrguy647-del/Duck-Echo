@@ -62,11 +62,19 @@ server and a future UI reuse the libraries rather than shelling out.
  recipe.toml / JSON tool call
         │
         ▼
- core::load      parse (serde_path_to_error keeps the field path)
-        │        -> Issue { code, path, message, got, allowed, suggestion, line }
-        ▼
- core::validate  range and structure checks, all collected, warnings separate
+ core::tree      syntax: TOML or JSON -> positioned tree (stops on a syntax error)
         │
+        ▼
+ core::structure walk the tree against the generated JSON Schema: every
+        │        unknown field, bad enum value, missing field and type
+        │        mismatch at once; prune them
+        ▼
+ typed decode    clean documents straight from the source with serde;
+        │        documents with structural errors from the pruned tree
+        ▼
+ core::validate  range and rule checks, all collected, warnings separate;
+        │        issues under an already-reported path are dropped
+        │        -> Issue { code, path, message, got, allowed, suggestion, line }
         ▼
  synth::prepare  variation jitter from seed, lengths, allocations -> Voice
         │
@@ -246,6 +254,15 @@ it say so in their output rather than failing.
 
 ## Diagnostics format
 
+One `validate` call reports every problem: structural ones from the schema
+walk and range ones from semantic validation, in document order, each with
+a line and column. The schema walk is driven by the same generated JSON
+Schema agents read, so it cannot drift from the Rust types; a unit test
+fails if schemars ever emits a schema keyword the walker does not handle.
+Two rules keep the report free of echoes: a value replaced by a placeholder
+suppresses later issues at or under its path, and a misspelled field with a
+suggestion suppresses complaints about the suggested field's default.
+
 ```json
 {
   "ok": false,
@@ -277,7 +294,7 @@ in the same order.
 |---|---|---|
 | serde, serde_json, toml | core | One schema, two syntaxes. |
 | schemars | core | JSON Schema from the same types, with docs and defaults. |
-| serde_path_to_error | core | Exact field path for deserialization errors. |
+| serde_path_to_error | core | Field path for the rare serde error the schema walk does not pre-empt. |
 | strsim | core | "Did you mean" suggestions. |
 | hound | audio | WAV read and write, zero dependencies of its own. |
 | clap | cli | Argument parsing. |

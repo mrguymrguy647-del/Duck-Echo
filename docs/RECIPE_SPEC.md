@@ -207,12 +207,16 @@ layer's jitter does not depend on earlier layers' settings.
 
 ## Validation
 
-Validation collects every problem. Errors stop rendering; warnings do not.
-The JSON form is documented in `ARCHITECTURE.md`. Typical messages:
+Validation collects every problem in one call: unknown fields, unknown
+enum values, missing fields, wrong types and out-of-range values all come
+back together, in document order, each with its path, line and column. Only
+a syntax error stops early, because nothing after it can be trusted. Errors
+stop rendering; warnings do not. The JSON form is documented in
+`ARCHITECTURE.md`. Typical messages:
 
 ```
 error[unknown_field] line 4:1 layers[0].pitch.strt: unknown field `strt` (got "strt") [allowed: start, end, curve, sweep_time, vibrato, arpeggio] Did you mean `start`?
-error[out_of_range] layers[0].volume: value 5 is outside the allowed range 0..=2 (got 5) [allowed 0..=2]
+error[out_of_range] line 3:1 layers[0].volume: value 5 is outside the allowed range 0..=2 (got 5) [allowed 0..=2]
 warning[unused] layers[0].duty: duty only affects `square`; this layer is `sine`
 ```
 

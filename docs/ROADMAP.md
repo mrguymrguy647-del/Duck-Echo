@@ -13,6 +13,20 @@ Before starting any task: run `cargo test --workspace`, read
 cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 ```
 
+## Phase 0 review fixes
+
+Found in a review of Phase 0 and fixed before task 1.
+
+- [x] **R1. Report every problem in one validate call.** Validation used to
+  stop at the first structural (serde) error, so a recipe with four typos
+  and two bad values took five calls. A schema-driven walker
+  (`core::structure`) now reports all unknown fields, enum values, missing
+  fields and type mismatches with paths, lines and suggestions, and range
+  checks run in the same call on a pruned copy. Range errors now carry
+  lines too. Test: `one_call_reports_all_six_mistakes_in_toml_and_json`.
+  Lesson for later tasks: new recipe types need no walker changes unless
+  schemars starts emitting a new keyword, which a unit test catches.
+
 ## Phase 1: finish sound effects
 
 ### 1. Stereo output and per-layer pan
