@@ -26,7 +26,6 @@ Found in a review of Phase 0 and fixed before task 1.
   lines too. Test: `one_call_reports_all_six_mistakes_in_toml_and_json`.
   Lesson for later tasks: new recipe types need no walker changes unless
   schemars starts emitting a new keyword, which a unit test catches.
-
 - [x] **R2. Loudness for short sounds.** `analyze` returned
   `loudness_lufs: null` under 400 ms, which covers most sound effects.
   Clips under 400 ms now get an ungated K-weighted loudness over their
@@ -53,29 +52,38 @@ Found in a review of Phase 0 and fixed before task 1.
 
 Done. Decision worth knowing: layer effects run on the mono layer signal
 *before* the pan, and only master effects run per channel. Running a
-nonlinear layer effect (distortion, bitcrush) after the pan would make
-its sound depend on the pan position, because the pan gain changes how
-hard it is driven; linear ones (echo, reverb) give the same result either
-way. A per-layer `spread` for
-stereo echo and reverb is still open. `analyze` now reports
-`per_channel` levels and sums loudness over channels. Example:
-`ricochet.toml`.
-
+nonlinear layer effect (distortion, bitcrush) after the pan would make its
+sound depend on the pan position, because the pan gain changes how hard it
+is driven; linear ones (echo, reverb) give the same result either way. A
+per-layer `spread` for stereo echo and reverb is still open. `analyze` now
+reports `per_channel` levels and sums loudness over channels. Example:
+`ricochet.toml`. Original task text follows.
 
 * Add `channels` to the recipe (`1` or `2`, default `1`) and `pan` to the
   layer (`-1..1`, default `0`, equal-power law).
 * `AudioBuffer` already carries `channels`; `Voice::process` writes
   interleaved frames when stereo. Keep mono renders byte-identical to today.
 * Effects run per channel with independent state (echo and reverb can take
-  a `spread` later; not now).
+  a `spread` later; not now). As built: master effects only, see above.
 * Accept: `cargo test` passes; a recipe with `channels = 2` and two layers
   panned left and right renders a WAV where each channel's RMS matches the
   expected layer within 0.1 dB; `analyze` reports `channels: 2` and per
   channel peaks; all mono examples produce the same bytes as before.
 
-### 2. Note names for pitch
+### 2. Note names for pitch [done]
 
-* `pitch.start`, `pitch.end` and arpeggio-free uses accept either a number
+Done. Choices made: bad names use a new
+`invalid_format` code rather than `unknown_variant` (a note is not an
+enum), with suggestions for common slips (`H4`, missing octave, `♯`/`♭`);
+note-to-Hz uses a literal semitone-ratio table and exact octave scaling,
+so it is platform-independent; lower-case letters are accepted; filter
+cutoffs stay Hz-only. Existing examples keep their Hz values because
+rewriting them as notes would change their pinned bytes; `chime.toml`
+shows note names. For the music phase: `core::note::note_number` gives
+MIDI numbers, which the song timeline can reuse. Original task text
+follows.
+
+* `pitch.start` and `pitch.end` accept either a number
   (Hz) or a string note name (`"C5"`, `"A#3"`, `"Bb2"`), A4 = 440.
 * Implement as a `Frequency` newtype with a custom serde impl that accepts
   both and serializes back to what it was given, so round trips preserve

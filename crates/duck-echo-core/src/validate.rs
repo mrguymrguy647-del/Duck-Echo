@@ -184,8 +184,13 @@ impl Validator {
         // Pitch
         let pitch = &l.pitch;
         let pp = format!("{p}.pitch");
-        self.range(&format!("{pp}.start"), pitch.start, 1.0, 20_000.0);
-        self.range_opt(&format!("{pp}.end"), pitch.end, 1.0, 20_000.0);
+        self.range(&format!("{pp}.start"), pitch.start.hz(), 1.0, 20_000.0);
+        self.range_opt(
+            &format!("{pp}.end"),
+            pitch.end.as_ref().map(|e| e.hz()),
+            1.0,
+            20_000.0,
+        );
         self.range_opt(&format!("{pp}.sweep_time"), pitch.sweep_time, 0.001, 30.0);
         if pitch.end.is_none() && pitch.sweep_time.is_some() {
             self.warn(
@@ -222,7 +227,7 @@ impl Validator {
             self.range(&format!("{ap}.step_time"), a.step_time, 0.001, 30.0);
         }
         let nyquist = sample_rate as f32 / 2.0;
-        if pitch.start > nyquist || pitch.end.is_some_and(|e| e > nyquist) {
+        if pitch.start.hz() > nyquist || pitch.end.as_ref().is_some_and(|e| e.hz() > nyquist) {
             self.warn(
                 Code::Suspicious,
                 &pp,

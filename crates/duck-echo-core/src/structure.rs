@@ -13,8 +13,9 @@
 //! `additionalProperties: false`, `required`, `items`, `anyOf`, `oneOf` of
 //! string constants (plain enums), `oneOf` of objects with a constant tag
 //! property (internally tagged enums), `enum`, `const`, integer `format`s,
-//! `minimum`/`maximum`. A unit test fails if the schema ever uses anything
-//! else.
+//! `minimum`/`maximum`, and the custom string `format: "note-name"`
+//! (checked with [`crate::note::parse_note`]). A unit test fails if the
+//! schema ever uses anything else.
 
 use crate::load::did_you_mean;
 use crate::report::{Code, Issue};
@@ -223,6 +224,22 @@ impl<'s> Walker<'s> {
                     node.pos,
                 ));
                 None
+            }
+            Value::Str(text)
+                if s.get("format").and_then(J::as_str) == Some(crate::note::NOTE_FORMAT) =>
+            {
+                match crate::note::parse_note(text) {
+                    Ok(_) => node.to_json(),
+                    Err(e) => {
+                        let mut issue =
+                            Issue::error(Code::InvalidFormat, path, e.message).got(text.clone());
+                        if let Some(sugg) = e.suggestion {
+                            issue = issue.suggest(sugg);
+                        }
+                        self.issues.push(at(issue, node.pos));
+                        None
+                    }
+                }
             }
             _ => node.to_json(),
         }
@@ -464,6 +481,11 @@ impl<'s> Walker<'s> {
             .map(|t| match t.as_str() {
                 "integer" => "an integer",
                 "number" => "a number",
+                "string"
+                    if s.get("format").and_then(J::as_str) == Some(crate::note::NOTE_FORMAT) =>
+                {
+                    "a note name such as \"C5\""
+                }
                 "string" => "a string",
                 "boolean" => "true or false",
                 "array" => "an array",

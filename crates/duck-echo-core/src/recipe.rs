@@ -8,6 +8,7 @@
 //! Field documentation here is also exported into the JSON Schema, so keep
 //! each comment short, concrete and agent-readable.
 
+use crate::note::Frequency;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -35,8 +36,8 @@ fn default_attack() -> f32 {
 fn default_decay() -> f32 {
     0.2
 }
-fn default_pitch_start() -> f32 {
-    440.0
+fn default_pitch_start() -> Frequency {
+    Frequency::hz_value(440.0)
 }
 fn default_vibrato_rate() -> f32 {
     6.0
@@ -302,15 +303,18 @@ impl Envelope {
     }
 }
 
-/// Pitch over time. Frequencies are in Hz, range 1..=20000.
+/// Pitch over time. Frequencies are numbers in Hz (range 1..=20000) or note
+/// names such as `"C5"`, `"F#3"`, `"Bb2"` (A4 = 440 Hz).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, default)]
 pub struct Pitch {
-    /// Frequency at the start of the layer in Hz. Default `440`.
-    pub start: f32,
-    /// Frequency at the end of the sweep in Hz. Omit for a constant pitch.
+    /// Frequency at the start of the layer: Hz or a note name such as
+    /// `"A4"`. Default `440`.
+    pub start: Frequency,
+    /// Frequency at the end of the sweep: Hz or a note name. Omit for a
+    /// constant pitch.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end: Option<f32>,
+    pub end: Option<Frequency>,
     /// Shape of the sweep from `start` to `end`. Default `linear`.
     pub curve: Curve,
     /// Sweep length in seconds, range 0.001..=30. Omit to sweep over the whole

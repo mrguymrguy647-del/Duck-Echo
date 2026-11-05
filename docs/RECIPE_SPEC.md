@@ -102,12 +102,22 @@ and no `release` gives a warning because the sound stops abruptly.
 
 | Field | Type | Default | Range | Meaning |
 |---|---|---|---|---|
-| `start` | number | `440` | 1..20000 | Frequency at the start. |
-| `end` | number | none | 1..20000 | Frequency at the end of the sweep. Omit for a constant pitch. |
+| `start` | number or note | `440` | 1..20000 Hz | Frequency at the start. |
+| `end` | number or note | none | 1..20000 Hz | Frequency at the end of the sweep. Omit for a constant pitch. |
 | `curve` | string | `"linear"` | `linear`, `exponential`, `ease_in`, `ease_out` | Sweep shape. |
 | `sweep_time` | number | layer length | 0.001..30 | How long the sweep takes; the pitch then stays at `end`. |
 | `vibrato` | table | none | | Periodic wobble. |
 | `arpeggio` | table | none | | Stepped offsets. |
+
+Note names: `start` and `end` take either a number in Hz or a string in
+scientific pitch notation: a letter `A`..`G` (either case), an optional
+`#` or `b`, and an octave from `-1` to `9`. `"A4"` is 440 Hz, `"C4"` is
+middle C, `"C5"` is 523.25 Hz; enharmonics such as `"A#3"` and `"Bb3"` are
+the same pitch. The recipe keeps what was written, so a note stays a note
+when the recipe is saved again as TOML or JSON. A bad name is an
+`invalid_format` error with an example and, when obvious, a suggestion
+(`"H4"` suggests `"B4"`, `"C#"` suggests `"C#4"`). Conversion is exact
+across platforms. Filter cutoffs take Hz only.
 
 Curves: `linear`, `ease_in` and `ease_out` interpolate in Hz. `exponential`
 interpolates in octaves (constant semitones per second), which is what a
@@ -294,13 +304,13 @@ All in `examples/recipes/`, all render without clipping:
 | `hit.toml` | bandpass noise burst plus a square drop, bitcrush with `rate` |
 | `powerup.toml` | two layers with `offset`, arpeggio over a sweep, `normalize`, `trim_silence` |
 | `ricochet.toml` | `channels = 2`, two layers panned left and right, master reverb |
+| `chime.toml` | note-name pitches, sustain and release, vibrato with delay |
 
 ## Deferred (not in v0, never silently ignored)
 
 These are not accepted by the schema yet; using them is an `unknown_field`
 error until implemented. See `ROADMAP.md` for the order.
 
-* Note names for pitch (`"C5"`, `"A#3"`) alongside Hz.
 * Pitched noise (sample-and-hold noise at the layer pitch, NES style).
 * Band-limited oscillators (anti-aliasing).
 * LFOs on volume, filter cutoff and duty.

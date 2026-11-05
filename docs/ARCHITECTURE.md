@@ -287,7 +287,8 @@ suggestion suppresses complaints about the suggested field's default.
 ```
 
 Codes: `syntax`, `unknown_field`, `unknown_variant`, `missing_field`,
-`type_mismatch`, `out_of_range`, `unsupported_version`, `invalid`, `other`,
+`type_mismatch`, `out_of_range`, `invalid_format`, `unsupported_version`,
+`invalid`, `other`,
 and for warnings `unused`, `suspicious`. Human output is one line per issue
 in the same order.
 

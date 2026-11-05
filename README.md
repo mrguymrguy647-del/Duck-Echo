@@ -33,8 +33,8 @@ version = 0
 [[layers]]
 source = "square"
 [layers.pitch]
-start = 880
-end = 1760
+start = "A5"        # or a number in Hz, such as 880
+end = "A6"
 curve = "exponential"
 ```
 
@@ -65,7 +65,8 @@ crates/duck-echo-audio    AudioBuffer and WAV I/O
 crates/duck-echo-synth    deterministic renderer
 crates/duck-echo-analyze  measurements
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
-examples/recipes          coin, jump, laser, explosion, hit, powerup, ricochet (stereo)
+examples/recipes          coin, jump, laser, explosion, hit, powerup,
+                          ricochet (stereo), chime (note names)
 ```
 
 ## Development

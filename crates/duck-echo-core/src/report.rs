@@ -24,6 +24,9 @@ pub enum Code {
     TypeMismatch,
     /// A number outside its allowed range.
     OutOfRange,
+    /// A string that does not follow its required format (for example a
+    /// note name such as `"C5"`).
+    InvalidFormat,
     /// The `version` field is not supported by this build.
     UnsupportedVersion,
     /// The recipe cannot render as written (for example it has no layers).
@@ -45,6 +48,7 @@ impl fmt::Display for Code {
             Code::MissingField => "missing_field",
             Code::TypeMismatch => "type_mismatch",
             Code::OutOfRange => "out_of_range",
+            Code::InvalidFormat => "invalid_format",
             Code::UnsupportedVersion => "unsupported_version",
             Code::Invalid => "invalid",
             Code::Other => "other",

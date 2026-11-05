@@ -686,3 +686,80 @@ fn channel_and_pan_validation() {
     assert_eq!(loaded.report.warnings[0].path, "layers[0].pan");
     assert_eq!(loaded.report.warnings[0].code, Code::Unused);
 }
+
+/// Roadmap task 2: note names render like the equivalent Hz and keep their
+/// spelling through TOML and JSON.
+#[test]
+fn note_names_match_hz_and_round_trip() {
+    let notes = "version = 0\n[[layers]]\nsource = \"sine\"\n[layers.pitch]\nstart = \"A4\"\nend = \"A5\"\ncurve = \"exponential\"\n";
+    let hz = notes.replace("\"A4\"", "440").replace("\"A5\"", "880");
+    let a = load_str(notes, Format::Toml).unwrap().recipe;
+    let b = load_str(&hz, Format::Toml).unwrap().recipe;
+    assert_eq!(a.layers[0].pitch.start.note(), Some("A4"));
+    assert_eq!(a.layers[0].pitch.start.hz(), 440.0);
+    assert_eq!(b.layers[0].pitch.start.note(), None);
+    assert_eq!(
+        duck_echo_synth::render(&a).unwrap().samples,
+        duck_echo_synth::render(&b).unwrap().samples
+    );
+
+    let json = to_json(&a);
+    assert!(json.contains("\"start\": \"A4\""), "{json}");
+    assert_eq!(parse_str(&json, Format::Json).unwrap(), a);
+    let toml = to_toml(&a);
+    assert!(toml.contains("start = \"A4\""), "{toml}");
+    assert_eq!(parse_str(&toml, Format::Toml).unwrap(), a);
+    // Numbers stay numbers.
+    assert!(to_json(&b).contains("\"start\": 440.0"));
+
+    let chime = load_file(&examples_dir().join("chime.toml"));
+    assert_eq!(chime.layers[1].pitch.start.note(), Some("B5"));
+    assert!((chime.layers[1].pitch.start.hz() - 987.77).abs() < 0.01);
+}
+
+#[test]
+fn bad_note_name_is_reported_at_its_path() {
+    for (src, format) in [
+        (
+            "version = 0\n[[layers]]\n[layers.pitch]\nstart = \"H4\"\n",
+            Format::Toml,
+        ),
+        (
+            r#"{"version":0,"layers":[{"pitch":{"start":"H4"}}]}"#,
+            Format::Json,
+        ),
+    ] {
+        let report = load_str(src, format).unwrap_err();
+        assert_eq!(report.errors.len(), 1, "{report}");
+        let e = &report.errors[0];
+        assert_eq!(e.code, Code::InvalidFormat);
+        assert_eq!(e.path, "layers[0].pitch.start");
+        assert_eq!(e.suggestion.as_deref(), Some("B4"));
+        assert!(e.message.contains("for example \"C5\""), "{}", e.message);
+        assert!(e.line.is_some());
+    }
+    let e = first_error(
+        "version = 0\n[[layers]]\n[layers.pitch]\nend = true\n",
+        Format::Toml,
+    );
+    assert_eq!(e.code, Code::TypeMismatch);
+    assert!(
+        e.message.contains("a number or a note name"),
+        "{}",
+        e.message
+    );
+}
+
+#[test]
+fn schema_offers_number_or_note_name() {
+    let schema = duck_echo_core::schema::recipe_schema();
+    let freq = &schema["$defs"]["Frequency"]["anyOf"];
+    assert_eq!(freq[0]["type"], "number");
+    assert_eq!(freq[1]["type"], "string");
+    assert_eq!(freq[1]["format"], "note-name");
+    assert_eq!(freq[1]["pattern"], duck_echo_core::note::NOTE_PATTERN);
+    assert_eq!(
+        schema["$defs"]["Pitch"]["properties"]["start"]["$ref"],
+        "#/$defs/Frequency"
+    );
+}

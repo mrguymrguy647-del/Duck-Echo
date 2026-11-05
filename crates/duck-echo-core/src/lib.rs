@@ -9,6 +9,7 @@
 //! It does no audio work. See `duck-echo-synth` for rendering.
 
 pub mod load;
+pub mod note;
 pub mod recipe;
 pub mod report;
 pub mod schema;
@@ -17,6 +18,7 @@ pub mod tree;
 pub mod validate;
 
 pub use load::{load_path, load_str, parse_str, to_json, to_toml, Format, Loaded};
+pub use note::Frequency;
 pub use recipe::*;
 pub use report::{Allowed, Code, Issue, Report, Severity};
 pub use validate::validate;

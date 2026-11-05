@@ -153,8 +153,8 @@ impl LayerVoice {
 
         let p = &layer.pitch;
         let sweep = Sweep::new(
-            p.start * pitch_mult,
-            p.end.map(|e| e * pitch_mult),
+            p.start.hz() * pitch_mult,
+            p.end.as_ref().map(|e| e.hz() * pitch_mult),
             p.sweep_time.unwrap_or(env_len),
             p.curve,
         );
