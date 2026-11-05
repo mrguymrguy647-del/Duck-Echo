@@ -142,6 +142,12 @@ pub fn render_to_file(
     seed: Option<u64>,
     format: duck_echo_audio::WavFormat,
 ) -> Result<Rendered, ToolError> {
+    if !has_wav_extension(output) {
+        return Err(ToolError::Io(format!(
+            "render output {} must end in .wav; refusing to write audio over another kind of file",
+            output.display()
+        )));
+    }
     let mut recipe = loaded.recipe.clone();
     if let Some(s) = seed {
         recipe.seed = s;
@@ -155,6 +161,35 @@ pub fn render_to_file(
         warnings: loaded.report.warnings.clone(),
         analysis: analyze_buffer(&buffer),
     })
+}
+
+/// True when `path` ends in `.wav` (any case).
+pub fn has_wav_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+}
+
+/// A name safe to use as part of a file name: letters, digits, `-` and `_`
+/// kept, anything else (path separators, dots) replaced by `_`. Recipe
+/// names come from callers, so they never reach the filesystem unchanged.
+pub fn file_safe(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(64)
+        .collect();
+    if cleaned.trim_matches('_').is_empty() {
+        "sound".into()
+    } else {
+        cleaned
+    }
 }
 
 fn write_wav_file(
@@ -202,7 +237,7 @@ pub struct Variations {
 
 /// Render seeds `1..=count` of a recipe, optionally with a different
 /// `variation`, and analyze each. With `out_dir`, each is written as
-/// `<stem>_seed<N>.wav`.
+/// `<stem>_seed<N>.wav`, with the stem made file-safe by [`file_safe`].
 pub fn variations(
     recipe: &RecipeRef,
     count: u32,
@@ -237,7 +272,7 @@ pub fn variations(
         let buffer = duck_echo_synth::render(&r)?;
         let output = match out_dir {
             Some(dir) => {
-                let path = dir.join(format!("{}_seed{seed}.wav", recipe.stem));
+                let path = dir.join(format!("{}_seed{seed}.wav", file_safe(&recipe.stem)));
                 write_wav_file(&path, &buffer, duck_echo_audio::WavFormat::Pcm16)?;
                 Some(path.display().to_string())
             }

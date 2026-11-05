@@ -295,7 +295,7 @@ fn source(root: &Root, args: &Map<String, Value>) -> Result<Source, ToolError> {
         )),
         (Some(v @ Value::Object(_)), None) => Ok(Source::Inline(v.clone())),
         (Some(_), _) => Err(arg_error("recipe", "`recipe` must be a JSON object")),
-        (None, Some(p)) => Ok(Source::Path(root.resolve(p)?)),
+        (None, Some(p)) => Ok(Source::Path(root.read(p)?)),
         (None, None) => Err(arg_error("recipe", RECIPE_SOURCE)),
     }
 }
@@ -313,7 +313,7 @@ fn load_source(src: &Source) -> Result<RecipeRef, ToolError> {
 
 fn audio_of(root: &Root, v: &Value, key: &str) -> Result<duck_echo_audio::AudioBuffer, ToolError> {
     match v {
-        Value::String(p) => duck_echo_tools::load_audio(&root.resolve(p)?),
+        Value::String(p) => duck_echo_tools::load_audio(&root.read(p)?),
         Value::Object(_) => {
             let loaded: Loaded = edit::load_value(v)?;
             duck_echo_tools::render_buffer(&loaded.recipe)
@@ -379,7 +379,7 @@ fn run(root: &Root, name: &str, args: &Map<String, Value>) -> Result<Value, Tool
         },
         "create" => {
             let path_arg = req_str(args, "path")?;
-            let path = root.resolve(path_arg)?;
+            let path = root.write(path_arg)?;
             if !duck_echo_tools::is_recipe_path(&path) {
                 return Err(arg_error("path", "`path` must end in .toml or .json"));
             }
@@ -433,6 +433,14 @@ fn run(root: &Root, name: &str, args: &Map<String, Value>) -> Result<Value, Tool
                     "only a recipe file can be written; use create to save an inline recipe or preset",
                 ));
             }
+            if let (true, Some(p)) = (write, &file) {
+                if !duck_echo_tools::is_recipe_path(p) {
+                    return Err(arg_error(
+                        "path",
+                        "only a .toml or .json recipe file can be rewritten; pass \"write\": false to edit without saving",
+                    ));
+                }
+            }
             edit::apply_edits(&mut doc, &ops)?;
             let loaded = edit::load_value(&doc)?;
             if let (true, Some(p)) = (write, &file) {
@@ -448,7 +456,14 @@ fn run(root: &Root, name: &str, args: &Map<String, Value>) -> Result<Value, Tool
         }
         "render" => {
             let r = load_source(&source(root, args)?)?;
-            let out = root.resolve(req_str(args, "output")?)?;
+            let out_arg = req_str(args, "output")?;
+            let out = root.write(out_arg)?;
+            if !duck_echo_tools::has_wav_extension(&out) {
+                return Err(arg_error(
+                    "output",
+                    format!("`{out_arg}` must end in .wav; render never writes audio over another kind of file"),
+                ));
+            }
             let seed =
                 match args.get("seed") {
                     None | Some(Value::Null) => None,
@@ -481,7 +496,7 @@ fn run(root: &Root, name: &str, args: &Map<String, Value>) -> Result<Value, Tool
                     ))
                 }
                 (Some(v), None) => audio_of(root, v, "recipe")?,
-                (None, Some(p)) => duck_echo_tools::load_audio(&root.resolve(p)?)?,
+                (None, Some(p)) => duck_echo_tools::load_audio(&root.read(p)?)?,
                 (None, None) => {
                     return Err(arg_error(
                         "path",
@@ -514,7 +529,7 @@ fn run(root: &Root, name: &str, args: &Map<String, Value>) -> Result<Value, Tool
                 ),
             };
             let dir = opt_str(args, "output_dir")?
-                .map(|d| root.resolve(d))
+                .map(|d| root.write(d))
                 .transpose()?;
             let v = duck_echo_tools::variations(&r, count, variation, dir.as_deref())?;
             let mut value = to_value(&v);

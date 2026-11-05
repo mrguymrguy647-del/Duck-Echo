@@ -72,6 +72,18 @@ Found in a review of Phase 0 and fixed before task 1.
   `[master]` in TOML makes it `master.seed`; the error now says the field
   is top-level and must go above the first table header. Found while
   writing the presets, where the template made exactly this mistake.
+- [x] **R8. MCP write paths could leave the root (security).** The
+  `preset:` prefix skipped the root guard, so `render` with output
+  `preset:/../../x.wav` wrote outside the root, and `render` overwrote an
+  unrelated `important.txt`; `create` and `variations` had the same hole,
+  and `variations` also used the recipe `name` in file names. Fixed in
+  `duck-echo-mcp/src/root.rs`: separate read and write resolvers;
+  `preset:` only for reads and only with a known name; no `..` or absolute
+  paths; symbolic links resolved and kept inside the root; render writes
+  only `.wav`; names made file-safe. Tests:
+  `write_paths_cannot_leave_the_root`, `read_paths_cannot_leave_the_root`.
+  Lesson: every new tool argument that names a file must go through
+  `Root::read` or `Root::write`, never `PathBuf::from`.
 
 ## Phase 1: finish sound effects
 

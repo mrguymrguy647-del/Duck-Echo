@@ -254,9 +254,15 @@ Rules the server keeps:
   refer to text the agent never wrote.
 * **Results as data.** Every result is a JSON object, sent both as
   `structuredContent` and as text.
-* **Paths stay inside the root.** File paths resolve against `--root`
-  (default: the working directory); a path that leaves it is refused.
-  Results show paths relative to the root.
+* **Paths stay inside the root.** File paths are relative to `--root`
+  (default: the working directory). Absolute paths and `..` are refused;
+  symbolic links are resolved and refused if they lead out of the root or
+  are broken. `preset:NAME` is accepted only where a recipe is read, and
+  only for a known preset name; it can never be a write target. `render`
+  writes only `.wav` files, so it cannot overwrite other files; recipe
+  names are made file-safe before they become file names. Results show
+  paths relative to the root. All of this lives in
+  `crates/duck-echo-mcp/src/root.rs`, and stdio tests try each escape.
 * **Never silently.** Edits that cannot apply say which op and why; an
   invalid result changes no file.
 

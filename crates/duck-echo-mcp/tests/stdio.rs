@@ -301,7 +301,7 @@ fn arguments_paths_and_protocol_edges() {
     assert!(e["errors"][0]["message"]
         .as_str()
         .unwrap()
-        .contains("outside the server root"));
+        .contains("`..` is not allowed"));
     assert!(!root.parent().unwrap().join("escape.wav").exists());
 
     let (e, err) = s.call("get_preset", json!({"name": "gemm"}));
@@ -332,4 +332,210 @@ fn arguments_paths_and_protocol_edges() {
     let (schema, err) = s.call("get_schema", json!({}));
     assert!(!err);
     assert_eq!(schema["title"], "Duck Echo recipe v0");
+}
+
+/// A sandbox with `root/` (served) and `outside/` (must never be touched),
+/// plus an unrelated file inside the root.
+fn sandbox(name: &str) -> (PathBuf, PathBuf) {
+    let base = fresh_root(name);
+    let root = base.join("root");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(root.join("important.txt"), "keep me").unwrap();
+    std::fs::write(outside.join("secret.wav"), "not audio").unwrap();
+    (root, outside)
+}
+
+/// Every file under `dir`, relative, sorted.
+fn files_under(dir: &Path) -> Vec<String> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<String>) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            let meta = std::fs::symlink_metadata(&p).unwrap();
+            if meta.is_dir() {
+                walk(base, &p, out);
+            } else {
+                out.push(p.strip_prefix(base).unwrap().display().to_string());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+fn assert_refused(s: &mut Session, tool: &str, args: Value, why: &str) {
+    let (report, err) = s.call(tool, args.clone());
+    assert!(err, "{tool} {args} was not refused: {report}");
+    assert_eq!(report["ok"], false);
+    let msg = report["errors"][0]["message"].as_str().unwrap();
+    assert!(
+        msg.contains(why),
+        "{tool} {args}: expected `{why}` in: {msg}"
+    );
+}
+
+/// Security: no write path can leave the root, through `preset:`, `..`,
+/// absolute paths or symbolic links, and render never clobbers non-WAV
+/// files.
+#[test]
+fn write_paths_cannot_leave_the_root() {
+    let (root, outside) = sandbox("mcp_security_writes");
+    let base = root.parent().unwrap().to_path_buf();
+    let outside_abs = outside.join("x.wav").display().to_string();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&outside, root.join("out_link")).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.wav"), root.join("file_link.wav")).unwrap();
+        std::os::unix::fs::symlink(outside.join("missing.wav"), root.join("dangling.wav")).unwrap();
+    }
+    let before_root = files_under(&root);
+    let before_outside = files_under(&outside);
+    let mut s = started(&root);
+
+    let bad_wavs: Vec<(String, &str)> = vec![
+        ("preset:coin".into(), "read-only"),
+        ("preset:/../../x.wav".into(), "read-only"),
+        ("../x.wav".into(), "`..` is not allowed"),
+        ("sfx/../../x.wav".into(), "`..` is not allowed"),
+        (outside_abs.clone(), "absolute paths are not allowed"),
+        #[cfg(unix)]
+        (
+            "out_link/x.wav".into(),
+            "outside the server root through a symbolic link",
+        ),
+        #[cfg(unix)]
+        (
+            "file_link.wav".into(),
+            "outside the server root through a symbolic link",
+        ),
+        #[cfg(unix)]
+        ("dangling.wav".into(), "broken symbolic link"),
+        ("important.txt".into(), "must end in .wav"),
+        ("notes".into(), "must end in .wav"),
+    ];
+    for (out, why) in &bad_wavs {
+        assert_refused(
+            &mut s,
+            "render",
+            json!({"path": "preset:coin", "output": out}),
+            why,
+        );
+    }
+
+    let recipe = json!({"version": 0, "layers": [{"source": "sine"}]});
+    for (path, why) in [
+        ("preset:coin.toml", "read-only"),
+        ("preset:/../../x.toml", "read-only"),
+        ("../x.toml", "`..` is not allowed"),
+        (
+            &outside.join("x.toml").display().to_string()[..],
+            "absolute paths are not allowed",
+        ),
+        #[cfg(unix)]
+        (
+            "out_link/x.toml",
+            "outside the server root through a symbolic link",
+        ),
+    ] {
+        assert_refused(
+            &mut s,
+            "create",
+            json!({"path": path, "recipe": recipe}),
+            why,
+        );
+    }
+
+    for (dir, why) in [
+        ("preset:coin", "read-only"),
+        ("preset:/../..", "read-only"),
+        ("..", "`..` is not allowed"),
+        (
+            &outside.display().to_string()[..],
+            "absolute paths are not allowed",
+        ),
+        #[cfg(unix)]
+        (
+            "out_link",
+            "outside the server root through a symbolic link",
+        ),
+    ] {
+        assert_refused(
+            &mut s,
+            "variations",
+            json!({"path": "preset:footstep", "count": 1, "output_dir": dir}),
+            why,
+        );
+    }
+
+    // Nothing was written or changed anywhere.
+    assert_eq!(files_under(&root), before_root);
+    assert_eq!(files_under(&outside), before_outside);
+    assert_eq!(
+        std::fs::read_to_string(root.join("important.txt")).unwrap(),
+        "keep me"
+    );
+    assert_eq!(
+        std::fs::read_to_string(outside.join("secret.wav")).unwrap(),
+        "not audio"
+    );
+    assert!(!base.join("x.wav").exists() && !base.parent().unwrap().join("x.wav").exists());
+
+    // A recipe name is never trusted as a file name.
+    let (vars, err) = s.call(
+        "variations",
+        json!({"recipe": {"version": 0, "name": "../../evil", "layers": [{"source": "noise"}]},
+               "count": 1, "output_dir": "vars"}),
+    );
+    assert!(!err, "{vars}");
+    assert_eq!(vars["renders"][0]["output"], "vars/______evil_seed1.wav");
+    assert_eq!(files_under(&outside), before_outside);
+
+    // Legitimate writes still work, including into new folders.
+    let (ok, err) = s.call(
+        "render",
+        json!({"path": "preset:coin", "output": "a/b/coin.wav"}),
+    );
+    assert!(!err, "{ok}");
+    assert!(root.join("a/b/coin.wav").exists());
+}
+
+/// Security: reads cannot leave the root either, and `preset:` only names
+/// real presets.
+#[test]
+fn read_paths_cannot_leave_the_root() {
+    let (root, outside) = sandbox("mcp_security_reads");
+    std::fs::write(outside.join("recipe.toml"), "version = 0\n[[layers]]\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, root.join("out_link")).unwrap();
+    let mut s = started(&root);
+
+    for (path, why) in [
+        ("../outside/recipe.toml", "`..` is not allowed"),
+        (
+            &outside.join("recipe.toml").display().to_string()[..],
+            "absolute paths are not allowed",
+        ),
+        #[cfg(unix)]
+        (
+            "out_link/recipe.toml",
+            "outside the server root through a symbolic link",
+        ),
+        ("preset:../coin", "preset name"),
+        ("preset:/etc/passwd", "preset name"),
+        ("preset:Coin", "preset name"),
+        ("preset:nope", "no preset named"),
+    ] {
+        assert_refused(&mut s, "validate", json!({"path": path}), why);
+        assert_refused(&mut s, "analyze", json!({"path": path}), why);
+    }
+    #[cfg(unix)]
+    assert_refused(
+        &mut s,
+        "compare",
+        json!({"a": "preset:coin", "b": "out_link/secret.wav"}),
+        "outside the server root through a symbolic link",
+    );
 }

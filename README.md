@@ -60,7 +60,8 @@ example `duck-echo render preset:coin -o coin.wav`.
 `duck-echo-mcp` serves the Duck Echo tools over the Model Context Protocol:
 `get_schema`, `list_presets`, `get_preset`, `validate`, `create`, `edit`,
 `render`, `analyze`, `compare` and `variations`. File paths are relative to
-`--root` and cannot leave it.
+`--root` and cannot leave it: absolute paths, `..` and symbolic links that
+lead out are refused, and `render` only writes `.wav` files.
 
 ```bash
 cargo build --release
