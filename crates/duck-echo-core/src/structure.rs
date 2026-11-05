@@ -57,6 +57,11 @@ pub fn check_against(root: &Node, schema: &J) -> Checked {
     let empty = Map::new();
     let defs = schema.get("$defs").and_then(J::as_object).unwrap_or(&empty);
     let mut w = Walker {
+        root_props: schema
+            .get("properties")
+            .and_then(J::as_object)
+            .map(|p| p.keys().cloned().collect())
+            .unwrap_or_default(),
         defs,
         issues: Vec::new(),
         poisoned: Vec::new(),
@@ -95,6 +100,9 @@ fn at(mut issue: Issue, pos: Pos) -> Issue {
 }
 
 struct Walker<'s> {
+    /// Property names of the document root, to spot top-level fields
+    /// written inside a table.
+    root_props: Vec<String>,
     defs: &'s Map<String, J>,
     issues: Vec<Issue>,
     poisoned: Vec<String>,
@@ -301,9 +309,15 @@ impl<'s> Walker<'s> {
                         .map(|(k, _)| k.clone())
                         .collect();
                     let sugg = suggest(&e.key, &options);
+                    let mut message = format!("unknown field `{}`", e.key);
+                    if !path.is_empty() && self.root_props.contains(&e.key) {
+                        message.push_str(&format!(
+                            "; `{}` is a top-level field (in TOML, write it above the first [table] header, or every key after a header belongs to that table)",
+                            e.key
+                        ));
+                    }
                     let mut issue =
-                        Issue::error(Code::UnknownField, &p, format!("unknown field `{}`", e.key))
-                            .got(e.key.clone());
+                        Issue::error(Code::UnknownField, &p, message).got(e.key.clone());
                     if let Some(sg) = &sugg {
                         issue = issue.suggest(sg.name.clone());
                     }

@@ -1,0 +1,38 @@
+# Big explosion: a long rumbling blast, a deep sub drop and a big room.
+version = 0
+name = "big_explosion"
+description = "Large, long explosion with a deep tail."
+tags = ["impact", "explosion", "noisy", "long", "heavy"]
+
+seed = 13
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+name = "blast"
+source = "noise"
+volume = 0.6
+envelope = { attack = 0.01, hold = 0.15, decay = 1.6 }
+filter = { kind = "lowpass", cutoff = 4000, cutoff_end = 80, curve = "exponential", resonance = 0.9 }
+
+[[layers]]
+name = "sub"
+source = "sine"
+volume = 0.5
+envelope = { attack = 0.005, hold = 0.05, decay = 0.8 }
+pitch = { start = 80, end = 25, curve = "exponential", sweep_time = 0.6 }
+
+[[effects]]
+type = "distortion"
+drive = 2
+kind = "soft"
+
+[[effects]]
+type = "reverb"
+size = 0.9
+decay = 1.5
+damping = 0.6
+mix = 0.3

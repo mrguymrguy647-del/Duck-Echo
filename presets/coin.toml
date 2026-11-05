@@ -1,0 +1,15 @@
+# Coin: a square blip on B5 that jumps up a fourth.
+version = 0
+name = "coin"
+description = "Classic coin pickup."
+tags = ["pickup", "coin", "bright"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "square"
+envelope = { attack = 0.002, hold = 0.06, decay = 0.25 }
+pitch = { start = "B5", arpeggio = { steps = [0, 5], step_time = 0.07, repeat = false } }

@@ -1,0 +1,17 @@
+# Extra life: a long major arpeggio climbing two octaves.
+version = 0
+name = "extra_life"
+description = "Triumphant climbing arpeggio for an extra life."
+tags = ["pickup", "extra_life", "rising", "long"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "square"
+duty = 0.25
+envelope = { attack = 0.002, hold = 0.35, decay = 0.25 }
+pitch = { start = "C5", arpeggio = { steps = [0, 4, 7, 12, 16, 19, 24], step_time = 0.05, repeat = false } }
+filter = { kind = "lowpass", cutoff = 6000 }

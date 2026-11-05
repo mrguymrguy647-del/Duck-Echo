@@ -1,0 +1,26 @@
+# Missile: a rising whoosh of band-passed noise over a low rumble.
+version = 0
+name = "missile"
+description = "Missile launch whoosh."
+tags = ["weapon", "missile", "whoosh", "rising"]
+
+seed = 5
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+name = "whoosh"
+source = "noise"
+envelope = { attack = 0.05, hold = 0.35, decay = 0.3 }
+filter = { kind = "bandpass", cutoff = 400, cutoff_end = 2500, curve = "exponential", resonance = 2 }
+
+[[layers]]
+name = "rumble"
+source = "saw"
+volume = 0.4
+envelope = { attack = 0.02, hold = 0.3, decay = 0.3 }
+pitch = { start = 120, end = 60, curve = "exponential" }
+filter = { kind = "lowpass", cutoff = 400 }

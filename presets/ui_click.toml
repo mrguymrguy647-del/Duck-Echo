@@ -1,0 +1,16 @@
+# Short UI click: a quick falling square blip, softened by a lowpass.
+version = 0
+name = "ui_click"
+description = "Short, crisp interface click."
+tags = ["ui", "click", "short"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "square"
+envelope = { attack = 0.001, decay = 0.035 }
+pitch = { start = 1800, end = 1200, curve = "exponential" }
+filter = { kind = "lowpass", cutoff = 5000 }

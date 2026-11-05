@@ -11,7 +11,7 @@ below, which puts real agents on Duck Echo as early as possible.
 | 1 | 1. Stereo output and pan | done |
 | 2 | 2. Note names | done |
 | 3 | 6. Richer analysis and `compare` | done |
-| 4 | 7. Presets and `variations` | |
+| 4 | 7. Presets and `variations` | done |
 | 5 | 9. MCP server | |
 | 6 | 3. Band-limited oscillators | |
 | 7 | 4. Pitched noise and LFOs | |
@@ -68,6 +68,10 @@ Found in a review of Phase 0 and fixed before task 1.
   Test: `misspelled_entries_are_checked_as_the_suggested_name`.
 - [x] **R6. Quoted numbers.** `"440"` or `"440hz"` for a pitch (and a
   quoted number for any numeric field) now suggests the bare number.
+- [x] **R7. Top-level keys under a table.** Writing `seed = 4` after
+  `[master]` in TOML makes it `master.seed`; the error now says the field
+  is top-level and must go above the first table header. Found while
+  writing the presets, where the template made exactly this mistake.
 
 ## Phase 1: finish sound effects
 
@@ -145,7 +149,22 @@ loudest reads as a slow attack (powerup); naive square and saw waves read
 * Accept: tests on synthetic signals with known values; JSON output stays
   backward compatible (only additions).
 
-### 7. Presets and `variations`
+### 7. Presets and `variations` [done]
+
+Done. 30 presets in `presets/` across seven categories (the six planned
+plus `movement`), compiled into the tools crate so the CLI and MCP server
+find them anywhere. Choices: tags live in the recipe as new metadata
+fields `description` and `tags` rather than in comments or an index, so
+JSON tool calls see them; presets are peak-normalized to -3 dBFS and
+trimmed; `preset:NAME` works wherever a recipe path does. Every preset's
+render is pinned like the examples. `variations` reports `seeds_matter:
+false` with a note when nothing depends on the seed, instead of writing
+identical files. Conventions and how to add a preset: `presets/README.md`.
+Notes for the agent guide (task 10): preset loudness ranges from about -4
+LUFS (alarm, ui_error) to -17 LUFS (explosions, metal clang) at the same
+peak, which shows why peak and loudness must both be checked; the
+`big_explosion` reads "tonal" because its sub-bass sine carries most of the
+power. Original task text follows.
 
 * `presets/` directory with 20 to 30 tagged recipes (ui, pickup, weapon,
   impact, ambient, alert). Each has `name` and a `# tags:` comment turned

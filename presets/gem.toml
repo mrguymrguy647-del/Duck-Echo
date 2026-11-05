@@ -1,0 +1,27 @@
+# Gem: a fast sparkling sine arpeggio with a short echo.
+version = 0
+name = "gem"
+description = "Sparkly pickup for gems or crystals."
+tags = ["pickup", "gem", "sparkle"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "sine"
+envelope = { attack = 0.002, hold = 0.12, decay = 0.2 }
+pitch = { start = "E6", arpeggio = { steps = [0, 7, 12, 19], step_time = 0.04, repeat = false } }
+
+[[layers]]
+source = "triangle"
+volume = 0.3
+envelope = { attack = 0.002, hold = 0.12, decay = 0.2 }
+pitch = { start = "E7", arpeggio = { steps = [0, 7, 12, 19], step_time = 0.04, repeat = false } }
+
+[[effects]]
+type = "echo"
+delay = 0.08
+feedback = 0.3
+mix = 0.25

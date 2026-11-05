@@ -106,6 +106,15 @@ pub struct Recipe {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
+    /// Optional one-sentence description. Not used by the renderer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Optional tags for search, such as `["pickup", "bright"]`. Not used by
+    /// the renderer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+
     /// Random seed. Same recipe + same seed = byte-identical audio.
     /// Drives the noise source and the `variation` jitter. Default `0`.
     #[serde(default)]
@@ -571,6 +580,8 @@ impl Recipe {
         Self {
             version: CURRENT_VERSION,
             name: None,
+            description: None,
+            tags: Vec::new(),
             seed: 0,
             sample_rate: DEFAULT_SAMPLE_RATE,
             channels: 1,

@@ -46,9 +46,14 @@ curve = "exponential"
 | `duck-echo render <recipe> [-o out.wav] [--seed N] [--format pcm16\|pcm24\|float32] [--json]` | Renders to WAV. `--json` adds the analysis of the result. |
 | `duck-echo analyze <wav-or-recipe> [--compact]` | JSON measurements headed by a one-line `summary`: duration, peak, RMS, loudness in LUFS with its method, clipping, silence, attack, decay, crest factor, brightness, tonality and a pitch track. A recipe is rendered in memory. See `docs/ANALYSIS.md`. |
 | `duck-echo compare <a> <b> [--compact]` | What changed from A to B (loudness, brightness, length, attack, ...), waveform correlation, and both analyses. WAV files or recipes. |
+| `duck-echo presets list [--tag T] [--json]` | The 30 built-in presets with category and description. |
+| `duck-echo presets show <name> [--json]` | A preset's recipe, to copy and edit. |
+| `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
 | `duck-echo schema` | The JSON Schema for recipes, with descriptions and defaults. |
 
 Recipes are TOML on disk and JSON in tool calls; both are the same schema.
+Anywhere a recipe is expected, `preset:NAME` names a built-in preset, for
+example `duck-echo render preset:coin -o coin.wav`.
 
 ## Documents
 
@@ -68,6 +73,7 @@ crates/duck-echo-synth    deterministic renderer
 crates/duck-echo-analyze  measurements and compare
 crates/duck-echo-tools    operations shared by the CLI and the MCP server
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
+presets                   30 tagged starting points (see presets/README.md)
 examples/recipes          coin, jump, laser, explosion, hit, powerup,
                           ricochet (stereo), chime (note names)
 ```

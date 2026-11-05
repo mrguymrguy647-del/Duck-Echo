@@ -1,0 +1,27 @@
+# UI confirm: two rising triangle notes, C6 then G6, in a small room.
+version = 0
+name = "ui_confirm"
+description = "Two rising notes for accept or OK."
+tags = ["ui", "confirm", "positive"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "triangle"
+envelope = { attack = 0.003, hold = 0.05, decay = 0.1 }
+pitch = { start = "C6" }
+
+[[layers]]
+source = "triangle"
+offset = 0.07
+envelope = { attack = 0.003, hold = 0.05, decay = 0.15 }
+pitch = { start = "G6" }
+
+[[effects]]
+type = "reverb"
+size = 0.2
+decay = 0.3
+mix = 0.15

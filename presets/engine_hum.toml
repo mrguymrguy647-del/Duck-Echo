@@ -1,0 +1,24 @@
+# Engine hum: a low saw and pulse with a slow wobble under a dark filter.
+version = 0
+name = "engine_hum"
+description = "Steady low engine or machine hum."
+tags = ["ambient", "engine", "hum", "low", "long"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "saw"
+envelope = { attack = 0.2, hold = 2.0, decay = 0.3 }
+pitch = { start = 55, vibrato = { rate = 7, depth = 0.1 } }
+filter = { kind = "lowpass", cutoff = 400 }
+
+[[layers]]
+source = "square"
+duty = 0.3
+volume = 0.5
+envelope = { attack = 0.2, hold = 2.0, decay = 0.3 }
+pitch = { start = 110, vibrato = { rate = 7, depth = 0.1 } }
+filter = { kind = "lowpass", cutoff = 400 }

@@ -1,0 +1,23 @@
+# Land: a soft noise thump with a short low drop.
+version = 0
+name = "land"
+description = "Landing on the ground after a jump."
+tags = ["movement", "land", "low", "short"]
+
+seed = 6
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "noise"
+envelope = { attack = 0.001, decay = 0.08 }
+filter = { kind = "lowpass", cutoff = 800 }
+
+[[layers]]
+source = "sine"
+volume = 0.6
+envelope = { attack = 0.001, decay = 0.08 }
+pitch = { start = 120, end = 60, curve = "exponential" }

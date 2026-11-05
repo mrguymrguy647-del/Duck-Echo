@@ -1,0 +1,37 @@
+# Explosion: noise with a closing lowpass, a sine thump, grit and a short room.
+version = 0
+name = "explosion"
+description = "Medium explosion."
+tags = ["impact", "explosion", "noisy"]
+
+seed = 7
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+name = "boom"
+source = "noise"
+volume = 0.45
+envelope = { attack = 0.01, hold = 0.08, decay = 0.9 }
+filter = { kind = "lowpass", cutoff = 5000, cutoff_end = 150, curve = "exponential", resonance = 0.9 }
+
+[[layers]]
+name = "thump"
+source = "sine"
+volume = 0.35
+envelope = { attack = 0.005, decay = 0.35 }
+pitch = { start = 140, end = 35, curve = "exponential", sweep_time = 0.3 }
+
+[[effects]]
+type = "distortion"
+drive = 2.5
+kind = "soft"
+
+[[effects]]
+type = "reverb"
+size = 0.6
+decay = 0.6
+mix = 0.2

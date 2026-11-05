@@ -1,0 +1,17 @@
+# Jump: a quick upward pulse sweep with a closing filter.
+version = 0
+name = "jump"
+description = "Platformer jump."
+tags = ["movement", "jump", "rising", "short"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "square"
+duty = 0.3
+envelope = { attack = 0.005, hold = 0.05, decay = 0.22 }
+pitch = { start = 220, end = 660, curve = "exponential", sweep_time = 0.18 }
+filter = { kind = "lowpass", cutoff = 6000, cutoff_end = 1500, resonance = 1.2 }

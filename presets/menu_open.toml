@@ -1,0 +1,16 @@
+# Menu open: a quick upward triangle sweep with an opening filter.
+version = 0
+name = "menu_open"
+description = "Upward swish for opening a menu or panel."
+tags = ["ui", "menu", "swish"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "triangle"
+envelope = { attack = 0.01, hold = 0.06, decay = 0.08 }
+pitch = { start = 300, end = 900, curve = "exponential", sweep_time = 0.12 }
+filter = { kind = "lowpass", cutoff = 1500, cutoff_end = 6000, curve = "exponential", sweep_time = 0.12 }

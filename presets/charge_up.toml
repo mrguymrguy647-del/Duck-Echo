@@ -1,0 +1,16 @@
+# Charge-up: a saw sweeping up with a wobble while the filter opens.
+version = 0
+name = "charge_up"
+description = "Rising energy charge before a big shot."
+tags = ["weapon", "charge", "rising", "long"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "saw"
+envelope = { attack = 0.05, hold = 0.7, decay = 0.1 }
+pitch = { start = 200, end = 1200, curve = "exponential", sweep_time = 0.8, vibrato = { rate = 12, depth = 0.3 } }
+filter = { kind = "lowpass", cutoff = 800, cutoff_end = 6000, curve = "exponential", resonance = 2 }

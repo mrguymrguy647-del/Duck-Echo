@@ -96,11 +96,13 @@ pub struct Analysis {
     /// Peak over RMS of the non-silent part, in dB. A sine is 3 dB, a
     /// square 0 dB; spiky, percussive sounds are higher. `null` when silent.
     pub crest_factor_db: Option<f32>,
-    /// Seconds from the first non-silent sample to 90% of the maximum
-    /// short-term level (5 ms RMS). `null` when silent.
+    /// Seconds from the first non-silent sample until the short-term peak
+    /// level (largest sample in the previous 20 ms) reaches 90% of the
+    /// sound's peak. `null` when silent.
     pub attack_seconds: Option<f64>,
-    /// Seconds from the maximum short-term level until it falls 20 dB.
-    /// `null` when silent or when it never falls that far.
+    /// Seconds from the last sample at 90% of the peak until no sample in
+    /// the next 20 ms reaches 10% of it (-20 dB). `null` when silent or
+    /// when it never falls that far.
     pub decay_seconds: Option<f64>,
     /// Magnitude-weighted mean frequency of the non-silent part, Hz. Higher
     /// is brighter. `null` when silent.

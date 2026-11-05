@@ -1,0 +1,29 @@
+# Power-up: a rising arpeggio over an octave sweep, with a late sine shimmer.
+version = 0
+name = "powerup"
+description = "Rising power-up."
+tags = ["pickup", "powerup", "rising"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "square"
+duty = 0.25
+envelope = { attack = 0.005, hold = 0.3, decay = 0.25 }
+pitch = { start = "C5", end = "C6", curve = "exponential", sweep_time = 0.5, arpeggio = { steps = [0, 4, 7, 12], step_time = 0.045 } }
+
+[[layers]]
+source = "sine"
+volume = 0.35
+offset = 0.15
+envelope = { attack = 0.05, hold = 0.1, decay = 0.4 }
+pitch = { start = "C7", vibrato = { rate = 8, depth = 0.3, delay = 0.1 } }
+
+[[effects]]
+type = "echo"
+delay = 0.12
+feedback = 0.35
+mix = 0.2

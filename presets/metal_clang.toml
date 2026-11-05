@@ -1,0 +1,42 @@
+# Metal clang: inharmonic sine partials ringing out at different rates,
+# struck by a short bright tick.
+version = 0
+name = "metal_clang"
+description = "Metallic clang with a ringing tail."
+tags = ["impact", "metal", "ringing"]
+
+seed = 9
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "sine"
+envelope = { attack = 0.001, decay = 1.2 }
+pitch = { start = 523 }
+
+[[layers]]
+source = "sine"
+volume = 0.6
+envelope = { attack = 0.001, decay = 0.8 }
+pitch = { start = 1395 }
+
+[[layers]]
+source = "sine"
+volume = 0.45
+envelope = { attack = 0.001, decay = 0.5 }
+pitch = { start = 2510 }
+
+[[layers]]
+source = "sine"
+volume = 0.3
+envelope = { attack = 0.001, decay = 0.3 }
+pitch = { start = 3800 }
+
+[[layers]]
+source = "noise"
+volume = 0.5
+envelope = { attack = 0.001, decay = 0.01 }
+filter = { kind = "highpass", cutoff = 3000 }

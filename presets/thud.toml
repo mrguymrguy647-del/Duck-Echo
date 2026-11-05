@@ -1,0 +1,23 @@
+# Thud: a heavy low sine drop with a dull noise knock.
+version = 0
+name = "thud"
+description = "Heavy object landing or a door thud."
+tags = ["impact", "thud", "low", "short"]
+
+seed = 4
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "sine"
+envelope = { attack = 0.002, decay = 0.2 }
+pitch = { start = 90, end = 40, curve = "exponential" }
+
+[[layers]]
+source = "noise"
+volume = 0.5
+envelope = { attack = 0.001, decay = 0.04 }
+filter = { kind = "lowpass", cutoff = 400 }

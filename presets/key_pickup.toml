@@ -1,0 +1,28 @@
+# Key pickup: an octave leap on a triangle with a ringing sine above.
+version = 0
+name = "key_pickup"
+description = "Bright octave leap for picking up a key or item."
+tags = ["pickup", "key", "item"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "triangle"
+envelope = { attack = 0.002, hold = 0.1, decay = 0.15 }
+pitch = { start = "A5", arpeggio = { steps = [0, 12], step_time = 0.06, repeat = false } }
+
+[[layers]]
+source = "sine"
+volume = 0.4
+offset = 0.06
+envelope = { attack = 0.01, decay = 0.4 }
+pitch = { start = "A6", vibrato = { rate = 6, depth = 0.2, delay = 0.1 } }
+
+[[effects]]
+type = "reverb"
+size = 0.3
+decay = 0.5
+mix = 0.2

@@ -25,6 +25,8 @@ which renders a 0.205 s square-wave blip at 440 Hz.
 |---|---|---|---|---|
 | `version` | integer | required | `0` | Schema version. Other values are rejected. |
 | `name` | string | none | | For humans and agents; ignored by the renderer. |
+| `description` | string | none | | One sentence for humans and agents; ignored by the renderer. |
+| `tags` | array of strings | `[]` | | Search tags such as `["pickup", "bright"]`; ignored by the renderer. Presets put their category first. |
 | `seed` | integer | `0` | 0..2^63 | Drives the noise source and `variation`. Same recipe and seed give identical audio. |
 | `sample_rate` | integer | `44100` | 8000..192000 | Output rate in Hz. |
 | `channels` | integer | `1` | 1..2 | `1` mono, `2` stereo (see Stereo). |

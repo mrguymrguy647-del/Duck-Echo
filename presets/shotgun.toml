@@ -1,0 +1,35 @@
+# Shotgun: a wide noise blast closing down, a low thump, and grit.
+version = 0
+name = "shotgun"
+description = "Heavy noise blast with a low thump."
+tags = ["weapon", "shotgun", "noisy", "heavy"]
+
+seed = 11
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "noise"
+envelope = { attack = 0.001, hold = 0.02, decay = 0.25 }
+filter = { kind = "lowpass", cutoff = 6000, cutoff_end = 800, curve = "exponential", sweep_time = 0.2 }
+
+[[layers]]
+source = "sine"
+volume = 0.7
+envelope = { attack = 0.001, decay = 0.15 }
+pitch = { start = 120, end = 40, curve = "exponential" }
+
+[[effects]]
+type = "distortion"
+drive = 3
+kind = "hard"
+mix = 0.4
+
+[[effects]]
+type = "reverb"
+size = 0.3
+decay = 0.4
+mix = 0.15

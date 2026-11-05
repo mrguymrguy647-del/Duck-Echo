@@ -42,6 +42,8 @@ crates/
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 examples/recipes/          the example recipes (TOML, plus coin.json)
+presets/                   tagged starting-point recipes, compiled into the
+                           tools crate with include_str!
 schema/recipe.schema.json  generated from the Rust types; a test fails when stale
 ```
 

@@ -900,3 +900,19 @@ fn compare_recipes_through_the_shared_tools() {
     }
     let _ = std::fs::remove_file(bad);
 }
+
+#[test]
+fn top_level_key_under_a_table_says_where_it_belongs() {
+    let e = first_error(
+        "version = 0\n[master]\ngain = 1\nseed = 4\n[[layers]]\n",
+        Format::Toml,
+    );
+    assert_eq!(e.path, "master.seed");
+    assert_eq!(e.code, Code::UnknownField);
+    assert!(e.message.contains("is a top-level field"), "{}", e.message);
+    assert!(
+        e.message.contains("above the first [table] header"),
+        "{}",
+        e.message
+    );
+}

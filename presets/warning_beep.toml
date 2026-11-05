@@ -1,0 +1,27 @@
+# Warning beep: three short 1 kHz sine beeps.
+version = 0
+name = "warning_beep"
+description = "Three short warning beeps."
+tags = ["alert", "beep", "warning"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "sine"
+envelope = { attack = 0.003, hold = 0.1, decay = 0.02 }
+pitch = { start = 1000 }
+
+[[layers]]
+source = "sine"
+offset = 0.18
+envelope = { attack = 0.003, hold = 0.1, decay = 0.02 }
+pitch = { start = 1000 }
+
+[[layers]]
+source = "sine"
+offset = 0.36
+envelope = { attack = 0.003, hold = 0.1, decay = 0.02 }
+pitch = { start = 1000 }

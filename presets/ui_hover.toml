@@ -1,0 +1,15 @@
+# UI hover: a soft, quiet sine tick.
+version = 0
+name = "ui_hover"
+description = "Soft tick for hovering over a button."
+tags = ["ui", "hover", "soft"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "sine"
+envelope = { attack = 0.005, decay = 0.06 }
+pitch = { start = 1200 }

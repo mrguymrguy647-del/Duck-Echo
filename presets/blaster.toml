@@ -1,0 +1,28 @@
+# Blaster: a pulse dropping fast, a hiss of noise, crushed to 8 bits.
+version = 0
+name = "blaster"
+description = "Punchy retro blaster shot."
+tags = ["weapon", "blaster", "gritty"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "square"
+duty = 0.3
+envelope = { attack = 0.001, hold = 0.02, decay = 0.12 }
+pitch = { start = 2000, end = 150, curve = "exponential", sweep_time = 0.12 }
+
+[[layers]]
+source = "noise"
+volume = 0.4
+envelope = { attack = 0.001, decay = 0.05 }
+filter = { kind = "highpass", cutoff = 2000 }
+
+[[effects]]
+type = "bitcrush"
+bits = 8
+rate = 16000
+mix = 0.6

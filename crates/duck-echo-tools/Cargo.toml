@@ -15,5 +15,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 
+[dev-dependencies]
+duck-echo-audio = { workspace = true, features = ["wav"] }
+
 [lints]
 workspace = true

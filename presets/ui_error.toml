@@ -1,0 +1,27 @@
+# UI error: two low buzzing pulses with a fast wobble and some grit.
+version = 0
+name = "ui_error"
+description = "Low double buzz for a refused action."
+tags = ["ui", "error", "negative"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "square"
+envelope = { attack = 0.002, hold = 0.12, decay = 0.04 }
+pitch = { start = "A3", vibrato = { rate = 30, depth = 0.3 } }
+
+[[layers]]
+source = "square"
+offset = 0.2
+envelope = { attack = 0.002, hold = 0.12, decay = 0.06 }
+pitch = { start = "A3", vibrato = { rate = 30, depth = 0.3 } }
+
+[[effects]]
+type = "distortion"
+drive = 2
+kind = "soft"
+mix = 0.5

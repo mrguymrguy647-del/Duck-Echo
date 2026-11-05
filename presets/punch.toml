@@ -1,0 +1,27 @@
+# Punch: a dull noise slap over a short low drop, slightly saturated.
+version = 0
+name = "punch"
+description = "Body punch or melee hit."
+tags = ["impact", "punch", "melee", "short"]
+
+seed = 2
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "noise"
+envelope = { attack = 0.001, decay = 0.06 }
+filter = { kind = "lowpass", cutoff = 3000, cutoff_end = 600, curve = "exponential" }
+
+[[layers]]
+source = "sine"
+envelope = { attack = 0.001, decay = 0.12 }
+pitch = { start = 150, end = 50, curve = "exponential" }
+
+[[effects]]
+type = "distortion"
+drive = 2
+kind = "soft"

@@ -14,11 +14,13 @@
 //!   tonality. The dominant frequency is usually the fundamental of chip
 //!   waveforms; for noisy windows (low tonality) it means little.
 //! * **Attack**: seconds from the first non-silent sample until the
-//!   short-term level (5 ms RMS, 1 ms steps) first reaches 90% of its
-//!   maximum. Resolution is a few milliseconds.
-//! * **Decay**: seconds from the last moment the short-term level is at
-//!   90% of its maximum until it first falls below 10% of the maximum
-//!   (-20 dB), so a held note is not counted as decay. `null` if it never
+//!   short-term peak level first reaches 90% of the sound's peak. The
+//!   short-term level is the largest sample magnitude in the 20 ms before
+//!   each moment (1 ms steps), which stays steady for content down to
+//!   50 Hz, so bass does not make it ripple.
+//! * **Decay**: seconds from the last sample at 90% of the peak until the
+//!   moment after which no sample in the next 20 ms reaches 10% of the
+//!   peak (-20 dB). A held note is not counted as decay. `null` if it never
 //!   falls that far.
 
 use crate::fft::power_spectrum;
@@ -218,7 +220,7 @@ pub struct EnvelopeTimes {
     pub decay_seconds: Option<f64>,
 }
 
-/// Attack and decay from the short-term level of interleaved `samples`.
+/// Attack and decay from the peak envelope of interleaved `samples`.
 /// `onset` is the frame index of the first non-silent sample.
 pub fn envelope_times(
     samples: &[f32],
@@ -233,51 +235,49 @@ pub fn envelope_times(
     let Some(onset) = onset else { return none };
     let frames = samples.len() / channels;
     let sr = sample_rate as f64;
-    let win = ((0.005 * sr).round() as usize).max(1);
-    let hop = ((0.001 * sr).round() as usize).max(1);
-    // Prefix sums of per-frame power (mean over channels).
-    let mut prefix = Vec::with_capacity(frames + 1);
-    prefix.push(0.0f64);
-    let mut acc = 0.0;
-    for f in samples[..frames * channels].chunks_exact(channels) {
-        acc += f.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>() / channels as f64;
-        prefix.push(acc);
-    }
-    let mut env = Vec::new();
-    let mut start = 0;
-    while start < frames {
-        let end = (start + win).min(frames);
-        let level = ((prefix[end] - prefix[start]) / (end - start) as f64).sqrt();
-        env.push((level, (start + end) as f64 / 2.0 / sr));
-        start += hop;
-    }
-    let Some((peak_idx, &(peak, peak_time))) = env
-        .iter()
-        .enumerate()
-        .max_by(|a, b| a.1 .0.total_cmp(&b.1 .0))
-    else {
-        return none;
-    };
+    // Per-frame magnitude: the largest over channels.
+    let mag: Vec<f32> = samples[..frames * channels]
+        .chunks_exact(channels)
+        .map(|f| f.iter().fold(0.0f32, |m, x| m.max(x.abs())))
+        .collect();
+    let peak = mag.iter().fold(0.0f32, |m, &x| m.max(x));
     if peak <= 0.0 {
         return none;
     }
-    let onset_time = onset as f64 / sr;
-    let attack = env
-        .iter()
-        .find(|(l, _)| *l >= 0.9 * peak)
-        .map(|(_, t)| (t - onset_time).max(0.0));
-    let decay = env[peak_idx..]
-        .iter()
-        .position(|(l, _)| *l < 0.1 * peak)
-        .map(|offset| {
-            let end = peak_idx + offset;
-            let start = env[peak_idx..end]
-                .iter()
-                .rposition(|(l, _)| *l >= 0.9 * peak)
-                .map(|i| env[peak_idx + i].1)
-                .unwrap_or(peak_time);
-            env[end].1 - start
-        });
+    let win = ((0.020 * sr).round() as usize).max(1);
+    let hop = ((0.001 * sr).round() as usize).max(1);
+    let window_max = |a: usize, b: usize| mag[a..b].iter().fold(0.0f32, |m, &x| m.max(x));
+
+    // Attack: first step whose trailing 20 ms reaches 90% of the peak.
+    let mut attack = None;
+    let mut t = onset;
+    while t < frames {
+        if window_max(t.saturating_sub(win), t + 1) >= 0.9 * peak {
+            attack = Some((t - onset) as f64 / sr);
+            break;
+        }
+        t += hop;
+    }
+
+    // Decay: from the last sample at 90% of the peak (but at or after the
+    // first one) to the first step whose leading 20 ms stays under 10%.
+    let first90 = mag.iter().position(|&x| x >= 0.9 * peak);
+    let decay = first90.and_then(|f90| {
+        let mut t = f90;
+        let mut last90 = f90;
+        while t < frames {
+            let end = (t + win).min(frames);
+            let m = window_max(t, end);
+            if m < 0.1 * peak {
+                if let Some(i) = mag[last90..t].iter().rposition(|&x| x >= 0.9 * peak) {
+                    last90 += i;
+                }
+                return Some((t - last90) as f64 / sr);
+            }
+            t += hop;
+        }
+        None
+    });
     EnvelopeTimes {
         attack_seconds: attack,
         decay_seconds: decay,

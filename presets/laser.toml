@@ -1,0 +1,21 @@
+# Laser: a fast downward saw sweep with vibrato and a short echo.
+version = 0
+name = "laser"
+description = "Retro laser shot."
+tags = ["weapon", "laser", "falling"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "saw"
+envelope = { attack = 0.002, hold = 0.02, decay = 0.3 }
+pitch = { start = 2400, end = 180, curve = "exponential", sweep_time = 0.25, vibrato = { rate = 40, depth = 0.8 } }
+
+[[effects]]
+type = "echo"
+delay = 0.09
+feedback = 0.3
+mix = 0.25

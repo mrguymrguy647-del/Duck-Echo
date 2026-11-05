@@ -580,6 +580,13 @@
       "minimum": 0,
       "type": "integer"
     },
+    "description": {
+      "description": "Optional one-sentence description. Not used by the renderer.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "duration": {
       "description": "Force the total output length in seconds, range 0.001..=60.\nWhen omitted the length is computed from the layers and effect tails.",
       "format": "float",
@@ -634,6 +641,13 @@
       "format": "uint64",
       "minimum": 0,
       "type": "integer"
+    },
+    "tags": {
+      "description": "Optional tags for search, such as `[\"pickup\", \"bright\"]`. Not used by\nthe renderer.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     },
     "variation": {
       "default": 0.0,

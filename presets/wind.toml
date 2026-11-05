@@ -1,0 +1,27 @@
+# Wind: two whistling noise bands drifting in stereo, fading in and out.
+version = 0
+name = "wind"
+description = "Stereo gust of wind."
+tags = ["ambient", "wind", "noisy", "long", "stereo"]
+
+seed = 21
+channels = 2
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "noise"
+pan = -0.6
+envelope = { attack = 0.6, hold = 1.0, decay = 0.3, sustain = 0.5, sustain_time = 0.3, release = 0.8 }
+filter = { kind = "bandpass", cutoff = 400, cutoff_end = 900, curve = "ease_out", resonance = 3 }
+
+[[layers]]
+source = "noise"
+pan = 0.6
+volume = 0.7
+offset = 0.3
+envelope = { attack = 0.7, hold = 0.8, decay = 0.3, sustain = 0.5, sustain_time = 0.3, release = 0.8 }
+filter = { kind = "bandpass", cutoff = 700, cutoff_end = 450, curve = "ease_in", resonance = 3 }

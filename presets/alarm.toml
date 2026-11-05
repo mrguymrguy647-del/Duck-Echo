@@ -1,0 +1,16 @@
+# Alarm: a pulse alternating between A5 and E5, repeating.
+version = 0
+name = "alarm"
+description = "Repeating two-tone alarm."
+tags = ["alert", "alarm", "long"]
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "square"
+envelope = { attack = 0.005, hold = 1.0, decay = 0.05 }
+pitch = { start = "A5", arpeggio = { steps = [0, -5], step_time = 0.15 } }
+filter = { kind = "lowpass", cutoff = 4000 }

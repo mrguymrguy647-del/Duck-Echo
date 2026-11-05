@@ -1,0 +1,30 @@
+# Hit: a band-passed noise burst plus a falling square, bitcrushed.
+version = 0
+name = "hit"
+description = "Short damage or hit sound."
+tags = ["impact", "hit", "damage", "short"]
+
+seed = 3
+
+[master]
+normalize = true
+normalize_peak_db = -3
+trim_silence = true
+
+[[layers]]
+source = "noise"
+volume = 0.6
+envelope = { attack = 0.001, decay = 0.12 }
+filter = { kind = "bandpass", cutoff = 1800, cutoff_end = 500, resonance = 1.5 }
+
+[[layers]]
+source = "square"
+volume = 0.5
+envelope = { attack = 0.001, hold = 0.02, decay = 0.1 }
+pitch = { start = 300, end = 60, sweep_time = 0.1 }
+
+[[effects]]
+type = "bitcrush"
+bits = 6
+rate = 11025
+mix = 0.8
