@@ -44,7 +44,7 @@ curve = "exponential"
 |---|---|
 | `duck-echo validate <recipe> [--json]` | Reports every problem with its field path, allowed range and a suggestion. Exit 1 when invalid. |
 | `duck-echo render <recipe> [-o out.wav] [--seed N] [--format pcm16\|pcm24\|float32] [--json]` | Renders to WAV. `--json` adds the analysis of the result. |
-| `duck-echo analyze <wav> [--compact]` | JSON with duration, peak, RMS, LUFS, clipping, leading and trailing silence, DC offset. |
+| `duck-echo analyze <wav> [--compact]` | JSON with duration, peak, RMS, loudness in LUFS (with the method used: gated BS.1770 from 400 ms, ungated K-weighted for shorter clips), clipping, leading and trailing silence, DC offset. |
 | `duck-echo schema` | The JSON Schema for recipes, with descriptions and defaults. |
 
 Recipes are TOML on disk and JSON in tool calls; both are the same schema.

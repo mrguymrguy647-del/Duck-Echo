@@ -1,8 +1,8 @@
 //! Duck Echo analysis: numbers an agent can read instead of listening.
 //!
 //! [`analyze`] takes float samples and returns an [`Analysis`] with length,
-//! peak, RMS, integrated loudness, clipping and silence. Multi-channel input
-//! is averaged to mono first.
+//! peak, RMS, loudness, clipping and silence. Multi-channel input is
+//! averaged to mono first.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +12,34 @@ pub const CLIP_THRESHOLD: f32 = 0.99;
 
 /// Level below which audio counts as silence, in dBFS.
 pub const SILENCE_THRESHOLD_DBFS: f32 = -60.0;
+
+/// [`SILENCE_THRESHOLD_DBFS`] as a linear magnitude. The renderer's
+/// `trim_silence` uses the same value, so a trimmed render analyzes with no
+/// trailing silence.
+pub const SILENCE_THRESHOLD_LINEAR: f32 = 0.001;
+
+/// BS.1770 gating block length in seconds. Clips shorter than this cannot
+/// be measured with gating and use [`LoudnessMethod::KWeightedUngated`].
+pub const GATING_BLOCK_SECONDS: f64 = 0.4;
+
+/// How `loudness_lufs` was measured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoudnessMethod {
+    /// ITU-R BS.1770-4 integrated loudness: K-weighting, 400 ms blocks with
+    /// 75% overlap, absolute gate at -70 LUFS, relative gate at -10 LU.
+    /// Used for clips of at least 400 ms.
+    Bs1770Gated,
+    /// Approximation for clips shorter than 400 ms, where gating is
+    /// impossible: the same K-weighting and channel sum, with the mean
+    /// square taken over the active span (first to last sample above the
+    /// silence threshold) instead of gated blocks, so leading and trailing
+    /// padding do not change it. For a steady tone it agrees with the gated
+    /// method within 0.2 dB (tested). It is an approximation: no standard
+    /// defines loudness for clips this short, so compare short sounds with
+    /// each other rather than with long ones.
+    KWeightedUngated,
+}
 
 /// Measurements of one sound.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,9 +60,13 @@ pub struct Analysis {
     pub rms: f32,
     /// RMS level in dBFS (`null` when silent).
     pub rms_dbfs: Option<f32>,
-    /// Integrated loudness in LUFS (ITU-R BS.1770 K-weighting with gating).
-    /// `null` when the sound is shorter than 400 ms or fully gated.
+    /// Loudness in LUFS. See `loudness_method` for how it was measured.
+    /// `null` only when the sound is silent (or, for clips of 400 ms or
+    /// more, entirely below the -70 LUFS absolute gate).
     pub loudness_lufs: Option<f32>,
+    /// `bs1770_gated` for clips of at least 400 ms, `k_weighted_ungated`
+    /// for shorter ones, `null` when `loudness_lufs` is `null`.
+    pub loudness_method: Option<LoudnessMethod>,
     /// Clipping report.
     pub clipping: Clipping,
     /// Seconds of silence before the first non-silent sample.
@@ -114,12 +146,17 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
         0.0
     };
 
-    let silence_lin = 10f32.powf(SILENCE_THRESHOLD_DBFS / 20.0);
+    let silence_lin = SILENCE_THRESHOLD_LINEAR;
     let first = mono.iter().position(|s| s.abs() > silence_lin);
     let last = mono.iter().rposition(|s| s.abs() > silence_lin);
     let (leading, trailing, is_silent) = match (first, last) {
         (Some(f), Some(l)) => (f as f64 / sr, (frames - 1 - l) as f64 / sr, false),
         _ => (frames as f64 / sr, 0.0, true),
+    };
+
+    let (loudness_lufs, loudness_method) = match loudness(&[&mono], sample_rate) {
+        Some((l, m)) => (Some(l), Some(m)),
+        None => (None, None),
     };
 
     Analysis {
@@ -131,7 +168,8 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
         peak_dbfs: to_dbfs(peak),
         rms,
         rms_dbfs: to_dbfs(rms),
-        loudness_lufs: integrated_loudness(&mono, sample_rate),
+        loudness_lufs,
+        loudness_method,
         clipping: Clipping {
             clipped: clipped_samples > 0,
             clipped_samples,
@@ -205,47 +243,69 @@ impl Biquad {
     }
 }
 
-/// Integrated loudness per ITU-R BS.1770-4 for a mono signal: K-weighting,
-/// 400 ms blocks with 75% overlap, absolute gate at -70 LUFS, relative gate
-/// at -10 LU under the ungated mean.
-pub fn integrated_loudness(mono: &[f32], sample_rate: u32) -> Option<f32> {
+/// Loudness of a signal given as one slice per channel (equal lengths),
+/// with the method used. Channel weights are 1.0 (BS.1770 for left, right
+/// and centre). Returns `None` for silence.
+pub fn loudness(channels: &[&[f32]], sample_rate: u32) -> Option<(f32, LoudnessMethod)> {
     let sr = sample_rate as f64;
-    let block = (0.4 * sr).round() as usize;
-    let hop = block / 4;
-    if mono.len() < block || block == 0 {
+    let frames = channels.iter().map(|c| c.len()).min()?;
+    if frames == 0 {
         return None;
     }
-    // Pre-filter and RLB filter with the parameters behind the 48 kHz
-    // coefficients in the spec, recomputed for the actual sample rate.
-    let mut shelf = Biquad::high_shelf(
-        sr,
-        1_681.974_450_955_533,
-        3.999_843_853_973_347,
-        0.707_175_196_848_751_9,
-    );
-    let mut hp = Biquad::high_pass(sr, 38.135_470_876_002_17, 0.500_327_040_491_404_6);
-    let weighted: Vec<f64> = mono
+    // Squared K-weighted signal per channel. Pre-filter and RLB filter use
+    // the parameters behind the 48 kHz coefficients in the spec,
+    // recomputed for the actual sample rate.
+    let squared: Vec<Vec<f64>> = channels
         .iter()
-        .map(|&s| hp.process(shelf.process(s as f64)))
+        .map(|ch| {
+            let mut shelf = Biquad::high_shelf(
+                sr,
+                1_681.974_450_955_533,
+                3.999_843_853_973_347,
+                0.707_175_196_848_751_9,
+            );
+            let mut hp = Biquad::high_pass(sr, 38.135_470_876_002_17, 0.500_327_040_491_404_6);
+            ch[..frames]
+                .iter()
+                .map(|&s| {
+                    let w = hp.process(shelf.process(s as f64));
+                    w * w
+                })
+                .collect()
+        })
         .collect();
-
-    // Block mean squares via a running sum.
-    let mut blocks = Vec::new();
-    let mut start = 0;
-    while start + block <= weighted.len() {
-        let ms = weighted[start..start + block]
+    // Mean square of the channel sum over a frame range.
+    let mean_square = |range: std::ops::Range<usize>| -> f64 {
+        let n = range.len() as f64;
+        squared
             .iter()
-            .map(|v| v * v)
-            .sum::<f64>()
-            / block as f64;
-        blocks.push(ms);
-        start += hop;
-    }
+            .map(|ch| ch[range.clone()].iter().sum::<f64>() / n)
+            .sum()
+    };
     let to_lufs = |ms: f64| -0.691 + 10.0 * ms.log10();
 
+    let block = (GATING_BLOCK_SECONDS * sr).round() as usize;
+    if frames < block || block == 0 {
+        let active = |i: usize| {
+            channels
+                .iter()
+                .any(|c| c[i].abs() > SILENCE_THRESHOLD_LINEAR)
+        };
+        let first = (0..frames).find(|&i| active(i))?;
+        let last = (0..frames).rev().find(|&i| active(i))?;
+        let ms = mean_square(first..last + 1);
+        return (ms > 0.0).then(|| (to_lufs(ms) as f32, LoudnessMethod::KWeightedUngated));
+    }
+
+    let hop = block / 4;
+    let mut blocks = Vec::new();
+    let mut start = 0;
+    while start + block <= frames {
+        blocks.push(mean_square(start..start + block));
+        start += hop;
+    }
     let abs_gate: Vec<f64> = blocks
-        .iter()
-        .copied()
+        .into_iter()
         .filter(|&ms| ms > 0.0 && to_lufs(ms) > -70.0)
         .collect();
     if abs_gate.is_empty() {
@@ -261,7 +321,7 @@ pub fn integrated_loudness(mono: &[f32], sample_rate: u32) -> Option<f32> {
         return None;
     }
     let mean = rel_gate.iter().sum::<f64>() / rel_gate.len() as f64;
-    Some(to_lufs(mean) as f32)
+    Some((to_lufs(mean) as f32, LoudnessMethod::Bs1770Gated))
 }
 
 #[cfg(test)]
@@ -281,6 +341,7 @@ mod tests {
         assert_eq!(a.peak, 0.0);
         assert_eq!(a.peak_dbfs, None);
         assert_eq!(a.loudness_lufs, None);
+        assert_eq!(a.loudness_method, None);
         assert!(!a.clipping.clipped);
         assert!((a.leading_silence_seconds - 1.0).abs() < 1e-9);
     }
@@ -292,6 +353,7 @@ mod tests {
         let a = analyze(&s, 48000, 1);
         let l = a.loudness_lufs.expect("loudness");
         assert!((l + 3.01).abs() < 0.1, "got {l}");
+        assert_eq!(a.loudness_method, Some(LoudnessMethod::Bs1770Gated));
         assert!((a.peak - 1.0).abs() < 1e-3);
         assert!((a.rms_dbfs.unwrap() + 3.01).abs() < 0.05);
     }
@@ -308,5 +370,41 @@ mod tests {
         assert_eq!(a.clipping.longest_run, 10);
         assert!((a.leading_silence_seconds - 0.1).abs() < 1e-3);
         assert!((a.trailing_silence_seconds - 0.05).abs() < 1e-3);
+    }
+
+    #[test]
+    fn short_clips_get_ungated_loudness_that_agrees_with_gated() {
+        // 200 ms full-scale 997 Hz sine: the BS.1770 reference level is
+        // -3.01 LUFS, and the short method should land close to it.
+        let short = sine(997.0, 0.2, 1.0, 48000);
+        let a = analyze(&short, 48000, 1);
+        assert_eq!(a.loudness_method, Some(LoudnessMethod::KWeightedUngated));
+        let l = a.loudness_lufs.unwrap();
+        assert!((l + 3.01).abs() < 0.2, "got {l}");
+
+        // Padding with silence must not change the short measurement.
+        let mut padded = vec![0.0; 2400];
+        padded.extend(&short);
+        padded.extend(vec![0.0; 4800]);
+        let p = analyze(&padded, 48000, 1);
+        assert_eq!(p.loudness_method, Some(LoudnessMethod::KWeightedUngated));
+        assert!((p.loudness_lufs.unwrap() - l).abs() < 0.05);
+
+        // A steady -12 dBFS tone reads the same with both methods.
+        let amp = 0.251_188_6;
+        let s1 = analyze(&sine(440.0, 0.35, amp, 44100), 44100, 1);
+        let s2 = analyze(&sine(440.0, 2.0, amp, 44100), 44100, 1);
+        assert_eq!(s2.loudness_method, Some(LoudnessMethod::Bs1770Gated));
+        let (u, g) = (s1.loudness_lufs.unwrap(), s2.loudness_lufs.unwrap());
+        assert!((u - g).abs() < 0.2, "ungated {u} vs gated {g}");
+    }
+
+    #[test]
+    fn loudness_sums_channels() {
+        // Identical content in two channels is 3 dB louder than in one.
+        let s = sine(997.0, 1.0, 0.5, 48000);
+        let mono = loudness(&[&s], 48000).unwrap().0;
+        let stereo = loudness(&[&s, &s], 48000).unwrap().0;
+        assert!((stereo - mono - 3.01).abs() < 0.02, "{mono} {stereo}");
     }
 }

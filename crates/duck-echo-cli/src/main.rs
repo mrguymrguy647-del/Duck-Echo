@@ -175,8 +175,15 @@ fn render(
         } else {
             String::new()
         };
+        let loud = match (analysis.loudness_lufs, analysis.loudness_method) {
+            (Some(l), Some(duck_echo_analyze::LoudnessMethod::KWeightedUngated)) => {
+                format!(", ~{l:.1} LUFS (short clip, ungated)")
+            }
+            (Some(l), _) => format!(", {l:.1} LUFS"),
+            _ => String::new(),
+        };
         eprintln!(
-            "wrote {} ({:.3} s, peak {peak}{clip})",
+            "wrote {} ({:.3} s, peak {peak}{loud}{clip})",
             output.display(),
             analysis.duration_seconds
         );

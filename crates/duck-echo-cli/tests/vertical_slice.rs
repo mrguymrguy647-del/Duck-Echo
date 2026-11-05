@@ -96,6 +96,11 @@ fn every_example_renders_clean() {
         let a = analyze(&buf.samples, buf.sample_rate, buf.channels);
         assert!(!a.is_silent, "{} is silent", path.display());
         assert!(
+            a.loudness_lufs.is_some() && a.loudness_method.is_some(),
+            "{} has no loudness",
+            path.display()
+        );
+        assert!(
             !a.clipping.clipped,
             "{} clips ({} samples)",
             path.display(),

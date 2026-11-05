@@ -1,4 +1,4 @@
-# Classic coin pickup: a short square blip that jumps up a fifth.
+# Classic coin pickup: a short square blip that jumps up a fourth.
 version = 0
 name = "coin"
 

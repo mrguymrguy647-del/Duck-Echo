@@ -27,6 +27,18 @@ Found in a review of Phase 0 and fixed before task 1.
   Lesson for later tasks: new recipe types need no walker changes unless
   schemars starts emitting a new keyword, which a unit test catches.
 
+- [x] **R2. Loudness for short sounds.** `analyze` returned
+  `loudness_lufs: null` under 400 ms, which covers most sound effects.
+  Clips under 400 ms now get an ungated K-weighted loudness over their
+  active span (first to last sample above -60 dBFS), and the output names
+  the method in `loudness_method` (`bs1770_gated` or
+  `k_weighted_ungated`). For a steady tone the two methods agree within
+  0.2 dB. Loudness is computed per channel and summed, ready for stereo.
+  Note for task 10: the Phase 0 coin reads about -5 LUFS, far louder than
+  typical UI targets, so the guide's targets will drive preset levels.
+- [x] **R4. Coin comment.** `coin.toml` said "a fifth" for steps
+  `[0, 5]`, which is a fourth.
+
 ## Phase 1: finish sound effects
 
 ### 1. Stereo output and per-layer pan
@@ -137,6 +149,8 @@ Found in a review of Phase 0 and fixed before task 1.
   from a preset, change one thing, render, read the analysis, compare.
   Include target numbers (peak -1 to -6 dBFS, LUFS ranges for UI sounds vs
   impacts, lengths by category) and a checklist for "done".
+* Use `loudness_method` in the guide: compare `k_weighted_ungated` values
+  (clips under 400 ms) with each other, not with gated values.
 * Accept: another agent given only the guide and the MCP server produces a
   usable coin, hit and explosion in one session.
 

@@ -87,7 +87,9 @@ server and a future UI reuse the libraries rather than shelling out.
         ├──> audio::write_wav  (16/24-bit PCM or 32-bit float)
         │
         ▼
- analyze::analyze  duration, peak, RMS, LUFS, clipping, silence, DC
+ analyze::analyze  duration, peak, RMS, loudness (gated BS.1770 from 400 ms,
+        │          ungated K-weighted below, method named), clipping,
+        │          silence, DC
         │
         ▼
  JSON report for the agent (or text for a human)
