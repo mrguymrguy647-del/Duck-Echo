@@ -1,0 +1,59 @@
+version = 0
+name = "enemy_hit"
+description = "Crunchy 8-bit stomp/hit on an enemy: noise burst, falling square, low thump."
+tags = ["impact", "hit", "enemy"]
+seed = 3
+
+[master]
+normalize = true
+normalize_peak_db = -5.6
+trim_silence = true
+
+[[layers]]
+source = "noise"
+volume = 0.6
+
+[layers.envelope]
+attack = 0.001
+decay = 0.1
+
+[layers.filter]
+cutoff = 2500
+cutoff_end = 600
+kind = "bandpass"
+resonance = 1.5
+
+[[layers]]
+duty = 0.5
+source = "square"
+volume = 0.6
+
+[layers.envelope]
+attack = 0.001
+decay = 0.12
+hold = 0.02
+
+[layers.pitch]
+curve = "exponential"
+end = 70
+start = 350
+sweep_time = 0.12
+
+[[layers]]
+source = "sine"
+volume = 0.5
+
+[layers.envelope]
+attack = 0.001
+decay = 0.1
+
+[layers.pitch]
+curve = "exponential"
+end = 50
+start = 140
+
+[[effects]]
+bits = 6
+mix = 0.7
+rate = 16000
+type = "bitcrush"

@@ -1,0 +1,73 @@
+version = 0
+name = "player_death"
+description = "Sad falling wobble with a noisy impact at the start, crushed to 8-bit."
+tags = ["impact", "death", "falling"]
+seed = 11
+
+[master]
+normalize = true
+normalize_peak_db = -8.9
+trim_silence = true
+
+[[layers]]
+duty = 0.5
+source = "square"
+volume = 0.7
+
+[layers.envelope]
+attack = 0.005
+decay = 0.4
+hold = 0.5
+
+[layers.filter]
+cutoff = 3500
+cutoff_end = 500
+kind = "lowpass"
+sweep_time = 0.9
+
+[layers.pitch]
+curve = "exponential"
+end = "A2"
+start = "A4"
+sweep_time = 0.9
+
+[layers.pitch.vibrato]
+delay = 0.2
+depth = 0.6
+rate = 9
+
+[[layers]]
+offset = 0.05
+source = "triangle"
+volume = 0.5
+
+[layers.envelope]
+attack = 0.005
+decay = 0.4
+hold = 0.45
+
+[layers.pitch]
+curve = "exponential"
+end = "E2"
+start = "E4"
+sweep_time = 0.9
+
+[[layers]]
+source = "noise"
+volume = 0.5
+
+[layers.envelope]
+attack = 0.001
+decay = 0.15
+
+[layers.filter]
+cutoff = 1500
+cutoff_end = 200
+kind = "bandpass"
+resonance = 1.2
+
+[[effects]]
+bits = 6
+mix = 0.5
+rate = 16000
+type = "bitcrush"

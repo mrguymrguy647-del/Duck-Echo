@@ -1,0 +1,103 @@
+version = 0
+name = "level_complete"
+description = "Rising C-major fanfare run, then a held C chord with a bass note."
+tags = ["jingle", "level", "win"]
+
+[master]
+normalize = true
+normalize_peak_db = -8.7
+trim_silence = true
+
+[[layers]]
+duty = 0.25
+name = "lead run"
+source = "square"
+
+[layers.envelope]
+attack = 0.003
+decay = 0.1
+hold = 0.47
+
+[layers.pitch]
+start = "C5"
+
+[layers.pitch.arpeggio]
+repeat = false
+step_time = 0.1
+steps = [0, 4, 7, 12, 16]
+
+[[layers]]
+duty = 0.25
+name = "chord root"
+offset = 0.55
+source = "square"
+volume = 0.6
+
+[layers.envelope]
+attack = 0.003
+decay = 0.6
+hold = 0.15
+
+[layers.pitch]
+start = "C6"
+
+[[layers]]
+name = "chord third"
+offset = 0.55
+source = "triangle"
+volume = 0.6
+
+[layers.envelope]
+attack = 0.003
+decay = 0.6
+hold = 0.15
+
+[layers.pitch]
+start = "E6"
+
+[[layers]]
+name = "chord fifth"
+offset = 0.55
+source = "triangle"
+volume = 0.6
+
+[layers.envelope]
+attack = 0.003
+decay = 0.6
+hold = 0.15
+
+[layers.pitch]
+start = "G6"
+
+[[layers]]
+name = "bass"
+source = "triangle"
+volume = 0.7
+
+[layers.envelope]
+attack = 0.003
+decay = 0.1
+hold = 0.5
+
+[layers.pitch]
+start = "C3"
+
+[[layers]]
+name = "bass final"
+offset = 0.55
+source = "triangle"
+volume = 0.7
+
+[layers.envelope]
+attack = 0.003
+decay = 0.6
+hold = 0.15
+
+[layers.pitch]
+start = "C4"
+
+[[effects]]
+decay = 0.4
+mix = 0.12
+size = 0.3
+type = "reverb"

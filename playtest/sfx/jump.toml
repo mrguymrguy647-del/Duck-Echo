@@ -1,0 +1,30 @@
+version = 0
+name = "jump"
+description = "Retro platformer jump: quick rising square chirp."
+tags = ["movement", "jump"]
+
+[master]
+normalize = true
+normalize_peak_db = -9.5
+trim_silence = true
+
+[[layers]]
+duty = 0.25
+source = "square"
+
+[layers.envelope]
+attack = 0.003
+decay = 0.16
+hold = 0.03
+
+[layers.filter]
+cutoff = 6000
+cutoff_end = 2000
+kind = "lowpass"
+resonance = 1.2
+
+[layers.pitch]
+curve = "exponential"
+end = "G5"
+start = "C4"
+sweep_time = 0.13

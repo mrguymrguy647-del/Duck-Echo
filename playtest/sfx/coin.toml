@@ -1,0 +1,51 @@
+version = 0
+name = "coin"
+description = "Two-note coin ding, B5 up to E6."
+tags = ["pickup", "coin"]
+
+[master]
+normalize = true
+normalize_peak_db = -13.4
+trim_silence = true
+
+[[layers]]
+duty = 0.5
+source = "square"
+
+[layers.envelope]
+attack = 0.002
+decay = 0.28
+hold = 0.06
+
+[layers.filter]
+cutoff = 6500
+kind = "lowpass"
+
+[layers.pitch]
+start = "B5"
+
+[layers.pitch.arpeggio]
+repeat = false
+step_time = 0.07
+steps = [0, 5]
+
+[[layers]]
+source = "sine"
+volume = 0.3
+
+[layers.envelope]
+attack = 0.002
+decay = 0.3
+hold = 0.04
+
+[layers.filter]
+cutoff = 6500
+kind = "lowpass"
+
+[layers.pitch]
+start = "B6"
+
+[layers.pitch.arpeggio]
+repeat = false
+step_time = 0.07
+steps = [0, 5]

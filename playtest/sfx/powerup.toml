@@ -1,0 +1,52 @@
+version = 0
+name = "powerup"
+description = "Rising arpeggio sweep with shimmer."
+tags = ["pickup", "powerup"]
+
+[master]
+normalize = true
+normalize_peak_db = -9.2
+trim_silence = true
+
+[[layers]]
+duty = 0.25
+source = "square"
+
+[layers.envelope]
+attack = 0.005
+decay = 0.25
+hold = 0.3
+
+[layers.pitch]
+curve = "exponential"
+end = "C6"
+start = "C5"
+sweep_time = 0.5
+
+[layers.pitch.arpeggio]
+step_time = 0.045
+steps = [0, 4, 7, 12]
+
+[[layers]]
+offset = 0.15
+source = "sine"
+volume = 0.35
+
+[layers.envelope]
+attack = 0.05
+decay = 0.4
+hold = 0.1
+
+[layers.pitch]
+start = "C7"
+
+[layers.pitch.vibrato]
+delay = 0.1
+depth = 0.3
+rate = 8
+
+[[effects]]
+delay = 0.12
+feedback = 0.35
+mix = 0.2
+type = "echo"
