@@ -1,6 +1,6 @@
 [package]
 name = "duck-echo-cli"
-description = "Duck Echo command line: validate, render, analyze"
+description = "Duck Echo command line: validate, render, analyze, compare"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,7 +15,9 @@ duck-echo-core = { workspace = true }
 duck-echo-audio = { workspace = true, features = ["wav"] }
 duck-echo-synth = { workspace = true }
 duck-echo-analyze = { workspace = true }
+duck-echo-tools = { workspace = true }
 clap = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

@@ -5,8 +5,9 @@
 //! stdout so agents can parse it; diagnostics go to stderr.
 
 use clap::{Parser, Subcommand, ValueEnum};
-use duck_echo_audio::{read_wav, write_wav, WavFormat};
+use duck_echo_audio::{write_wav, WavFormat};
 use duck_echo_core::{load_path, Report};
+use duck_echo_tools::ToolError;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -48,10 +49,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Measure a WAV file: duration, peak, RMS, loudness, clipping, silence.
+    /// Measure a sound: summary, duration, peak, RMS, loudness, clipping,
+    /// silence, attack, decay, brightness, tonality and pitch track.
     Analyze {
-        /// WAV file.
-        wav: PathBuf,
+        /// WAV file, or a recipe (.toml/.json) to render in memory.
+        input: PathBuf,
+        /// Compact single-line JSON instead of pretty-printed.
+        #[arg(long)]
+        compact: bool,
+    },
+    /// Compare two sounds: what changed from A to B, and how similar the
+    /// waveforms are.
+    Compare {
+        /// First sound: WAV file or recipe.
+        a: PathBuf,
+        /// Second sound: WAV file or recipe.
+        b: PathBuf,
         /// Compact single-line JSON instead of pretty-printed.
         #[arg(long)]
         compact: bool,
@@ -91,7 +104,11 @@ fn main() -> ExitCode {
             format,
             json,
         } => render(&recipe, output, seed, format.into(), json),
-        Command::Analyze { wav, compact } => analyze(&wav, compact),
+        Command::Analyze { input, compact } => analyze(&input, compact),
+        Command::Compare { a, b, compact } => match duck_echo_tools::compare_paths(&a, &b) {
+            Ok(c) => print_json(&c, compact),
+            Err(e) => tool_error(e),
+        },
         Command::Schema => {
             println!("{}", duck_echo_core::schema::recipe_schema_json());
             ExitCode::SUCCESS
@@ -192,20 +209,34 @@ fn render(
 }
 
 fn analyze(path: &Path, compact: bool) -> ExitCode {
-    let buffer = match read_wav(path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("error: cannot read {}: {e}", path.display());
-            return ExitCode::from(2);
-        }
-    };
-    let analysis = duck_echo_analyze::analyze(&buffer.samples, buffer.sample_rate, buffer.channels);
+    match duck_echo_tools::load_audio(path) {
+        Ok(buffer) => print_json(&duck_echo_tools::analyze_buffer(&buffer), compact),
+        Err(e) => tool_error(e),
+    }
+}
+
+fn print_json<T: serde::Serialize>(value: &T, compact: bool) -> ExitCode {
     let text = if compact {
-        serde_json::to_string(&analysis)
+        serde_json::to_string(value)
     } else {
-        serde_json::to_string_pretty(&analysis)
+        serde_json::to_string_pretty(value)
     }
     .expect("json");
     println!("{text}");
     ExitCode::SUCCESS
+}
+
+/// Print a tool error: an invalid recipe as its report (exit 1), anything
+/// else as one line (exit 2).
+fn tool_error(e: ToolError) -> ExitCode {
+    match e {
+        ToolError::Invalid(report) => {
+            eprint!("{report}");
+            ExitCode::from(1)
+        }
+        ToolError::Io(msg) => {
+            eprintln!("error: {msg}");
+            ExitCode::from(2)
+        }
+    }
 }

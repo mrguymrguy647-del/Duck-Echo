@@ -1,0 +1,19 @@
+[package]
+name = "duck-echo-tools"
+description = "Duck Echo operations shared by the CLI and the MCP server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+duck-echo-core = { workspace = true }
+duck-echo-audio = { workspace = true, features = ["wav"] }
+duck-echo-synth = { workspace = true }
+duck-echo-analyze = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+[lints]
+workspace = true

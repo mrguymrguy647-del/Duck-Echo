@@ -31,11 +31,16 @@ crates/
   duck-echo-audio/         AudioBuffer type and WAV read/write (hound behind a
                            `wav` feature so synth can depend on just the type).
   duck-echo-synth/         deterministic renderer: Recipe -> Voice -> samples.
-  duck-echo-analyze/       measurements over f32 samples -> JSON report.
+  duck-echo-analyze/       measurements over f32 samples -> JSON report, plus
+                           compare (deltas and cross-correlation) and its own
+                           small FFT.
+  duck-echo-tools/         operations shared by the CLI and the MCP server:
+                           load a WAV or render a recipe, compare, and (from
+                           task 7 on) presets, variations and edits.
   duck-echo-cli/           the `duck-echo` binary and the end-to-end tests.
   duck-echo-mcp/           (planned) MCP server exposing the agent tools.
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
-docs/                      this file, RECIPE_SPEC.md, ROADMAP.md
+docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 examples/recipes/          the example recipes (TOML, plus coin.json)
 schema/recipe.schema.json  generated from the Rust types; a test fails when stale
 ```
@@ -43,12 +48,13 @@ schema/recipe.schema.json  generated from the Rust types; a test fails when stal
 Dependency direction (arrows point at what is depended on):
 
 ```
-cli ──> synth ──> core
- │        └────> audio (buffer type only)
- ├────> analyze
- ├────> audio (with wav feature)
- └────> core
-mcp (planned) ──> same set as cli
+cli ──> tools ──> synth ──> core
+ │        │        └────> audio (buffer type only)
+ │        ├────> analyze
+ │        ├────> audio (with wav feature)
+ │        └────> core
+ └────> core, synth, analyze, audio (directly, for render and validate)
+mcp (planned) ──> tools (and core)
 ear (planned) ──> core, audio, analyze
 ```
 
@@ -87,9 +93,14 @@ server and a future UI reuse the libraries rather than shelling out.
         ├──> audio::write_wav  (16/24-bit PCM or 32-bit float)
         │
         ▼
- analyze::analyze  duration, peak, RMS, loudness (gated BS.1770 from 400 ms,
-        │          ungated K-weighted below, method named), clipping,
-        │          silence, DC
+ analyze::analyze  summary line, duration, peak, RMS, loudness (gated
+        │          BS.1770 from 400 ms, ungated K-weighted below, method
+        │          named), clipping, silence, DC, crest factor, attack,
+        │          decay, spectral centroid, tonality, pitch track
+        │          (all defined in ANALYSIS.md)
+        │
+ analyze::compare  two sounds -> both analyses, b-minus-a deltas, waveform
+        │          cross-correlation, summary line
         │
         ▼
  JSON report for the agent (or text for a human)

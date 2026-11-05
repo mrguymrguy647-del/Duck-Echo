@@ -878,3 +878,25 @@ fn quoted_numbers_suggest_writing_the_number() {
         assert!(e.message.contains("without quotes"), "{}", e.message);
     }
 }
+
+#[test]
+fn compare_recipes_through_the_shared_tools() {
+    let dir = examples_dir();
+    let same =
+        duck_echo_tools::compare_paths(&dir.join("coin.toml"), &dir.join("coin.json")).unwrap();
+    assert!(same.identical);
+    let diff =
+        duck_echo_tools::compare_paths(&dir.join("coin.toml"), &dir.join("jump.toml")).unwrap();
+    assert!(!diff.identical);
+    assert!(diff.delta.spectral_centroid_ratio.unwrap() < 1.0);
+    // A broken recipe is reported as its validation report.
+    let bad = std::env::temp_dir().join("duck_echo_compare_bad.toml");
+    std::fs::write(&bad, "version = 0\n[[layers]]\nvolume = 9\n").unwrap();
+    match duck_echo_tools::compare_paths(&bad, &dir.join("coin.toml")) {
+        Err(duck_echo_tools::ToolError::Invalid(r)) => {
+            assert_eq!(r.errors[0].path, "layers[0].volume")
+        }
+        other => panic!("expected an invalid-recipe error, got {other:?}"),
+    }
+    let _ = std::fs::remove_file(bad);
+}

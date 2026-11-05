@@ -103,6 +103,7 @@ name = "duck-echo-analyze"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -121,6 +122,8 @@ dependencies = [
  "duck-echo-audio",
  "duck-echo-core",
  "duck-echo-synth",
+ "duck-echo-tools",
+ "serde",
  "serde_json",
 ]
 
@@ -142,6 +145,19 @@ version = "0.1.0"
 dependencies = [
  "duck-echo-audio",
  "duck-echo-core",
+]
+
+[[package]]
+name = "duck-echo-tools"
+version = "0.1.0"
+dependencies = [
+ "duck-echo-analyze",
+ "duck-echo-audio",
+ "duck-echo-core",
+ "duck-echo-synth",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

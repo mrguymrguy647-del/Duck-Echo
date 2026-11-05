@@ -8,6 +8,13 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod compare;
+pub mod features;
+pub mod fft;
+
+pub use compare::{compare, Comparison, Signal};
+pub use features::PitchPoint;
+
 /// Samples at or above this magnitude count as clipped. 16-bit full scale
 /// is 32767/32768, so a hard-clipped render still lands above this.
 pub const CLIP_THRESHOLD: f32 = 0.99;
@@ -46,6 +53,11 @@ pub enum LoudnessMethod {
 /// Measurements of one sound.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Analysis {
+    /// One line in words, built from the numbers below with fixed
+    /// thresholds (see `features::words`), for example
+    /// "0.31 s, ~-5.3 LUFS, bright, sharp attack, tonal around 988 Hz,
+    /// no clipping".
+    pub summary: String,
     /// Samples per second.
     pub sample_rate: u32,
     /// Channels in the input.
@@ -81,6 +93,25 @@ pub struct Analysis {
     pub is_silent: bool,
     /// Mean sample value; should be near 0.
     pub dc_offset: f32,
+    /// Peak over RMS of the non-silent part, in dB. A sine is 3 dB, a
+    /// square 0 dB; spiky, percussive sounds are higher. `null` when silent.
+    pub crest_factor_db: Option<f32>,
+    /// Seconds from the first non-silent sample to 90% of the maximum
+    /// short-term level (5 ms RMS). `null` when silent.
+    pub attack_seconds: Option<f64>,
+    /// Seconds from the maximum short-term level until it falls 20 dB.
+    /// `null` when silent or when it never falls that far.
+    pub decay_seconds: Option<f64>,
+    /// Magnitude-weighted mean frequency of the non-silent part, Hz. Higher
+    /// is brighter. `null` when silent.
+    pub spectral_centroid_hz: Option<f32>,
+    /// Share of power in prominent spectral peaks, 0..1: tones near 1,
+    /// broadband noise near 0. `null` when silent.
+    pub tonality: Option<f32>,
+    /// Dominant frequency, level and tonality in up to 8 evenly spaced
+    /// windows over the non-silent part. Spectral measures use the mean of
+    /// the channels.
+    pub pitch_track: Vec<PitchPoint>,
     /// Threshold used for the silence measurements, in dBFS.
     pub silence_threshold_dbfs: f32,
 }
@@ -196,7 +227,27 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
         None => (None, None),
     };
 
-    Analysis {
+    let mono: Vec<f32> = if ch == 1 {
+        samples.to_vec()
+    } else {
+        samples
+            .chunks_exact(ch)
+            .map(|f| f.iter().sum::<f32>() / ch as f32)
+            .collect()
+    };
+    let active = first.zip(last);
+    let spectral = features::spectral(&mono, sample_rate, active);
+    let times = features::envelope_times(samples, ch, sample_rate, first);
+    let crest_factor_db = active.and_then(|(f, l)| {
+        let span = &samples[f * ch..(l + 1) * ch];
+        let r = (span.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>() / span.len() as f64)
+            .sqrt() as f32;
+        let p = span.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+        (r > 0.0).then(|| 20.0 * (p / r).log10())
+    });
+
+    let mut analysis = Analysis {
+        summary: String::new(),
         sample_rate,
         channels,
         frames,
@@ -218,8 +269,16 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
         trailing_silence_seconds: trailing,
         is_silent,
         dc_offset,
+        crest_factor_db,
+        attack_seconds: times.attack_seconds,
+        decay_seconds: times.decay_seconds,
+        spectral_centroid_hz: spectral.centroid_hz,
+        tonality: spectral.tonality,
+        pitch_track: spectral.track,
         silence_threshold_dbfs: SILENCE_THRESHOLD_DBFS,
-    }
+    };
+    analysis.summary = features::summary(&analysis);
+    analysis
 }
 
 /// Audio EQ Cookbook biquad in f64, used only for measurement.

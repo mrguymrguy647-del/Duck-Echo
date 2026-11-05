@@ -10,7 +10,7 @@ below, which puts real agents on Duck Echo as early as possible.
 |---|---|---|
 | 1 | 1. Stereo output and pan | done |
 | 2 | 2. Note names | done |
-| 3 | 6. Richer analysis and `compare` | |
+| 3 | 6. Richer analysis and `compare` | done |
 | 4 | 7. Presets and `variations` | |
 | 5 | 9. MCP server | |
 | 6 | 3. Band-limited oscillators | |
@@ -118,7 +118,23 @@ follows.
   with the pattern; a wrong note like `"H4"` gives a clear message at the
   exact path.
 
-### 6. Richer analysis for agents
+### 6. Richer analysis for agents [done]
+
+Done. `analyze` gained `summary`, `crest_factor_db`, `attack_seconds`,
+`decay_seconds`, `spectral_centroid_hz`, `tonality` and `pitch_track`;
+`compare` gives b-minus-a deltas, a cross-correlation with lag, and a
+summary line. Every field and threshold is defined in `docs/ANALYSIS.md`.
+Choices: `tonality` (share of power in prominent spectral peaks) was added
+because a dominant frequency means nothing for noise and the summary needs
+to say which it is; decay starts at the last moment at 90% so held notes
+are not counted; `compare` only gives a loudness delta when both sides use
+the same loudness method. The FFT lives in `duck_echo_analyze::fft` for
+task 3 to reuse. Both commands accept recipes as well as WAV files. A new
+`duck-echo-tools` crate holds operations shared with the MCP server.
+Known limits, worth knowing when writing the agent guide: `attack_seconds`
+measures time to the loudest moment, so a sound whose second layer is
+loudest reads as a slow attack (powerup); naive square and saw waves read
+"very bright". Original task text follows.
 
 * Add to `Analysis`: spectral centroid, dominant frequency over time (a few
   windows), attack time (time to reach 90% of peak), decay time (peak to
