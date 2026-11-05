@@ -1,0 +1,18 @@
+[package]
+name = "duck-echo-audio"
+description = "Duck Echo audio buffer type and WAV file I/O"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[features]
+default = ["wav"]
+# WAV read/write via hound. Off for crates that only need the buffer type.
+wav = ["dep:hound"]
+
+[dependencies]
+hound = { workspace = true, optional = true }
+
+[lints]
+workspace = true

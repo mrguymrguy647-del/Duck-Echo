@@ -1,0 +1,53 @@
+# Power-up: a rising arpeggio on a bright square, with a sine shimmer
+# layered on top slightly later. Normalized so the stack cannot clip.
+version = 0
+name = "powerup"
+
+[master]
+normalize = true
+normalize_peak_db = -1
+
+[[layers]]
+name = "arp"
+source = "square"
+duty = 0.25
+volume = 0.7
+
+[layers.envelope]
+attack = 0.005
+hold = 0.3
+decay = 0.25
+
+[layers.pitch]
+start = 523.25   # C5
+end = 1046.5     # C6
+curve = "exponential"
+sweep_time = 0.5
+
+[layers.pitch.arpeggio]
+steps = [0, 4, 7, 12]
+step_time = 0.045
+
+[[layers]]
+name = "shimmer"
+source = "sine"
+volume = 0.35
+offset = 0.15
+
+[layers.envelope]
+attack = 0.05
+hold = 0.1
+decay = 0.4
+
+[layers.pitch]
+start = 2093   # C7
+[layers.pitch.vibrato]
+rate = 8
+depth = 0.3
+delay = 0.1
+
+[[effects]]
+type = "echo"
+delay = 0.12
+feedback = 0.35
+mix = 0.2

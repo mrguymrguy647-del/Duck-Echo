@@ -1,0 +1,20 @@
+# Classic coin pickup: a short square blip that jumps up a fifth.
+version = 0
+name = "coin"
+
+[[layers]]
+source = "square"
+duty = 0.5
+volume = 0.7
+
+[layers.envelope]
+attack = 0.002
+hold = 0.06
+decay = 0.25
+
+[layers.pitch]
+start = 987.77   # B5
+[layers.pitch.arpeggio]
+steps = [0, 5]   # jump up a fourth after the first step
+step_time = 0.07
+repeat = false

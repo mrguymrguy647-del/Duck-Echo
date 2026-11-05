@@ -1,0 +1,22 @@
+[package]
+name = "duck-echo-cli"
+description = "Duck Echo command line: validate, render, analyze"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "duck-echo"
+path = "src/main.rs"
+
+[dependencies]
+duck-echo-core = { workspace = true }
+duck-echo-audio = { workspace = true, features = ["wav"] }
+duck-echo-synth = { workspace = true }
+duck-echo-analyze = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

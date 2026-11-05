@@ -1,0 +1,615 @@
+{
+  "$defs": {
+    "Arpeggio": {
+      "additionalProperties": false,
+      "description": "Stepped pitch offsets, the classic chiptune arpeggio.",
+      "properties": {
+        "repeat": {
+          "default": true,
+          "description": "Loop the steps (`true`, default) or hold the last step (`false`).",
+          "type": "boolean"
+        },
+        "step_time": {
+          "default": 0.05,
+          "description": "Length of each step in seconds, range 0.001..=30. Default `0.05`.",
+          "format": "float",
+          "type": "number"
+        },
+        "steps": {
+          "description": "Pitch offsets in semitones, played in order. At least one step,\neach in -96..=96. Example: `[0, 4, 7]` is a major chord.",
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "type": "object"
+    },
+    "Curve": {
+      "description": "Interpolation curve for sweeps.",
+      "oneOf": [
+        {
+          "const": "linear",
+          "description": "Straight line in the value's own unit (Hz).",
+          "type": "string"
+        },
+        {
+          "const": "exponential",
+          "description": "Constant rate of change in octaves: musically even pitch sweeps.",
+          "type": "string"
+        },
+        {
+          "const": "ease_in",
+          "description": "Starts slow, ends fast.",
+          "type": "string"
+        },
+        {
+          "const": "ease_out",
+          "description": "Starts fast, ends slow.",
+          "type": "string"
+        }
+      ]
+    },
+    "DistortionKind": {
+      "description": "Distortion shape.",
+      "oneOf": [
+        {
+          "const": "soft",
+          "description": "Smooth saturation.",
+          "type": "string"
+        },
+        {
+          "const": "hard",
+          "description": "Hard clipping.",
+          "type": "string"
+        },
+        {
+          "const": "fold",
+          "description": "Wave folding: harsh, metallic.",
+          "type": "string"
+        }
+      ]
+    },
+    "Effect": {
+      "description": "One effect in a chain. Selected by the `type` field.\n\nEvery effect has a `mix` in 0..=1: `0` is fully dry, `1` is fully wet.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Repeating delay.",
+          "properties": {
+            "delay": {
+              "default": 0.25,
+              "description": "Delay time in seconds, range 0.001..=5. Default `0.25`.",
+              "format": "float",
+              "type": "number"
+            },
+            "feedback": {
+              "default": 0.4,
+              "description": "How much of each echo feeds the next, range 0..=0.99. Default `0.4`.",
+              "format": "float",
+              "type": "number"
+            },
+            "mix": {
+              "default": 0.35,
+              "description": "Wet/dry mix, range 0..=1. Default `0.35`.",
+              "format": "float",
+              "type": "number"
+            },
+            "type": {
+              "const": "echo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Simple room reverb.",
+          "properties": {
+            "damping": {
+              "default": 0.5,
+              "description": "High-frequency damping of the tail, range 0..=1. Default `0.5`.",
+              "format": "float",
+              "type": "number"
+            },
+            "decay": {
+              "default": 1.0,
+              "description": "Time in seconds for the tail to fall by 60 dB, range 0.05..=10.\nDefault `1.0`.",
+              "format": "float",
+              "type": "number"
+            },
+            "mix": {
+              "default": 0.3,
+              "description": "Wet/dry mix, range 0..=1. Default `0.3`.",
+              "format": "float",
+              "type": "number"
+            },
+            "size": {
+              "default": 0.5,
+              "description": "Room size, range 0..=1. Default `0.5`.",
+              "format": "float",
+              "type": "number"
+            },
+            "type": {
+              "const": "reverb",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Waveshaping distortion.",
+          "properties": {
+            "drive": {
+              "default": 2.0,
+              "description": "Input gain before shaping, range 1..=100. Default `2`.",
+              "format": "float",
+              "type": "number"
+            },
+            "kind": {
+              "$ref": "#/$defs/DistortionKind",
+              "default": "soft",
+              "description": "One of `soft`, `hard`, `fold`. Default `soft`."
+            },
+            "mix": {
+              "default": 1.0,
+              "description": "Wet/dry mix, range 0..=1. Default `1`.",
+              "format": "float",
+              "type": "number"
+            },
+            "type": {
+              "const": "distortion",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Bit depth and sample rate reduction.",
+          "properties": {
+            "bits": {
+              "default": 8,
+              "description": "Bit depth, range 1..=16. Default `8`.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "mix": {
+              "default": 1.0,
+              "description": "Wet/dry mix, range 0..=1. Default `1`.",
+              "format": "float",
+              "type": "number"
+            },
+            "rate": {
+              "description": "Sample-and-hold rate in Hz, range 100..=192000. Omit to keep the full\nsample rate.",
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "bitcrush",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Envelope": {
+      "additionalProperties": false,
+      "description": "Volume envelope, all times in seconds (each 0..=30).\n\nShape: rise to 1 over `attack`, stay at 1 for `hold`, fall to `sustain`\nover `decay`, stay there for `sustain_time`, fall to 0 over `release`.\nThe layer length is the sum of the five times.",
+      "properties": {
+        "attack": {
+          "default": 0.005,
+          "description": "Time to rise from 0 to full level. Default `0.005`.",
+          "format": "float",
+          "type": "number"
+        },
+        "decay": {
+          "default": 0.2,
+          "description": "Time to fall from full level to `sustain`. Default `0.2`.",
+          "format": "float",
+          "type": "number"
+        },
+        "hold": {
+          "default": 0.0,
+          "description": "Time held at full level. Default `0`.",
+          "format": "float",
+          "type": "number"
+        },
+        "release": {
+          "default": 0.0,
+          "description": "Time to fall from `sustain` to 0. Default `0`.",
+          "format": "float",
+          "type": "number"
+        },
+        "sustain": {
+          "default": 0.0,
+          "description": "Sustain level, 0..=1. Default `0`.",
+          "format": "float",
+          "type": "number"
+        },
+        "sustain_time": {
+          "default": 0.0,
+          "description": "Time held at `sustain` level. Default `0`.",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "Filter": {
+      "additionalProperties": false,
+      "description": "A resonant 2-pole filter with an optional cutoff sweep.",
+      "properties": {
+        "curve": {
+          "$ref": "#/$defs/Curve",
+          "default": "linear",
+          "description": "Sweep shape. Default `linear`."
+        },
+        "cutoff": {
+          "default": 2000.0,
+          "description": "Cutoff frequency in Hz at the start, range 10..=20000. Default `2000`.",
+          "format": "float",
+          "type": "number"
+        },
+        "cutoff_end": {
+          "description": "Cutoff at the end of the sweep in Hz. Omit for a fixed cutoff.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/FilterKind",
+          "default": "lowpass",
+          "description": "One of `lowpass`, `highpass`, `bandpass`. Default `lowpass`."
+        },
+        "resonance": {
+          "default": 0.707,
+          "description": "Resonance (Q), range 0.1..=30. `0.707` is flat. Default `0.707`.",
+          "format": "float",
+          "type": "number"
+        },
+        "sweep_time": {
+          "description": "Sweep length in seconds, range 0.001..=30. Omit to sweep over the\nwhole layer.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FilterKind": {
+      "description": "Filter type.",
+      "oneOf": [
+        {
+          "const": "lowpass",
+          "description": "Passes frequencies below `cutoff`.",
+          "type": "string"
+        },
+        {
+          "const": "highpass",
+          "description": "Passes frequencies above `cutoff`.",
+          "type": "string"
+        },
+        {
+          "const": "bandpass",
+          "description": "Passes frequencies around `cutoff`.",
+          "type": "string"
+        }
+      ]
+    },
+    "Layer": {
+      "additionalProperties": false,
+      "description": "One sound layer: an oscillator shaped by an envelope, pitch curve, filter\nand optional effects.",
+      "properties": {
+        "duty": {
+          "default": 0.5,
+          "description": "Pulse width for `square`, range 0.01..=0.99. Ignored by other\nsources. Default `0.5`.",
+          "format": "float",
+          "type": "number"
+        },
+        "effects": {
+          "default": [],
+          "description": "Per-layer effect chain, applied in order before mixing.",
+          "items": {
+            "$ref": "#/$defs/Effect"
+          },
+          "type": "array"
+        },
+        "envelope": {
+          "$ref": "#/$defs/Envelope",
+          "default": {
+            "attack": 0.004999999888241291,
+            "decay": 0.20000000298023224,
+            "hold": 0.0,
+            "release": 0.0,
+            "sustain": 0.0,
+            "sustain_time": 0.0
+          },
+          "description": "Volume envelope."
+        },
+        "filter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Filter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional filter."
+        },
+        "name": {
+          "description": "Optional name for humans and agents.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "offset": {
+          "default": 0.0,
+          "description": "Start time of this layer in seconds from the start of the sound,\nrange 0..=30. Default `0`.",
+          "format": "float",
+          "type": "number"
+        },
+        "pitch": {
+          "$ref": "#/$defs/Pitch",
+          "default": {
+            "curve": "linear",
+            "start": 440.0
+          },
+          "description": "Pitch over time."
+        },
+        "source": {
+          "$ref": "#/$defs/Source",
+          "default": "square",
+          "description": "Waveform. One of `sine`, `square`, `saw`, `triangle`, `noise`.\nDefault `square`."
+        },
+        "volume": {
+          "default": 0.8,
+          "description": "Layer volume, linear, range 0..=2. Default `0.8`.",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "Master": {
+      "additionalProperties": false,
+      "description": "Master output stage.",
+      "properties": {
+        "gain": {
+          "default": 1.0,
+          "description": "Linear gain applied to the mix, range 0..=4. Default `1.0`.",
+          "format": "float",
+          "type": "number"
+        },
+        "normalize": {
+          "default": false,
+          "description": "Scale the final render so its peak sits at `normalize_peak_db`.\nOffline only. Default `false`.",
+          "type": "boolean"
+        },
+        "normalize_peak_db": {
+          "default": -1.0,
+          "description": "Target peak in dBFS when `normalize` is on, range -40..=0. Default `-1`.",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "Pitch": {
+      "additionalProperties": false,
+      "description": "Pitch over time. Frequencies are in Hz, range 1..=20000.",
+      "properties": {
+        "arpeggio": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Arpeggio"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional arpeggio (stepped pitch offsets)."
+        },
+        "curve": {
+          "$ref": "#/$defs/Curve",
+          "default": "linear",
+          "description": "Shape of the sweep from `start` to `end`. Default `linear`."
+        },
+        "end": {
+          "description": "Frequency at the end of the sweep in Hz. Omit for a constant pitch.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "start": {
+          "default": 440.0,
+          "description": "Frequency at the start of the layer in Hz. Default `440`.",
+          "format": "float",
+          "type": "number"
+        },
+        "sweep_time": {
+          "description": "Sweep length in seconds, range 0.001..=30. Omit to sweep over the whole\nlayer. After the sweep the pitch stays at `end`.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "vibrato": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Vibrato"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional vibrato."
+        }
+      },
+      "type": "object"
+    },
+    "Source": {
+      "description": "Oscillator waveform.",
+      "oneOf": [
+        {
+          "const": "sine",
+          "description": "Pure sine wave.",
+          "type": "string"
+        },
+        {
+          "const": "square",
+          "description": "Pulse wave with `duty` width. The classic chip sound.",
+          "type": "string"
+        },
+        {
+          "const": "saw",
+          "description": "Rising sawtooth.",
+          "type": "string"
+        },
+        {
+          "const": "triangle",
+          "description": "Triangle wave.",
+          "type": "string"
+        },
+        {
+          "const": "noise",
+          "description": "White noise driven by `seed`.",
+          "type": "string"
+        }
+      ]
+    },
+    "Vibrato": {
+      "additionalProperties": false,
+      "description": "Periodic pitch wobble.",
+      "properties": {
+        "delay": {
+          "default": 0.0,
+          "description": "Seconds before the vibrato starts, range 0..=30. Default `0`.",
+          "format": "float",
+          "type": "number"
+        },
+        "depth": {
+          "default": 0.5,
+          "description": "Wobble depth in semitones (peak), range 0..=48. Default `0.5`.",
+          "format": "float",
+          "type": "number"
+        },
+        "rate": {
+          "default": 6.0,
+          "description": "Wobble rate in Hz, range 0..=100. Default `6`.",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/mrguymrguy647-del/Duck-Echo/schema/recipe.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A complete sound recipe. This is the root document of a `.toml` file or a\nJSON tool call.",
+  "properties": {
+    "duration": {
+      "description": "Force the total output length in seconds, range 0.001..=60.\nWhen omitted the length is computed from the layers and effect tails.",
+      "format": "float",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "effects": {
+      "default": [],
+      "description": "Master effect chain, applied in order to the mixed layers.",
+      "items": {
+        "$ref": "#/$defs/Effect"
+      },
+      "type": "array"
+    },
+    "layers": {
+      "default": [],
+      "description": "The sound layers, mixed together. At least one layer is required.",
+      "items": {
+        "$ref": "#/$defs/Layer"
+      },
+      "type": "array"
+    },
+    "master": {
+      "$ref": "#/$defs/Master",
+      "default": {
+        "gain": 1.0,
+        "normalize": false,
+        "normalize_peak_db": -1.0
+      },
+      "description": "Master output stage, applied after the master `effects`."
+    },
+    "name": {
+      "description": "Optional name for humans and agents. Not used by the renderer.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sample_rate": {
+      "default": 44100,
+      "description": "Output sample rate in Hz. Range 8000..=192000. Default `44100`.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "seed": {
+      "default": 0,
+      "description": "Random seed. Same recipe + same seed = byte-identical audio.\nDrives the noise source and the `variation` jitter. Default `0`.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "variation": {
+      "default": 0.0,
+      "description": "How much the seed may jitter pitch and envelope times, 0..=1.\n`0` (default) means the seed only affects noise. `1` jitters pitch by\nup to +-3 semitones and envelope times by up to +-30%.",
+      "format": "float",
+      "type": "number"
+    },
+    "version": {
+      "description": "Schema version. Must be `0` for this version of Duck Echo. Required.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "title": "Duck Echo recipe v0",
+  "type": "object"
+}

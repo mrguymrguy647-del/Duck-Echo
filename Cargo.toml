@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/duck-echo-core",
+    "crates/duck-echo-audio",
+    "crates/duck-echo-synth",
+    "crates/duck-echo-analyze",
+    "crates/duck-echo-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+repository = "https://github.com/mrguymrguy647-del/Duck-Echo"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+schemars = "1"
+serde_path_to_error = "0.1"
+strsim = "0.11"
+hound = "3.5"
+clap = { version = "4", features = ["derive"] }
+
+duck-echo-core = { path = "crates/duck-echo-core" }
+duck-echo-audio = { path = "crates/duck-echo-audio", default-features = false }
+duck-echo-synth = { path = "crates/duck-echo-synth" }
+duck-echo-analyze = { path = "crates/duck-echo-analyze" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.test]
+opt-level = 1

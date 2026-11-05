@@ -1,0 +1,40 @@
+# Hit / damage: a short noise burst plus a falling square, bitcrushed.
+version = 0
+name = "hit"
+seed = 3
+
+[[layers]]
+name = "crunch"
+source = "noise"
+volume = 0.6
+
+[layers.envelope]
+attack = 0.001
+decay = 0.12
+
+[layers.filter]
+kind = "bandpass"
+cutoff = 1800
+cutoff_end = 500
+resonance = 1.5
+
+[[layers]]
+name = "body"
+source = "square"
+volume = 0.5
+
+[layers.envelope]
+attack = 0.001
+hold = 0.02
+decay = 0.1
+
+[layers.pitch]
+start = 300
+end = 60
+sweep_time = 0.1
+
+[[effects]]
+type = "bitcrush"
+bits = 6
+rate = 11025
+mix = 0.8

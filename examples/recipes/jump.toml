@@ -1,0 +1,25 @@
+# Platformer jump: a quick upward square sweep with a touch of vibrato.
+version = 0
+name = "jump"
+
+[[layers]]
+source = "square"
+duty = 0.3
+volume = 0.6
+
+[layers.envelope]
+attack = 0.005
+hold = 0.05
+decay = 0.22
+
+[layers.pitch]
+start = 220
+end = 660
+curve = "exponential"
+sweep_time = 0.18
+
+[layers.filter]
+kind = "lowpass"
+cutoff = 6000
+cutoff_end = 1500
+resonance = 1.2

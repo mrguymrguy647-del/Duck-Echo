@@ -1,0 +1,28 @@
+# Laser shot: fast downward saw sweep, a bit of echo for space.
+version = 0
+name = "laser"
+
+[[layers]]
+source = "saw"
+volume = 0.6
+
+[layers.envelope]
+attack = 0.002
+hold = 0.02
+decay = 0.3
+
+[layers.pitch]
+start = 2400
+end = 180
+curve = "exponential"
+sweep_time = 0.25
+
+[layers.pitch.vibrato]
+rate = 40
+depth = 0.8
+
+[[effects]]
+type = "echo"
+delay = 0.09
+feedback = 0.3
+mix = 0.25

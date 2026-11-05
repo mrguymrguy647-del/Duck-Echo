@@ -1,0 +1,13 @@
+[package]
+name = "duck-echo-analyze"
+description = "Duck Echo audio analysis: peak, loudness, clipping, silence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

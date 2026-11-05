@@ -1,0 +1,49 @@
+# Explosion: filtered noise with a sweeping lowpass, a low thump, and
+# distortion plus a short reverb on the master bus.
+version = 0
+name = "explosion"
+seed = 7
+
+[[layers]]
+name = "boom"
+source = "noise"
+volume = 0.45
+
+[layers.envelope]
+attack = 0.01
+hold = 0.08
+decay = 0.9
+
+[layers.filter]
+kind = "lowpass"
+cutoff = 5000
+cutoff_end = 150
+curve = "exponential"
+resonance = 0.9
+
+[[layers]]
+name = "thump"
+source = "sine"
+volume = 0.35
+
+[layers.envelope]
+attack = 0.005
+decay = 0.35
+
+[layers.pitch]
+start = 140
+end = 35
+curve = "exponential"
+sweep_time = 0.3
+
+[[effects]]
+type = "distortion"
+drive = 2.5
+kind = "soft"
+mix = 1.0   # fully wet: the soft clip caps the peak at 1.0
+
+[[effects]]
+type = "reverb"
+size = 0.6
+decay = 0.6
+mix = 0.2
