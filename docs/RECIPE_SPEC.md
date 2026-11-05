@@ -43,10 +43,30 @@ which renders a 0.205 s square-wave blip at 440 Hz.
 | `gain` | number | `1.0` | 0..4 | Linear gain after the master effects. |
 | `normalize` | bool | `false` | | Scale the whole render so its peak equals `normalize_peak_db`. Offline only; realtime playback ignores it. |
 | `normalize_peak_db` | number | `-1` | -40..0 | Target peak in dBFS. |
+| `normalize_lufs` | number | none | -60..0 | Scale the render so its loudness, as `analyze` measures it, is this many LUFS. Replaces `normalize` and `normalize_peak_db`; the peak never goes above -1 dBFS. Offline only. |
 | `trim_silence` | bool | `false` | | Cut the render after its last sample above -60 dBFS. Offline only. Ignored, with a warning, when `duration` is set. |
 
-Order of the offline steps: master effects, gain, normalize, clip to
--1..1, trim. Trimming only removes trailing frames, so a trimmed render is
+Order of the offline steps: master effects, gain, normalize (by peak or by
+loudness), clip to -1..1, trim.
+
+`normalize_lufs` levels a sound to a loudness target in one render, so a
+recipe keeps its level through edits; set it to the category target that
+`list_presets` reports (`target_lufs`). It measures the finished render the
+way `analyze` does (gated BS.1770 from 400 ms, the ungated short-clip
+method below; see `ANALYSIS.md`) and lands within 0.1 LU of the target as
+measured from the written 16-bit WAV. Rules:
+
+* The gain never puts the peak above -1 dBFS. A target that would need
+  more renders quieter, and `render` (and `analyze` of the recipe) returns
+  a `suspicious` warning at `master.normalize_lufs` with the loudness
+  reached. A sine peaking at -1 dBFS measures about -4 LUFS, so very loud
+  targets only suit full, steady sounds.
+* `normalize` and `normalize_peak_db` have no effect while it is set;
+  `normalize = true` next to it gives an `unused` warning, so a preset
+  edited to use it says which line to remove.
+* Silence (or a long sound entirely under -70 LUFS) is left as it is.
+* It is deterministic like the rest of the render path: the meter used
+  while rendering avoids platform math (see `ARCHITECTURE.md`). Trimming only removes trailing frames, so a trimmed render is
 an exact prefix of the untrimmed one, and `analyze` reports no trailing
 silence for it (both use the same -60 dBFS threshold).
 
@@ -311,6 +331,7 @@ All in `examples/recipes/`, all render without clipping:
 | `powerup.toml` | two layers with `offset`, arpeggio over a sweep, `normalize`, `trim_silence` |
 | `ricochet.toml` | `channels = 2`, two layers panned left and right, master reverb |
 | `chime.toml` | note-name pitches, sustain and release, vibrato with delay |
+| `fanfare.toml` | four layers (arpeggio lead, two-note chord, bass), `normalize_lufs`, master reverb; reads note by note in `onsets` and layer by layer with `--per-layer` |
 
 ## Deferred (not in v0, never silently ignored)
 

@@ -171,6 +171,14 @@ mod wav {
         })
     }
 
+    /// Sample rate, channels and frames of a WAV file, from its header
+    /// only.
+    pub fn wav_info(path: &Path) -> Result<(u32, u16, u32), WavError> {
+        let r = hound::WavReader::open(path)?;
+        let spec = r.spec();
+        Ok((spec.sample_rate, spec.channels, r.duration()))
+    }
+
     /// Read a WAV file into a float buffer.
     pub fn read_wav(path: &Path) -> Result<AudioBuffer, WavError> {
         let bytes = std::fs::read(path)?;
@@ -184,4 +192,4 @@ mod wav {
 }
 
 #[cfg(feature = "wav")]
-pub use wav::{decode_wav, encode_wav, read_wav, write_wav};
+pub use wav::{decode_wav, encode_wav, read_wav, wav_info, write_wav};

@@ -4,8 +4,9 @@ Tasks for the next builder. Each task fits one session and has acceptance
 criteria. Task numbers are stable names, not the order: work in the order
 below, which puts real agents on Duck Echo as early as possible.
 
-**Order:** 1 ✓, 2 ✓, 6 ✓, 7 ✓, 9 ✓, then 3, 4, 5, 8, then 10 (with the
-proposed 17 next to it), then 11 onward.
+**Order:** 1 ✓, 2 ✓, 6 ✓, 7 ✓, 9 ✓, playtest 1 fixes ✓ (with 17 ✓),
+then 3, 4, 5, 8, then 10, then 11 onward. 18 (note sequences) is proposed
+from playtest 1; place it before 16, which it prepares.
 
 | Step | Task | Status |
 |---|---|---|
@@ -14,13 +15,13 @@ proposed 17 next to it), then 11 onward.
 | 3 | 6. Richer analysis and `compare` | done |
 | 4 | 7. Presets and `variations` | done |
 | 5 | 9. MCP server | done |
+| 5b | Playtest 1 fixes (P1 to P6) and 17. Loudness normalization | done |
 | 6 | 3. Band-limited oscillators | |
 | 7 | 4. Pitched noise and LFOs | |
 | 8 | 5. Per-parameter random ranges | |
 | 9 | 8. Cross-platform determinism in CI | |
 | 10 | 10. Agent workflow guide | |
-| 10b | 17. Loudness normalization in the recipe (proposed) | |
-| 11+ | 11 to 16 as listed | |
+| 11+ | 11 to 15 as listed, then 18 (proposed), then 16 | |
 
 Before starting any task: run `cargo test --workspace`, read
 `docs/ARCHITECTURE.md` and `docs/RECIPE_SPEC.md`, and keep the rules in
@@ -108,6 +109,80 @@ Found in a review of Phase 0 and fixed before task 1.
   unchanged. Tail-heavy presets needed a second pass because
   `trim_silence` uses an absolute -60 dBFS threshold, so a quieter render
   is trimmed sooner. Follow-up: task 17.
+
+## Playtest 1 fixes
+
+An agent made eight platformer sounds through the MCP tools only and
+reviewed the experience (`playtest/REVIEW.md` on branch `playtest-1`,
+rated 8/10). Its findings, fixed together:
+
+- [x] **P1. A picture of the sound.** `render` and `analyze` take
+  `picture: true` (CLI `--picture out.png`) and return a 480×254 PNG as an
+  MCP image block: level over time (peak, RMS, onset ticks) above a
+  log-frequency spectrogram, with a `picture` object describing the axes.
+  Drawn in `analyze::picture`, encoded by the in-house `analyze::png` (no
+  new dependency). Every analysis also gained `energy_over_time`, RMS in
+  20 slices. The reviewer could not tell whether coin's brightness was
+  aliasing; the picture shows the alias lines.
+- [x] **P2. Per-layer analysis and onsets.** `per_layer`, `solo` and `mute`
+  on `render` and `analyze` (CLI `--per-layer`, `--solo 0,2`, `--mute 1`).
+  Layers are isolated after `prepare` (`Voice::keep_layers`) and finished
+  with the mix's gain and length (`synth::render_layers`), so a layer reads
+  as it sounds in the mix. Every analysis gained `onsets`: the start of
+  the sound, then spectral-flux peaks, each with the pitch that starts
+  there (`note_hz`, the strongest *new* frequency, so a melody over a bass
+  reads as the melody). The summary says "N onsets". On the playtest's
+  level_complete jingle, one `analyze` call with `per_layer` now gives six
+  onsets in the mix (0.1 s steps, the chord at 0.55 s) and reads the lead
+  as C5 E5 G5 C6 E6 and the chord as C6, E6 and G6, which the reviewer
+  could not verify. Tests pin the note counts of the presets.
+- [x] **P3. `master.normalize_lufs`.** Task 17, below.
+- [x] **P4. `list_files`.** Lists the server root or a folder in it with
+  kinds, sizes and WAV lengths; hidden files skipped, links not followed.
+  Logic in `tools::files`. No delete tool yet (the review asked for one
+  too; see Open below).
+- [x] **P5. Error polish.** `Code::Other` is gone: new codes
+  `duplicate_field`, `not_found`, `already_exists`, `path_refused`, `io`,
+  `invalid_argument`, and argument errors reuse `type_mismatch`,
+  `out_of_range`, `unknown_variant`. `ToolError::Io(String)` became
+  `ToolError::Failed(Issue)`; front ends name the argument with
+  `ToolError::at`, so no MCP error has an empty path. Shared messages name
+  no CLI command (a missing preset lists every name in `allowed`), a
+  missing file suggests the closest name and `list_files`, and the server
+  replaces its absolute root in every message. Tool descriptions and the
+  server instructions explain `isError` (validate answers a bad recipe
+  with `isError: false`, `ok: false`) and the two loudness methods. Test:
+  `every_error_has_a_code_a_path_and_no_absolute_path` calls each tool
+  wrongly 29 ways.
+- [x] **P6. Playtest results are committed.** `.gitignore` no longer
+  ignores `playtest/`, and WAVs under it are not ignored either. Give each
+  playtest its own folder (README, "Playtest in this repository").
+
+Lessons for later tasks:
+
+* Onsets were tuned on every preset, example and playtest sound; the
+  thresholds are in `analyze::timeline` with the numbers that chose them.
+  If a new source (pitched noise, LFOs in task 4) adds false onsets, check
+  the share of new spectrum and the frame tonality first, and add the
+  preset to `onsets_count_the_notes_of_each_preset`.
+* Isolating layers by removing them from the `Voice` keeps seed streams
+  and jitter only because both are drawn per layer index in `prepare`.
+  Keep it that way, or solo renders will stop matching the mix.
+* A new failure gets a new `Code`, never a catch-all; and every tool
+  argument that names a file goes through `Root::read`, `Root::write` or
+  `Root::folder` with its argument name.
+
+Open, from the same review:
+
+* A note-list layer for melodies (task 18, proposed below).
+* A `delete` tool (it needs the same root rules as `create`, and a way to
+  refuse deleting anything but recipes, WAVs and pictures).
+* `attack_seconds` still measures the time to the loudest moment, so a
+  layered sound whose last part is loudest reads "slow attack"; the first
+  onset and `per_layer` now show the real start. Task 10's guide should say
+  so.
+* "Is this brightness real or aliasing?" is answered by the picture today
+  and by task 3's band-limited oscillators later.
 
 ## Phase 1: finish sound effects
 
@@ -284,7 +359,36 @@ These were planned before the agent interface and moved after task 9.
   guarantees. If a mismatch appears, the fix belongs in `synth::math`, not
   in the test.
 
-### 17. Loudness normalization in the recipe (proposed)
+### 17. Loudness normalization in the recipe [done]
+
+Done with the playtest 1 fixes, as `master.normalize_lufs` (a number, so
+there is no `normalize = "loudness"` mode). Choices that differ from the
+plan below:
+
+* **The peak ceiling is fixed at -1 dBFS** (`core::LOUDNESS_CEILING_DBFS`)
+  instead of using `normalize_peak_db`. Presets set `normalize_peak_db` to
+  whatever peak hits their target (-9.4 for coin), so using it as the
+  ceiling capped an agent who added `normalize_lufs = -16` to a preset at
+  the preset's old level: the first MCP test of the feature failed that
+  way. `normalize` and `normalize_peak_db` are now unused while
+  `normalize_lufs` is set, with an `unused` warning on `normalize = true`.
+  A target the ceiling does not allow renders quieter with a `suspicious`
+  render warning.
+* **It measures the finished render** (scaled, clipped, trimmed) and
+  corrects over up to four passes, because trimming and the short-clip
+  active span move with the gain; the result is within 0.1 LU of the target
+  as `analyze` reads the 16-bit WAV.
+* **Presets keep their peak levels** (`normalize_peak_db`), so their pinned
+  renders are unchanged; the test
+  `normalize_lufs_hits_every_category_target_in_one_render` adds
+  `normalize_lufs` to every preset as written and checks it lands on its
+  category target. Moving presets to `normalize_lufs` would change every
+  preset fingerprint; do it only on purpose.
+* The deterministic meter is `synth::loudness`; the test
+  `render_loudness_meter_matches_the_analyzer` holds it within 0.001 LU of
+  the analyzer on every preset and example, at 44.1 and 48 kHz.
+
+Original task text follows.
 
 * Presets are levelled by a fixed `normalize_peak_db` that a script chose,
   so an edited preset drifts off its target. Add
@@ -311,9 +415,13 @@ These were planned before the agent interface and moved after task 9.
   weapon -17, alert -18, pickup -19, movement -20, ui -22, ambient -24
   LUFS) as the guide's level targets, and explain why peak alone is not
   enough: at equal peak the presets once spanned 13 dB of loudness.
+* Teach `master.normalize_lufs` set to the category target as the way to
+  level a sound, `picture: true` to check texture, `per_layer` when a
+  layered sound's summary describes only its loudest part, and `onsets`
+  (with `note_hz`) to check melodies note by note.
 * The repository's `.mcp.json` serves the tools with `playtest/` as the
   root (README, "Playtest in this repository"); use it to try the guide
-  with a real agent.
+  with a real agent, and commit the playtest's folder with its review.
 * Accept: another agent given only the guide and the MCP server produces a
   usable coin, hit and explosion in one session.
 
@@ -371,6 +479,16 @@ These were planned before the agent interface and moved after task 9.
   `hound` (WAV only at first).
 * Accept: determinism test including the hash check; a missing or changed
   file is an `invalid` error at `layers[n].sample.path`.
+
+### 18. Note sequences in a layer (proposed)
+
+* From playtest 1: an arpeggio has one step time and one envelope for all
+  notes, so a real melody needs one layer per note. Add an optional
+  `[layers.notes]` list (`note`, `start`, `length`, optional `volume`) that
+  retriggers the layer's envelope and sets its pitch per note, as a small
+  step toward task 16's song timeline.
+* Accept: a five-note melody in one layer reads as five onsets with the
+  right `note_hz`; existing renders unchanged; schema and spec updated.
 
 ## Phase 2 bootstrap
 

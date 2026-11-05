@@ -1,0 +1,57 @@
+# Fanfare: a short win jingle in three parts, to show layered analysis.
+#
+# A lead runs up a C major arpeggio (C5 E5 G5 C6, one note every 90 ms),
+# a two-note chord (G5 under E6) lands at 0.4 s, and a bass holds C3 under
+# both. `master.normalize_lufs` levels the whole jingle to the pickup
+# target (-19 LUFS) in one render, whatever the layer volumes add up to;
+# the default `normalize_peak_db` (-1 dBFS) is the peak ceiling.
+#
+# The analysis lists an onset per note with its pitch, and
+#   duck-echo analyze examples/recipes/fanfare.toml --per-layer
+# analyzes each layer as it sounds in the mix.
+
+version = 0
+name = "fanfare"
+description = "Short win jingle: an arpeggio run, a chord, a held bass."
+tags = ["pickup", "jingle", "win"]
+
+[master]
+normalize_lufs = -19
+trim_silence = true
+
+[[layers]]
+name = "lead"
+source = "square"
+duty = 0.25
+volume = 0.6
+envelope = { attack = 0.003, hold = 0.33, decay = 0.08 }
+pitch = { start = "C5", arpeggio = { steps = [0, 4, 7, 12], step_time = 0.09, repeat = false } }
+
+[[layers]]
+name = "chord high"
+source = "triangle"
+offset = 0.4
+volume = 0.7
+envelope = { attack = 0.004, hold = 0.12, decay = 0.45 }
+pitch = { start = "E6" }
+
+[[layers]]
+name = "chord low"
+source = "square"
+offset = 0.4
+volume = 0.3
+envelope = { attack = 0.004, hold = 0.12, decay = 0.45 }
+pitch = { start = "G5" }
+
+[[layers]]
+name = "bass"
+source = "triangle"
+volume = 0.8
+envelope = { attack = 0.005, hold = 0.6, decay = 0.3 }
+pitch = { start = "C3" }
+
+[[effects]]
+type = "reverb"
+size = 0.3
+decay = 0.6
+mix = 0.15

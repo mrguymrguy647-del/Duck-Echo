@@ -439,6 +439,14 @@
           "description": "Scale the final render so its peak sits at `normalize_peak_db`.\nOffline only. Default `false`.",
           "type": "boolean"
         },
+        "normalize_lufs": {
+          "description": "Scale the render so its loudness, as `analyze` measures it, is this\nmany LUFS, range -60..=0. Replaces `normalize` and\n`normalize_peak_db`; the peak never goes above -1 dBFS, so a target\nthat needs more gain renders quieter (the render result warns).\nOffline only. Default: off.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "normalize_peak_db": {
           "default": -1.0,
           "description": "Target peak in dBFS when `normalize` is on, range -40..=0. Default `-1`.",

@@ -114,16 +114,23 @@ pub fn find(name: &str) -> Option<&'static Preset> {
     PRESETS.iter().find(|p| p.name == name)
 }
 
-/// A preset by name, or an error listing the closest names.
+/// A preset by name, or a `not_found` error with every preset name as the
+/// allowed options and the closest one as the suggestion. The message names
+/// no command, since the CLI and the MCP server list presets differently.
 pub fn get(name: &str) -> Result<&'static Preset, ToolError> {
     find(name).ok_or_else(|| {
         let names: Vec<String> = PRESETS.iter().map(|p| p.name.to_string()).collect();
-        let hint = duck_echo_core::load::did_you_mean(name, &names)
-            .map(|s| format!(" Did you mean `{s}`?"))
-            .unwrap_or_default();
-        ToolError::Io(format!(
-            "no preset named `{name}`.{hint} List them with `duck-echo presets list`."
-        ))
+        let mut issue = duck_echo_core::Issue::error(
+            duck_echo_core::Code::NotFound,
+            "",
+            format!("no preset named `{name}`; `allowed` lists every preset"),
+        )
+        .got(name)
+        .one_of(names.clone());
+        if let Some(s) = duck_echo_core::load::did_you_mean(name, &names) {
+            issue = issue.suggest(s);
+        }
+        ToolError::issue(issue)
     })
 }
 

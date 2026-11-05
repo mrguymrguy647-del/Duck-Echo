@@ -14,12 +14,15 @@
 //! * `preset:NAME` is accepted only by [`Root::read`], only for a known
 //!   preset whose name is letters, digits and underscores. [`Root::write`]
 //!   refuses it, since presets are built in and cannot be written.
+//! * Errors name the argument (`arguments.path`) and show paths as the
+//!   agent wrote them, never the root's absolute location.
 //!
 //! Checking then writing leaves a window in which another local process
 //! could swap a directory for a link; the server is a local tool for one
 //! user's agent, and these rules stop the agent itself from leaving the
 //! root.
 
+use duck_echo_core::{load::did_you_mean, Code, Issue};
 use duck_echo_tools::{presets, ToolError, PRESET_PREFIX};
 use std::path::{Component, Path, PathBuf};
 
@@ -28,8 +31,15 @@ pub struct Root {
     dir: PathBuf,
 }
 
-fn refuse(arg: &str, why: impl std::fmt::Display) -> ToolError {
-    ToolError::Io(format!("path `{arg}` is refused: {why}"))
+fn refuse(key: &str, arg: &str, why: impl std::fmt::Display) -> ToolError {
+    ToolError::issue(
+        Issue::error(
+            Code::PathRefused,
+            key,
+            format!("path `{arg}` is refused: {why}"),
+        )
+        .got(arg),
+    )
 }
 
 /// True for names a preset can have.
@@ -57,36 +67,87 @@ impl Root {
         &self.dir
     }
 
-    /// Resolve a path to read: `preset:NAME` for a known preset, or a path
-    /// inside the root.
-    pub fn read(&self, arg: &str) -> Result<PathBuf, ToolError> {
+    /// Resolve a path to read, given as argument `key` (such as
+    /// `arguments.path`): `preset:NAME` for a known preset, or an existing
+    /// file inside the root.
+    pub fn read(&self, key: &str, arg: &str) -> Result<PathBuf, ToolError> {
         if let Some(name) = arg.strip_prefix(PRESET_PREFIX) {
             if !is_preset_name(name) {
                 return Err(refuse(
+                    key,
                     arg,
                     "`preset:` must be followed by a preset name of lower-case letters, digits and underscores, such as preset:coin",
                 ));
             }
-            presets::get(name)?;
+            presets::get(name).map_err(|e| e.at(key))?;
             return Ok(PathBuf::from(format!("{PRESET_PREFIX}{name}")));
         }
-        self.inside(arg)
+        let path = self.inside(key, arg)?;
+        if std::fs::symlink_metadata(&path).is_err() {
+            return Err(self.missing(key, arg, &path));
+        }
+        Ok(path)
     }
 
-    /// Resolve a path to write: always a path inside the root.
-    pub fn write(&self, arg: &str) -> Result<PathBuf, ToolError> {
+    /// Resolve a path to write, given as argument `key`: always a path
+    /// inside the root.
+    pub fn write(&self, key: &str, arg: &str) -> Result<PathBuf, ToolError> {
         if arg.starts_with(PRESET_PREFIX) {
             return Err(refuse(
+                key,
                 arg,
                 "presets are built in and read-only; write to a file inside the root, such as out/coin.wav",
             ));
         }
-        self.inside(arg)
+        self.inside(key, arg)
     }
 
-    fn inside(&self, arg: &str) -> Result<PathBuf, ToolError> {
+    /// Resolve a folder to list: the root itself when `arg` is empty or
+    /// `.`, otherwise an existing path inside the root.
+    pub fn folder(&self, key: &str, arg: Option<&str>) -> Result<PathBuf, ToolError> {
+        match arg {
+            None | Some("" | ".") => Ok(self.dir.clone()),
+            Some(a) if a.starts_with(PRESET_PREFIX) => Err(refuse(
+                key,
+                a,
+                "presets are built in, not files; list_presets lists them",
+            )),
+            Some(a) => {
+                let path = self.inside(key, a)?;
+                if std::fs::symlink_metadata(&path).is_err() {
+                    return Err(self.missing(key, a, &path));
+                }
+                Ok(path)
+            }
+        }
+    }
+
+    /// A `not_found` error for `arg`, suggesting the closest name in its
+    /// folder when there is one.
+    fn missing(&self, key: &str, arg: &str, path: &Path) -> ToolError {
+        let mut issue = Issue::error(
+            Code::NotFound,
+            key,
+            format!("`{arg}` does not exist under the server root; list_files shows what does"),
+        )
+        .got(arg);
+        let parent = path.parent().unwrap_or(&self.dir);
+        if let (Some(name), Ok(read)) = (path.file_name(), std::fs::read_dir(parent)) {
+            let siblings: Vec<String> = read
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| !n.starts_with('.'))
+                .collect();
+            if let Some(s) = did_you_mean(&name.to_string_lossy(), &siblings) {
+                issue = issue.suggest(self.show(&parent.join(s)));
+            }
+        }
+        ToolError::issue(issue)
+    }
+
+    fn inside(&self, key: &str, arg: &str) -> Result<PathBuf, ToolError> {
         if arg.is_empty() {
-            return Err(refuse(arg, "it is empty"));
+            return Err(refuse(key, arg, "it is empty"));
         }
         let rel = Path::new(arg);
         for c in rel.components() {
@@ -94,12 +155,14 @@ impl Root {
                 Component::Normal(_) | Component::CurDir => {}
                 Component::ParentDir => {
                     return Err(refuse(
+                        key,
                         arg,
                         "`..` is not allowed; paths stay inside the server root",
                     ))
                 }
                 Component::RootDir | Component::Prefix(_) => {
                     return Err(refuse(
+                        key,
                         arg,
                         "absolute paths are not allowed; give a path relative to the server root",
                     ))
@@ -112,14 +175,15 @@ impl Root {
         while std::fs::symlink_metadata(existing).is_err() {
             existing = match existing.parent() {
                 Some(p) => p,
-                None => return Err(refuse(arg, "no part of it exists")),
+                None => return Err(refuse(key, arg, "no part of it exists")),
             };
         }
         let real = existing
             .canonicalize()
-            .map_err(|_| refuse(arg, "it goes through a broken symbolic link"))?;
+            .map_err(|_| refuse(key, arg, "it goes through a broken symbolic link"))?;
         if !real.starts_with(&self.dir) {
             return Err(refuse(
+                key,
                 arg,
                 "it leads outside the server root through a symbolic link",
             ));
@@ -137,9 +201,20 @@ impl Root {
 
     /// A path as shown to the agent: relative to the root when inside it.
     pub fn show(&self, path: &Path) -> String {
+        if path == self.dir {
+            return ".".into();
+        }
         path.strip_prefix(&self.dir)
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| path.display().to_string())
+    }
+
+    /// `text` with the root's absolute location replaced by paths relative
+    /// to it, so messages never reveal where the server runs.
+    pub fn scrub(&self, text: &str) -> String {
+        let dir = self.dir.display().to_string();
+        let sep = std::path::MAIN_SEPARATOR;
+        text.replace(&format!("{dir}{sep}"), "").replace(&dir, ".")
     }
 }
 
@@ -154,5 +229,14 @@ mod tests {
         for bad in ["", "/../x", "../coin", "coin.wav", "Coin", "a/b", "a b"] {
             assert!(!is_preset_name(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn scrub_hides_the_root() {
+        let root = Root::new(&std::env::temp_dir()).unwrap();
+        let dir = root.dir().display().to_string();
+        let sep = std::path::MAIN_SEPARATOR;
+        let msg = format!("cannot read {dir}{sep}sfx/a.wav in {dir}");
+        assert_eq!(root.scrub(&msg), "cannot read sfx/a.wav in .");
     }
 }

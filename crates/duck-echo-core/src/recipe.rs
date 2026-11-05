@@ -164,12 +164,23 @@ pub struct Master {
     pub normalize: bool,
     /// Target peak in dBFS when `normalize` is on, range -40..=0. Default `-1`.
     pub normalize_peak_db: f32,
+    /// Scale the render so its loudness, as `analyze` measures it, is this
+    /// many LUFS, range -60..=0. Replaces `normalize` and
+    /// `normalize_peak_db`; the peak never goes above -1 dBFS, so a target
+    /// that needs more gain renders quieter (the render result warns).
+    /// Offline only. Default: off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalize_lufs: Option<f32>,
     /// Cut the end of the render after the last sample above -60 dBFS (the
     /// analyzer's silence threshold). Removes the silent part of computed
     /// effect tails. Offline only; has no effect when `duration` is set.
     /// Default `false`.
     pub trim_silence: bool,
 }
+
+/// The peak ceiling of `master.normalize_lufs`, in dBFS: the gain never
+/// puts the peak above it.
+pub const LOUDNESS_CEILING_DBFS: f32 = -1.0;
 
 /// Trailing samples at or below this magnitude are removed by
 /// `master.trim_silence`. Equals -60 dBFS, the analyzer's silence threshold.
@@ -181,6 +192,7 @@ impl Default for Master {
             gain: default_gain(),
             normalize: false,
             normalize_peak_db: default_normalize_peak_db(),
+            normalize_lufs: None,
             trim_silence: false,
         }
     }

@@ -194,7 +194,19 @@ fn preset_references_and_typos() {
     assert_eq!(r.stem, "coin");
     assert_eq!(r.loaded.recipe.name.as_deref(), Some("coin"));
     match load_recipe(Path::new("preset:gemm")) {
-        Err(ToolError::Io(msg)) => assert!(msg.contains("Did you mean `gem`?"), "{msg}"),
+        Err(ToolError::Failed(issue)) => {
+            assert_eq!(issue.code, duck_echo_core::Code::NotFound);
+            assert_eq!(issue.suggestion.as_deref(), Some("gem"));
+            // Front ends list presets differently, so the shared message
+            // names no command; `allowed` has every name instead.
+            assert!(!issue.message.contains("duck-echo"), "{}", issue.message);
+            match issue.allowed {
+                Some(duck_echo_core::Allowed::OneOf { options }) => {
+                    assert_eq!(options.len(), PRESETS.len())
+                }
+                other => panic!("{other:?}"),
+            }
+        }
         other => panic!("{other:?}"),
     }
 }
@@ -235,14 +247,15 @@ fn variations_render_distinct_seeds_and_explain_when_they_cannot() {
     }
     assert!(dir.join("footstep_seed2.wav").exists());
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(matches!(
-        variations(&coin, 0, None, None),
-        Err(ToolError::Io(_))
-    ));
-    assert!(matches!(
-        variations(&coin, 65, None, None),
-        Err(ToolError::Io(_))
-    ));
+    for bad in [0, 65] {
+        match variations(&coin, bad, None, None) {
+            Err(ToolError::Failed(i)) => {
+                assert_eq!(i.code, duck_echo_core::Code::OutOfRange);
+                assert_eq!(i.path, "count");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
     match variations(&coin, 2, Some(1.5), None) {
         Err(ToolError::Invalid(r)) => assert_eq!(r.errors[0].path, "variation"),
         other => panic!("{other:?}"),

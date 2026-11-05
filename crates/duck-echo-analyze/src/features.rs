@@ -66,7 +66,7 @@ pub fn fft_size(sample_rate: u32) -> usize {
         .max(256)
 }
 
-fn rms(xs: &[f32]) -> f32 {
+pub(crate) fn rms(xs: &[f32]) -> f32 {
     if xs.is_empty() {
         return 0.0;
     }
@@ -74,7 +74,7 @@ fn rms(xs: &[f32]) -> f32 {
 }
 
 /// Lowest bin considered (skips DC and sub-audio rumble).
-fn min_bin(sample_rate: u32, n: usize) -> usize {
+pub(crate) fn min_bin(sample_rate: u32, n: usize) -> usize {
     ((20.0 * n as f64 / sample_rate as f64).ceil() as usize).max(1)
 }
 
@@ -94,7 +94,7 @@ pub fn a_weight_power(f: f64) -> f64 {
 }
 
 /// A-weighting power gain for each FFT bin.
-fn a_weights(sample_rate: u32, n: usize) -> Vec<f64> {
+pub(crate) fn a_weights(sample_rate: u32, n: usize) -> Vec<f64> {
     (0..=n / 2)
         .map(|k| a_weight_power(k as f64 * sample_rate as f64 / n as f64))
         .collect()
@@ -103,7 +103,7 @@ fn a_weights(sample_rate: u32, n: usize) -> Vec<f64> {
 /// A-weighted power in prominent peaks and A-weighted total power, over
 /// bins from `lo`. Prominence is judged on the raw spectrum `p`; `w` only
 /// weights the sums.
-fn peak_and_total(p: &[f64], w: &[f64], lo: usize) -> (f64, f64) {
+pub(crate) fn peak_and_total(p: &[f64], w: &[f64], lo: usize) -> (f64, f64) {
     const RADIUS: usize = 16;
     let hi = p.len().saturating_sub(1);
     let mut peak = 0.0;
@@ -131,7 +131,7 @@ fn peak_and_total(p: &[f64], w: &[f64], lo: usize) -> (f64, f64) {
 
 /// Strongest bin from `lo`, refined by parabolic interpolation of the log
 /// power, in Hz.
-fn dominant_hz(p: &[f64], lo: usize, sample_rate: u32, n: usize) -> Option<f32> {
+pub(crate) fn dominant_hz(p: &[f64], lo: usize, sample_rate: u32, n: usize) -> Option<f32> {
     let hi = p.len().saturating_sub(1);
     let k = (lo..hi).max_by(|&a, &b| p[a].total_cmp(&p[b]))?;
     if p[k] <= 0.0 {
@@ -468,6 +468,9 @@ pub fn summary(a: &Analysis) -> String {
         } else {
             parts.push(format!("{character}, {pitch}"));
         }
+    }
+    if a.onsets.len() >= 2 {
+        parts.push(format!("{} onsets", a.onsets.len()));
     }
     if a.clipping.clipped {
         parts.push(format!("CLIPPING ({} samples)", a.clipping.clipped_samples));

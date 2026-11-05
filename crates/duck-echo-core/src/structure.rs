@@ -284,7 +284,11 @@ impl<'s> Walker<'s> {
             let p = join(path, &e.key);
             if seen.contains(&e.key.as_str()) {
                 self.issues.push(at(
-                    Issue::error(Code::Other, p, format!("duplicate field `{}`", e.key)),
+                    Issue::error(
+                        Code::DuplicateField,
+                        p,
+                        format!("duplicate field `{}`; keep one", e.key),
+                    ),
                     e.key_pos,
                 ));
                 continue;

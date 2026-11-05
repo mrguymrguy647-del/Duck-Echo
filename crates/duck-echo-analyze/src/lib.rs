@@ -11,9 +11,14 @@ use serde::{Deserialize, Serialize};
 pub mod compare;
 pub mod features;
 pub mod fft;
+pub mod picture;
+pub mod png;
+pub mod timeline;
 
 pub use compare::{compare, Comparison, Signal};
 pub use features::PitchPoint;
+pub use picture::{Picture, PictureInfo};
+pub use timeline::{EnergyOverTime, Onset};
 
 /// Samples at or above this magnitude count as clipped. 16-bit full scale
 /// is 32767/32768, so a hard-clipped render still lands above this.
@@ -114,6 +119,13 @@ pub struct Analysis {
     /// windows over the non-silent part. Spectral measures use the mean of
     /// the channels.
     pub pitch_track: Vec<PitchPoint>,
+    /// RMS level in 20 equal slices over the whole file, a coarse picture
+    /// of the level over time.
+    pub energy_over_time: EnergyOverTime,
+    /// Where notes or bursts start: the start of the sound, then every peak
+    /// of new spectral energy, each with the dominant frequency and level
+    /// of the stretch up to the next onset. Uses the mean of the channels.
+    pub onsets: Vec<Onset>,
     /// Threshold used for the silence measurements, in dBFS.
     pub silence_threshold_dbfs: f32,
 }
@@ -239,6 +251,8 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
     };
     let active = first.zip(last);
     let spectral = features::spectral(&mono, sample_rate, active);
+    let onsets = timeline::onsets(&mono, sample_rate, active);
+    let energy_over_time = timeline::energy_over_time(samples, ch, sample_rate);
     let times = features::envelope_times(samples, ch, sample_rate, first);
     let crest_factor_db = active.and_then(|(f, l)| {
         let span = &samples[f * ch..(l + 1) * ch];
@@ -277,6 +291,8 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
         spectral_centroid_hz: spectral.centroid_hz,
         tonality: spectral.tonality,
         pitch_track: spectral.track,
+        energy_over_time,
+        onsets,
         silence_threshold_dbfs: SILENCE_THRESHOLD_DBFS,
     };
     analysis.summary = features::summary(&analysis);

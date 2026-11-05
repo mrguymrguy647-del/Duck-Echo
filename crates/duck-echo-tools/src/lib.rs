@@ -3,25 +3,74 @@
 //! and recipe edits. Each returns plain data or a [`ToolError`], so both
 //! front ends report the same results the same way.
 
-use duck_echo_audio::{read_wav, AudioBuffer};
-use duck_echo_core::{load_path, Format, Report};
+use duck_echo_audio::{read_wav, AudioBuffer, WavError};
+use duck_echo_core::{load_path, Code, Format, Issue, Report};
 use std::fmt;
 use std::path::Path;
 
-/// Why an operation failed.
+pub mod files;
+pub mod measure;
+
+pub use measure::{Extras, LayerAnalysis, Measured};
+
+/// Why an operation failed. Both shapes become the same validation report
+/// for callers (see [`ToolError::into_report`]).
 #[derive(Debug)]
 pub enum ToolError {
     /// The recipe is invalid; the report lists every problem.
     Invalid(Report),
-    /// A file could not be read or written, or arguments were unusable.
-    Io(String),
+    /// Something outside the recipe: a missing or unwritable file, a
+    /// refused path, an unusable argument. The issue has a specific code;
+    /// its path is empty until a front end names the argument with
+    /// [`ToolError::at`].
+    Failed(Box<Issue>),
+}
+
+impl ToolError {
+    /// A failure with a code and message and no path yet.
+    pub fn failed(code: Code, message: impl Into<String>) -> Self {
+        Self::issue(Issue::error(code, "", message))
+    }
+
+    /// A failure described by one issue.
+    pub fn issue(issue: Issue) -> Self {
+        ToolError::Failed(Box::new(issue))
+    }
+
+    /// Give every issue without a path the path `path`: the argument the
+    /// failing value came from, such as `arguments.path`. Issues that
+    /// already point into a recipe keep their paths.
+    pub fn at(mut self, path: &str) -> Self {
+        for issue in self.issues_mut() {
+            if issue.path.is_empty() {
+                issue.path = path.to_string();
+            }
+        }
+        self
+    }
+
+    /// Every issue, errors and warnings.
+    pub fn issues_mut(&mut self) -> Vec<&mut Issue> {
+        match self {
+            ToolError::Invalid(r) => r.errors.iter_mut().chain(r.warnings.iter_mut()).collect(),
+            ToolError::Failed(i) => vec![i.as_mut()],
+        }
+    }
+
+    /// The validation report shape: `{ok: false, errors, warnings}`.
+    pub fn into_report(self) -> Report {
+        match self {
+            ToolError::Invalid(r) => r,
+            ToolError::Failed(i) => Report::from_error(*i),
+        }
+    }
 }
 
 impl fmt::Display for ToolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ToolError::Invalid(r) => write!(f, "{r}"),
-            ToolError::Io(m) => f.write_str(m),
+            ToolError::Failed(i) => writeln!(f, "{i}"),
         }
     }
 }
@@ -31,6 +80,16 @@ impl std::error::Error for ToolError {}
 impl From<Report> for ToolError {
     fn from(r: Report) -> Self {
         ToolError::Invalid(r)
+    }
+}
+
+/// The code for a failed file operation: `not_found` when the file is
+/// missing, `io` otherwise.
+pub fn io_code(e: &std::io::Error) -> Code {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        Code::NotFound
+    } else {
+        Code::Io
     }
 }
 
@@ -52,7 +111,18 @@ pub fn load_audio(path: &Path) -> Result<AudioBuffer, ToolError> {
         let r = load_recipe(path)?;
         Ok(duck_echo_synth::render(&r.loaded.recipe)?)
     } else {
-        read_wav(path).map_err(|e| ToolError::Io(format!("cannot read {}: {e}", path.display())))
+        read_wav(path).map_err(|e| match e {
+            WavError::Io(io) => {
+                ToolError::failed(io_code(&io), format!("cannot read {}: {io}", path.display()))
+            }
+            WavError::Format(why) => ToolError::failed(
+                Code::Io,
+                format!(
+                    "{} is not a WAV file Duck Echo can read ({why}); give a .wav file, a .toml/.json recipe or preset:NAME",
+                    path.display()
+                ),
+            ),
+        })
     }
 }
 
@@ -128,39 +198,83 @@ pub struct Rendered {
     pub output: String,
     /// The seed used.
     pub seed: u64,
-    /// Validation warnings for the recipe.
+    /// Validation warnings for the recipe, and render warnings (a
+    /// `normalize_lufs` target the peak ceiling did not allow).
     pub warnings: Vec<duck_echo_core::Issue>,
-    /// Analysis of the rendered audio.
+    /// Analysis of the rendered audio, plus the extras asked for.
     pub analysis: duck_echo_analyze::Analysis,
+    /// With `solo` or `mute`: the layers heard in the written file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heard_layers: Option<Vec<usize>>,
+    /// With `per_layer`: each heard layer analyzed on its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layers: Option<Vec<LayerAnalysis>>,
+    /// With `picture`: what the picture shows. The PNG is in `png`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture: Option<duck_echo_analyze::PictureInfo>,
+    /// The picture as PNG bytes, not serialized.
+    #[serde(skip)]
+    pub png: Option<Vec<u8>>,
 }
 
 /// Render a validated recipe to a WAV file, optionally overriding the
-/// seed, and analyze the result.
+/// seed, and analyze the result. `extras` adds per-layer analyses, a
+/// picture, or renders only some layers (`solo`, `mute`).
 pub fn render_to_file(
     loaded: &duck_echo_core::Loaded,
     output: &Path,
     seed: Option<u64>,
     format: duck_echo_audio::WavFormat,
+    extras: &Extras,
 ) -> Result<Rendered, ToolError> {
     if !has_wav_extension(output) {
-        return Err(ToolError::Io(format!(
-            "render output {} must end in .wav; refusing to write audio over another kind of file",
-            output.display()
-        )));
+        return Err(ToolError::failed(
+            Code::PathRefused,
+            format!(
+                "render output {} must end in .wav; refusing to write audio over another kind of file",
+                output.display()
+            ),
+        ));
     }
     let mut recipe = loaded.recipe.clone();
     if let Some(s) = seed {
         recipe.seed = s;
     }
-    let buffer = duck_echo_synth::render(&recipe)?;
-    write_wav_file(output, &buffer, format)?;
+    let m = measure::measure_recipe(&recipe, &loaded.report.warnings, extras)?;
+    write_wav_file(output, &m.buffer, format)?;
+    let measured = m.measured;
     Ok(Rendered {
         ok: true,
         output: output.display().to_string(),
         seed: recipe.seed,
-        warnings: loaded.report.warnings.clone(),
-        analysis: analyze_buffer(&buffer),
+        warnings: measured.warnings,
+        analysis: measured.analysis,
+        heard_layers: measured.heard_layers,
+        layers: measured.layers,
+        picture: measured.picture,
+        png: measured.png,
     })
+}
+
+/// Write a picture's PNG bytes to `path`, which must end in `.png`.
+pub fn write_png(path: &Path, png: &[u8]) -> Result<(), ToolError> {
+    let is_png = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("png"));
+    if !is_png {
+        return Err(ToolError::failed(
+            Code::PathRefused,
+            format!("picture file {} must end in .png", path.display()),
+        ));
+    }
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| {
+            ToolError::failed(Code::Io, format!("cannot create {}: {e}", dir.display()))
+        })?;
+    }
+    std::fs::write(path, png)
+        .map_err(|e| ToolError::failed(Code::Io, format!("cannot write {}: {e}", path.display())))
 }
 
 /// True when `path` ends in `.wav` (any case).
@@ -198,11 +312,12 @@ fn write_wav_file(
     format: duck_echo_audio::WavFormat,
 ) -> Result<(), ToolError> {
     if let Some(dir) = output.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| ToolError::Io(format!("cannot create {}: {e}", dir.display())))?;
+        std::fs::create_dir_all(dir).map_err(|e| {
+            ToolError::failed(Code::Io, format!("cannot create {}: {e}", dir.display()))
+        })?;
     }
     duck_echo_audio::write_wav(output, buffer, format)
-        .map_err(|e| ToolError::Io(format!("cannot write {}: {e}", output.display())))
+        .map_err(|e| ToolError::failed(Code::Io, format!("cannot write {}: {e}", output.display())))
 }
 
 /// Most renders one `variations` call may make.
@@ -245,9 +360,15 @@ pub fn variations(
     out_dir: Option<&Path>,
 ) -> Result<Variations, ToolError> {
     if !(1..=MAX_VARIATIONS).contains(&count) {
-        return Err(ToolError::Io(format!(
-            "count must be 1..={MAX_VARIATIONS}, got {count}"
-        )));
+        return Err(ToolError::issue(
+            Issue::error(
+                Code::OutOfRange,
+                "count",
+                format!("count must be 1..={MAX_VARIATIONS}, got {count}"),
+            )
+            .got(count)
+            .range(1.0, MAX_VARIATIONS as f64),
+        ));
     }
     let mut base = recipe.loaded.recipe.clone();
     if let Some(v) = variation {

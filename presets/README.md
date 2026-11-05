@@ -55,6 +55,16 @@ ui_error) to -17.5 LUFS (explosions), 13 dB of difference the wrong way
 round. The targets are in `duck_echo_tools::presets::LOUDNESS_TARGETS` and
 `list_presets` reports each preset's `target_lufs`.
 
+Presets are levelled by peak (`normalize_peak_db`), so an edited preset
+drifts off its target. To keep the target through edits, set
+`master.normalize_lufs` to the category target (for example `-19` for a
+pickup): it levels the sound by loudness in every render, with the peak
+kept under -1 dBFS. `normalize` and `normalize_peak_db` then have no effect,
+and validation warns about `normalize = true` so it can be removed. The
+presets themselves keep their peak settings so their pinned renders stay
+the same; a test checks that each one lands on its target with
+`normalize_lufs` added.
+
 ## Adding or changing a preset
 
 1. Write `presets/<name>.toml` following the conventions.
