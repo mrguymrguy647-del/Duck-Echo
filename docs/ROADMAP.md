@@ -338,6 +338,40 @@ Lessons for the next builder:
   phase had a red Windows job, and the cause was only read at the end.
   Look at CI after every push.
 
+### No false "extra" notes inside held notes [done]
+
+The note check (task 21) reported many extra onsets that were not
+there: 9 on the day bass and 16 on the night bass, all inside held notes
+at about 55 Hz, plus one in the day pad. An agent would have believed
+them and "fixed" notes that were fine.
+
+- [x] An onset inside a note still held on the same track is explained
+  by that note when it brings no new pitch (no clear pitch, a reading
+  above 5 kHz, or the held note's pitch or one of its overtones) and the
+  level does not jump by 6 dB or more (`tools/src/notecheck.rs`,
+  `inside_held_note`). In a loop, notes held across the end count at the
+  start too.
+- [x] `extra_onsets[].beat` is rounded to the nearest eighth of a beat,
+  so it reads like a note an agent could write (2.5, not 2.51).
+- [x] Tests: both Duck Craft themes and the four-bar demo report zero
+  extra onsets on every track; an unwritten E4 played over a held A3 is
+  reported as exactly one extra at bar 2, beat 1; the same pitch struck
+  again (a jump in level) is still extra; an unwritten hi-hat is found
+  by time; the earlier wrong-note test still passes. Analysis only: no
+  render or fingerprint changed.
+
+Lessons for the next builder:
+
+* **The onset finder is tuned for sound effects.** It reports any sudden
+  change, and a held low note changes all the time. Explain onsets with
+  what you know was written before calling them extra.
+* **Overtones count as the same note.** The night bass's false onset at
+  439 Hz was the 8th overtone of its 55 Hz A1.
+* **The onset finder has a blind spot:** a pure sine entering under
+  another pure sine makes no detectable start. Real instruments (with an
+  attack, a filter or noise) are seen. Test with the built-in
+  instruments, not bare sines.
+
 ### 10. Agent workflow guide (moved here from Phase 0, last in Phase 1)
 
 * `docs/AGENT_GUIDE.md`: how to design a sound or a tune without hearing

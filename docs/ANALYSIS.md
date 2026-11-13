@@ -154,8 +154,18 @@ counts, plus:
   `heard` (the nearest note name), `heard_hz`, `cents_off` and
   `level_dbfs`.
 * `extra_onsets`: clear starts of sound where no note was written, with
-  `time_seconds`, `bar`, `beat` and `note_hz`. An echo's repeats show up
-  here. They are information, not problems.
+  `time_seconds`, `bar`, `beat` (rounded to the nearest eighth of a beat,
+  the place you would write a note there) and `note_hz`. An echo's
+  repeats show up here, and so does a note that is in the audio but not
+  in the song. They are information, not problems. A start inside a
+  note that is still held on the same track is **not** extra when it
+  brings no new pitch (no clear pitch, a reading above 5 kHz, or the held
+  note's own pitch or one of its overtones) and the level does not jump
+  by 6 dB or more. Long low notes wobble as their filter closes and their
+  layers beat, and the onset finder sees those wobbles as starts; this
+  rule keeps them out. Drum tracks hold no notes, so their extras are
+  found by time alone. The onset finder cannot see a pure sine entering
+  under another pure sine, so such a note is not reported.
 * `notes`: every note in the same shape, with `notes: true` (MCP) or
   `--notes` (CLI).
 
