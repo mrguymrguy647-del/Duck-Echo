@@ -394,6 +394,22 @@ Lessons for the next builder:
   usable coin, hit and explosion, and a looping eight-bar tune, in one
   session.
 
+Progress:
+
+- [x] `docs/AGENT_GUIDE.md` written: the loop (start from a preset or
+  instrument, change one thing, render, read, compare), loudness targets
+  and `master.normalize_lufs` (with the edit that levels a preset copy),
+  `loudness_method`, which field answers which question, `per_layer`,
+  `picture`, `onsets`, `aliasing`, and a music chapter (a song on one
+  screen, instruments and their ranges, loops, stems, matching themes
+  for cross-fading, reading the note check, and a "done" checklist).
+- [x] Linked from the README and from the MCP server's instructions.
+- [x] `tools/tests/agent_guide.rs` keeps it honest: every TOML example
+  validates with no warnings, the song example loops cleanly with every
+  note heard, the levelling edit holds the target, and the preset and
+  instrument tables match the built-ins.
+- [ ] Playtest with a fresh agent (next commit).
+
 ## Phase 2: Duck Echo Studio
 
 An app for people who never open a terminal, built on the same libraries
