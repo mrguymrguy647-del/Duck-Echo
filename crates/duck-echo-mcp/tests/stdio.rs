@@ -994,3 +994,244 @@ fn tag_typos_and_layer_counts_help_the_agent() {
         "{summary}"
     );
 }
+
+/// A small song with its own instruments, as an agent would send it.
+fn song_json(lead: &str) -> Value {
+    json!({
+        "version": 0,
+        "name": "tune",
+        "tempo": 120,
+        "bars": 2,
+        "instruments": {
+            "tone": {
+                "version": 0,
+                "layers": [{
+                    "source": "sine",
+                    "envelope": {"attack": 0.01, "decay": 0.05, "sustain": 0.7, "release": 0.05},
+                    "pitch": {"start": "A4"}
+                }]
+            }
+        },
+        "patterns": {"up": {"notes": [
+            {"beat": 0, "note": "A3"}, {"beat": 1, "note": "C4"},
+            {"beat": 2, "note": "E4"}, {"beat": 3, "note": "A4"}
+        ]}},
+        "tracks": [
+            {"name": "melody", "instrument": lead, "notes": [
+                {"beat": 0, "note": "A4", "length": 2},
+                {"bar": 2, "beat": 0, "note": ["C5", "E5"], "length": 2}
+            ]},
+            {"name": "bass", "instrument": "tone", "volume": 0.8,
+             "play": [{"pattern": "up", "bars": [1, 2]}]}
+        ]
+    })
+}
+
+/// Roadmap task 16: every tool that takes a recipe takes a song.
+#[test]
+fn songs_work_through_every_tool() {
+    let root = fresh_root("mcp_songs");
+    let mut s = started(&root);
+
+    let (schema, err) = s.call("get_schema", json!({"kind": "song"}));
+    assert!(!err);
+    assert_eq!(schema["title"], "Duck Echo song v0");
+    assert!(schema["properties"]["tracks"].is_object());
+    let (schema, _) = s.call("get_schema", json!({}));
+    assert_eq!(schema["title"], "Duck Echo recipe v0");
+    let (report, err) = s.call("get_schema", json!({"kind": "tune"}));
+    assert!(err);
+    assert_eq!(report["errors"][0]["path"], "arguments.kind");
+
+    // A recipe file next to the song is its lead instrument.
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "songs/lead.toml", "recipe": {
+            "version": 0,
+            "layers": [{"source": "square", "volume": 0.4,
+                "envelope": {"attack": 0.01, "decay": 0.05, "sustain": 0.7, "release": 0.05},
+                "pitch": {"start": "C4"}}]
+        }}),
+    );
+    assert!(!err, "{made}");
+    assert_eq!(made["kind"], "recipe");
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "songs/tune.toml", "recipe": song_json("lead.toml")}),
+    );
+    assert!(!err, "{made}");
+    assert_eq!(made["kind"], "song");
+    assert_eq!(made["path"], "songs/tune.toml");
+
+    let (report, err) = s.call("validate", json!({"path": "songs/tune.toml"}));
+    assert!(!err);
+    assert_eq!(report["ok"], true, "{report}");
+
+    let (done, err) = s.call(
+        "render",
+        json!({"path": "songs/tune.toml", "output": "out/tune.wav", "per_track": true}),
+    );
+    assert!(!err, "{done}");
+    assert_eq!(done["output"], "out/tune.wav");
+    assert_eq!(done["song"]["bars"], 2);
+    assert_eq!(done["song"]["tempo"], 120.0);
+    // Two bars at 120 BPM are exactly four seconds of 44.1 kHz stereo.
+    assert_eq!(done["song"]["song_frames"], 176_400);
+    assert_eq!(done["analysis"]["per_channel"].as_array().unwrap().len(), 2);
+    let tracks = done["tracks"].as_array().unwrap();
+    assert_eq!(tracks.len(), 2);
+    assert_eq!(tracks[0]["name"], "melody");
+    assert_eq!(tracks[0]["notes"], 3);
+    assert_eq!(tracks[1]["notes"], 8);
+    assert!(root.join("out/tune.wav").exists());
+
+    let (heard, err) = s.call(
+        "analyze",
+        json!({"path": "songs/tune.toml", "solo": ["bass"]}),
+    );
+    assert!(!err, "{heard}");
+    assert_eq!(heard["heard_tracks"], json!(["bass"]));
+    assert!(heard["summary"]
+        .as_str()
+        .unwrap()
+        .starts_with("2 bars at 120 BPM, 2 tracks (1 heard); "));
+    assert!(heard["onsets"].as_array().unwrap().len() >= 6, "{heard}");
+
+    // An inline song, and comparing a song with a WAV of itself.
+    let (inline, err) = s.call("analyze", json!({"recipe": song_json("tone")}));
+    assert!(!err, "{inline}");
+    assert_eq!(inline["song"]["notes"], 11);
+    let (same, err) = s.call(
+        "compare",
+        json!({"a": "songs/tune.toml", "b": "out/tune.wav"}),
+    );
+    assert!(!err, "{same}");
+    assert!(
+        same["correlation"]["value"].as_f64().unwrap_or(0.0) > 0.99
+            || same["summary"].as_str().unwrap().contains("same"),
+        "{same}"
+    );
+
+    // Edits use song paths, and a bad note is reported at its path.
+    let (edited, err) = s.call(
+        "edit",
+        json!({"path": "songs/tune.toml", "ops": [{"path": "tracks[0].notes[0].note", "value": "B4"}]}),
+    );
+    assert!(!err, "{edited}");
+    assert_eq!(edited["recipe"]["tracks"][0]["notes"][0]["note"], "B4");
+    assert_eq!(edited["written"], true);
+    let (report, err) = s.call(
+        "edit",
+        json!({"path": "songs/tune.toml", "ops": [{"path": "tracks[0].notes[0].note", "value": "H4"}]}),
+    );
+    assert!(err);
+    assert_eq!(report["errors"][0]["path"], "tracks[0].notes[0].note");
+    assert_eq!(report["errors"][0]["suggestion"], "B4");
+
+    // Wrong kind of option or tool for a song.
+    for (tool, args, path) in [
+        (
+            "analyze",
+            json!({"path": "songs/tune.toml", "per_layer": true}),
+            "arguments.per_layer",
+        ),
+        (
+            "analyze",
+            json!({"path": "songs/tune.toml", "solo": ["drums"]}),
+            "arguments.solo[0]",
+        ),
+        (
+            "analyze",
+            json!({"path": "preset:coin", "per_track": true}),
+            "arguments.per_track",
+        ),
+        (
+            "analyze",
+            json!({"path": "out/tune.wav", "per_track": true}),
+            "arguments.per_track",
+        ),
+        (
+            "variations",
+            json!({"path": "songs/tune.toml"}),
+            "arguments.path",
+        ),
+    ] {
+        let (report, err) = s.call(tool, args.clone());
+        assert!(err, "{tool} {args}: {report}");
+        assert_eq!(report["errors"][0]["path"], path, "{tool} {args}: {report}");
+    }
+}
+
+/// Security: a song's instrument files go through the root guard like
+/// every other path.
+#[test]
+fn song_instrument_files_cannot_leave_the_root() {
+    let (root, outside) = sandbox("mcp_security_songs");
+    let recipe = "version = 0\n[[layers]]\nsource = \"sine\"\n";
+    std::fs::write(outside.join("recipe.toml"), recipe).unwrap();
+    std::fs::create_dir_all(root.join("shared")).unwrap();
+    std::fs::create_dir_all(root.join("songs")).unwrap();
+    std::fs::write(root.join("shared/lead.toml"), recipe).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, root.join("out_link")).unwrap();
+    let mut s = started(&root);
+
+    let absolute = outside.join("recipe.toml").display().to_string();
+    for (reference, why) in [
+        ("../outside/recipe.toml", "`..` is not allowed"),
+        ("../../outside/recipe.toml", "`..` is not allowed"),
+        // Even a `..` that would stay inside the root: paths never go up.
+        ("../shared/lead.toml", "`..` is not allowed"),
+        (&absolute[..], "absolute paths are not allowed"),
+        #[cfg(unix)]
+        (
+            "out_link/recipe.toml",
+            "outside the server root through a symbolic link",
+        ),
+        ("missing.toml", "does not exist under the server root"),
+    ] {
+        // Inline (read from the root) and as a file in a folder.
+        let song = song_json(reference);
+        let (made, err) = s.call(
+            "create",
+            json!({"path": "songs/bad.toml", "recipe": song.clone(), "overwrite": true}),
+        );
+        assert!(err, "{reference}: {made}");
+        for (tool, args) in [
+            ("validate", json!({"recipe": song.clone()})),
+            ("render", json!({"recipe": song.clone(), "output": "x.wav"})),
+            ("analyze", json!({"recipe": song.clone()})),
+        ] {
+            let (report, err) = s.call(tool, args);
+            // validate answers with the report; the others fail.
+            assert_eq!(err, tool != "validate", "{tool} {reference}: {report}");
+            assert_eq!(report["ok"], false);
+            let e = &report["errors"][0];
+            assert_eq!(
+                e["path"], "tracks[0].instrument",
+                "{tool} {reference}: {report}"
+            );
+            let msg = e["message"].as_str().unwrap();
+            assert!(
+                msg.contains(why),
+                "{tool} {reference}: expected `{why}` in: {msg}"
+            );
+            assert!(!report.to_string().contains(&root.display().to_string()));
+        }
+    }
+    assert!(!root.join("songs/bad.toml").exists());
+    assert!(!root.join("x.wav").exists());
+
+    // A file inside the root, next to the song, is fine.
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "shared/ok.toml", "recipe": song_json("lead.toml")}),
+    );
+    assert!(!err, "{made}");
+    // The same reference from the root does not find it: paths are
+    // relative to the song's folder.
+    let (report, _) = s.call("validate", json!({"recipe": song_json("lead.toml")}));
+    assert_eq!(report["errors"][0]["code"], "not_found");
+    let (report, _) = s.call("validate", json!({"recipe": song_json("shared/lead.toml")}));
+    assert_eq!(report["ok"], true, "{report}");
+}

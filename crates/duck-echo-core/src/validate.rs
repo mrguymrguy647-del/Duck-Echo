@@ -23,9 +23,26 @@ pub fn validate(recipe: &Recipe) -> Report {
     v.report
 }
 
+/// Check the parts a song shares with a recipe: the `master` table and a
+/// top-level `effects` list. Paths are the same as in a recipe.
+pub(crate) fn validate_master_and_effects(
+    master: &Master,
+    effects: &[Effect],
+    sample_rate: u32,
+) -> Report {
+    let mut v = Validator {
+        report: Report::new(),
+    };
+    v.master(master);
+    for (i, effect) in effects.iter().enumerate() {
+        v.effect(&format!("effects[{i}]"), effect, sample_rate);
+    }
+    v.report
+}
+
 /// Widen an `f32` to the `f64` that prints the same digits, so `0.99`
 /// does not surface as `0.9900000095367432` in JSON reports.
-fn f64_clean(v: f32) -> f64 {
+pub(crate) fn f64_clean(v: f32) -> f64 {
     v.to_string().parse().unwrap_or(v as f64)
 }
 
@@ -61,6 +78,27 @@ impl Validator {
         self.report.push(Issue::warning(code, path, msg));
     }
 
+    /// The `master` table: ranges, and settings that cancel each other.
+    fn master(&mut self, m: &Master) {
+        self.range("master.gain", m.gain, 0.0, 4.0);
+        self.range("master.normalize_peak_db", m.normalize_peak_db, -40.0, 0.0);
+        self.range_opt(
+            "master.normalize_lufs",
+            m.normalize_lufs,
+            MIN_NORMALIZE_LUFS,
+            0.0,
+        );
+        if m.normalize && m.normalize_lufs.is_some() {
+            self.warn(
+                Code::Unused,
+                "master.normalize",
+                format!(
+                    "normalize and normalize_peak_db have no effect when normalize_lufs is set; loudness normalization replaces them and keeps the peak at or under {LOUDNESS_CEILING_DBFS} dBFS; remove normalize"
+                ),
+            );
+        }
+    }
+
     fn recipe(&mut self, r: &Recipe) {
         if r.version != CURRENT_VERSION {
             self.report.push(
@@ -80,28 +118,7 @@ impl Validator {
         self.range("channels", r.channels as f32, 1.0, 2.0);
         self.range("variation", r.variation, 0.0, 1.0);
         self.range_opt("duration", r.duration, 0.001, MAX_DURATION);
-        self.range("master.gain", r.master.gain, 0.0, 4.0);
-        self.range(
-            "master.normalize_peak_db",
-            r.master.normalize_peak_db,
-            -40.0,
-            0.0,
-        );
-        self.range_opt(
-            "master.normalize_lufs",
-            r.master.normalize_lufs,
-            MIN_NORMALIZE_LUFS,
-            0.0,
-        );
-        if r.master.normalize && r.master.normalize_lufs.is_some() {
-            self.warn(
-                Code::Unused,
-                "master.normalize",
-                format!(
-                    "normalize and normalize_peak_db have no effect when normalize_lufs is set; loudness normalization replaces them and keeps the peak at or under {LOUDNESS_CEILING_DBFS} dBFS; remove normalize"
-                ),
-            );
-        }
+        self.master(&r.master);
         if r.master.trim_silence && r.duration.is_some() {
             self.warn(
                 Code::Unused,

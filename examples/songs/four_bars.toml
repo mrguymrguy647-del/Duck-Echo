@@ -1,0 +1,75 @@
+# Four bars, two tracks: a walking bass under a short tune.
+#
+# This is the small demo for songs. Both instruments are written in the
+# song itself, so the file needs nothing else.
+#
+#   duck-echo render examples/songs/four_bars.toml -o four_bars.wav
+#   duck-echo analyze examples/songs/four_bars.toml --per-track
+version = 0
+name = "four_bars"
+description = "A four-bar tune over a walking bass."
+tempo = 110            # beats per minute
+bars = 4               # 4 beats in a bar by default
+
+[master]
+normalize_lufs = -16   # level the whole song
+
+# A pattern is a group of notes with a name. Beats inside a pattern count
+# from the start of the bar it is placed at.
+[patterns.walk]
+notes = [
+  { beat = 0, note = "C2" },
+  { beat = 1, note = "E2" },
+  { beat = 2, note = "G2" },
+  { beat = 3, note = "E2" },
+]
+
+# The bass: a saw wave through a low-pass filter that closes quickly.
+# Written at C2, its "home note". Other notes move every layer with it.
+[instruments.bass]
+version = 0
+[[instruments.bass.layers]]
+source = "saw"
+volume = 0.7
+envelope = { attack = 0.005, decay = 0.25, sustain = 0.5, release = 0.08 }
+pitch = { start = "C2" }
+filter = { kind = "lowpass", cutoff = 900, cutoff_end = 350, sweep_time = 0.2 }
+
+# The lead: a narrow square wave with a little vibrato.
+[instruments.lead]
+version = 0
+[[instruments.lead.layers]]
+source = "square"
+duty = 0.25
+volume = 0.45
+envelope = { attack = 0.005, decay = 0.08, sustain = 0.7, release = 0.06 }
+pitch = { start = "C5", vibrato = { rate = 5.5, depth = 0.15, delay = 0.15 } }
+
+[[tracks]]
+name = "bass"
+instrument = "bass"
+volume = 0.9
+play = [
+  { pattern = "walk", bars = [1, 2, 4] },
+  { pattern = "walk", bars = [3], transpose = 5 },   # 5 semitones up: F
+]
+
+[[tracks]]
+name = "lead"
+instrument = "lead"
+pan = 0.2
+notes = [
+  { bar = 1, beat = 0, note = "E5" },
+  { bar = 1, beat = 1, note = "G5" },
+  { bar = 1, beat = 2, note = "C6", length = 1.5 },
+  { bar = 2, beat = 0, note = "B5" },
+  { bar = 2, beat = 1, note = "G5" },
+  { bar = 2, beat = 2, note = "E5", length = 1.5 },
+  { bar = 3, beat = 0, note = "F5" },
+  { bar = 3, beat = 1, note = "A5" },
+  { bar = 3, beat = 2, note = "C6" },
+  { bar = 3, beat = 3, note = "A5" },
+  { bar = 4, beat = 0, note = "G5" },
+  { bar = 4, beat = 1, note = "E5" },
+  { bar = 4, beat = 2, note = "C5", length = 2, velocity = 0.7 },
+]

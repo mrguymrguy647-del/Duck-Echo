@@ -26,11 +26,12 @@ without hearing the result.
 ```
 Cargo.toml                 workspace: shared versions, lints, profiles
 crates/
-  duck-echo-core/          recipe types, defaults, TOML/JSON loading, validation,
-                           diagnostics, JSON Schema. No audio code.
+  duck-echo-core/          recipe and song types, defaults, TOML/JSON loading,
+                           validation, diagnostics, JSON Schemas. No audio code.
   duck-echo-audio/         AudioBuffer type and WAV read/write (hound behind a
                            `wav` feature so synth can depend on just the type).
-  duck-echo-synth/         deterministic renderer: Recipe -> Voice -> samples.
+  duck-echo-synth/         deterministic renderer: Recipe -> Voice -> samples,
+                           and the song player (one Voice per note).
   duck-echo-analyze/       measurements over f32 samples -> JSON report, plus
                            compare (deltas and cross-correlation), onsets and
                            energy over time, a picture (spectrogram and level)
@@ -45,9 +46,11 @@ crates/
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 examples/recipes/          the example recipes (TOML, plus coin.json)
+examples/songs/            the example songs
 presets/                   tagged starting-point recipes, compiled into the
                            tools crate with include_str!
 schema/recipe.schema.json  generated from the Rust types; a test fails when stale
+schema/song.schema.json    the same, for songs
 ```
 
 Dependency direction (arrows point at what is depended on):
@@ -217,31 +220,42 @@ features are added as new optional fields or new enum variants. Existing
 recipes keep rendering identically. The `version` number only increments when
 the meaning of an existing field changes.
 
-### Music (roadmap Phase 1)
+### Music (roadmap Phase 1, songs are built)
 
-A song is a second document type that references sound recipes rather than a
-change to the recipe itself:
+A song is a second document type that plays sound recipes as instruments.
+The recipe itself did not change. `docs/RECIPE_SPEC.md` ("Songs") is the
+reference; `docs/phase1-design.md` explains the choices. In short:
 
-```toml
-version = 0
-tempo = 120
-[[tracks]]
-instrument = "recipes/lead.toml"     # or an inline recipe table
-[[tracks.notes]]
-time = 0.0        # beats
-note = "C5"       # note names arrive first as a recipe feature (roadmap)
-length = 0.5      # beats
-velocity = 0.8
-[[tracks.patterns]]                  # reusable blocks, placed on the timeline
-```
-
-Recipes become instruments: a note sets the pitch (`pitch.start` times a
-ratio) and the note length drives the envelope's `sustain_time`, with
-`release` after note-off. This is why the envelope already has
-`sustain`, `sustain_time` and `release`: the sound effect phase sets them
-by hand, the music phase sets them from the timeline. The renderer gains a
-scheduler that creates one `Voice` per note at the right frame, which is the
-same `prepare` and `process` API used today.
+* **Types** (`core::song`): `Song`, `Track`, `Note`, `Pattern`,
+  `Placement`. `core::arrange` checks a song and flattens it into plain
+  `Event`s per track (patterns placed, chords split, bars turned into
+  beats). The renderer and the analyzer both read that list, so they agree
+  on what was written. Instruments the song does not define itself come
+  through the `InstrumentSource` trait, which the front ends supply,
+  because only they know where files may be read.
+* **One document loader.** `core::load` is generic over the two document
+  types; `document_kind` tells them apart by their top-level fields
+  (`tracks` means song). `tools::load_document` is the one entry point the
+  CLI and the MCP server use, so every command works on both kinds.
+* **A note is a `Voice`.** `synth::prepare_note` builds the same `Voice`
+  as a sound effect, with three differences: every layer's pitch is
+  multiplied by `note / home`, the envelope is told when the note is let
+  go (`EnvShape::gated`), and the recipe's master effects are left out.
+  `Voice::process` is unchanged and still allocation-free.
+* **The song player** (`synth::song::SongPlayer`) works block by block. Per
+  track it sums the note voices, runs the instrument's effects once, and
+  applies the instrument's level, then the track's volume and pan. It
+  makes a new `Voice` when a note starts, so the player itself is not
+  allocation-free yet; live playback (Phase 2) needs a pool of voices made
+  ahead of time. The shape (a sorted note list worked through in blocks)
+  stays.
+* **Seeds.** Track stream = song seed forked by a fixed hash (FNV-1a) of
+  the track **name**; note stream = track stream forked by the note's
+  **start sample**, then by its place among notes starting together, then
+  by the instrument's own seed. Nothing depends on position in the file.
+* **Stems.** `synth::song::render_song_tracks` renders some tracks with
+  the full mix's master gain and length (the `render_layers` rule), so
+  stems add up to the mix.
 
 ### Voice (roadmap Phase 5)
 
@@ -276,21 +290,22 @@ effects. The hash of the file goes into the recipe so determinism holds.
 `duck-echo-mcp` serves these tools over stdio. All take and return JSON
 objects; the work is done by `duck-echo-tools`, the same code the CLI uses.
 A recipe argument is either `recipe` (an inline JSON object) or `path` (a
-`.toml`/`.json` file, or `preset:NAME`).
+`.toml`/`.json` file, or `preset:NAME`). Wherever the table says "recipe",
+a song works too: the tools tell the two apart by looking inside.
 
 | Tool | Input | Output |
 |---|---|---|
-| `get_schema` | none | The recipe JSON Schema, same as `duck-echo schema`. |
+| `get_schema` | optional `kind` (`recipe` or `song`) | The recipe JSON Schema, same as `duck-echo schema`, or the song schema (`duck-echo schema song`). |
 | `list_presets` | optional `tag` | `{presets: [{name, category, target_lufs, description, tags}]}`. Presets are levelled to per-category loudness targets (see `presets/README.md`). A tag no preset has is a `not_found` error at `arguments.tag` with the closest real tag as `suggestion` and every tag in `allowed`, so a typo is never an empty list. |
 | `get_preset` | `name` | `{name, category, description, tags, recipe, toml}`: the recipe as a JSON object and its TOML source with comments. |
 | `list_files` | optional `path` (a folder), `recursive` (default true) | `{folder, entries: [{path, kind, bytes, seconds}], truncated}`. Kinds: `folder`, `recipe`, `audio`, `image`, `link`, `other`; `seconds` for WAV files. Hidden files are skipped, links are not followed, at most 500 entries. |
 | `validate` | recipe | The `Report`. An invalid recipe is a normal answer here, not a tool error. |
-| `create` | `path`, `recipe`, optional `overwrite` | `{ok, path, warnings}`. Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. |
+| `create` | `path`, `recipe`, optional `overwrite` | `{ok, path, kind, warnings}` (`kind` is `recipe` or `song`). Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. |
 | `edit` | recipe, `ops`, optional `write` | `{ok, recipe, warnings, written, path}`. Each op is `{path, value}` or `{path, remove: true}`, with paths as in error messages; an index equal to the length appends. Edits apply to the document as written (defaults stay implicit), and a file is rewritten only when the result is valid. Comments are not kept. |
-| `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. |
+| `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. A song adds `song` (`tempo`, `beats_per_bar`, `bars`, `song_frames`, `seconds_per_bar`, `tracks`, `notes`), and `heard_tracks` and `tracks` when asked. |
 | `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. |
 | `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
-| `variations` | recipe, optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
+| `variations` | recipe (not a song), optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
 | `export` | (task 13) | Not built: the Duck Forge format is still to be agreed. |
 
 Extras on `render` and `analyze`, shared with the CLI's `--per-layer`,
@@ -299,8 +314,12 @@ image block (`{"type": "image", "mimeType": "image/png", "data": base64}`)
 after the text, and a `picture` object in the result describing its axes;
 `per_layer: true` adds `layers: [{index, name, analysis}]`, each heard layer
 alone as heard in the mix; `solo` and `mute` (layer indices) choose the
-heard layers, reported as `heard_layers`. Layer extras need a recipe; a WAV
-file is an `invalid_argument` error. The tool descriptions name the two
+heard layers, reported as `heard_layers`. For a song, `per_track: true`
+adds `tracks: [{index, name, instrument, notes, analysis}]`, and `solo` and
+`mute` take track names, reported as `heard_tracks`; a track heard alone is
+a stem, finished with the full song's master gain. Layer extras need a
+recipe and track extras a song; the wrong kind, or a WAV file, is an
+`invalid_argument` error. The tool descriptions name the two
 loudness methods.
 
 Rules the server keeps:

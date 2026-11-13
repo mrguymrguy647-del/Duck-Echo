@@ -1,7 +1,7 @@
 # Duck Echo
 
-An audio studio for AI agents and humans: retro sound effects now, music and
-synthetic voices later, for games and videos. Sibling of the Duck Forge game
+An audio studio for AI agents and humans: retro sound effects and music
+now, synthetic voices later, for games and videos. Sibling of the Duck Forge game
 engine.
 
 Every sound is a text **recipe**. The recipe is the source of truth; audio
@@ -38,6 +38,17 @@ end = "A6"
 curve = "exponential"
 ```
 
+A **song** is music as text: tracks of notes, each played by an
+instrument, and an instrument is a recipe. The same commands take both:
+
+```bash
+./target/release/duck-echo render examples/songs/four_bars.toml -o four_bars.wav
+```
+
+```bash
+./target/release/duck-echo analyze examples/songs/four_bars.toml --per-track
+```
+
 ## Commands
 
 | Command | What it does |
@@ -49,9 +60,14 @@ curve = "exponential"
 | `duck-echo presets list [--tag T] [--json]` | The 30 built-in presets with category, loudness target and description. |
 | `duck-echo presets show <name> [--json]` | A preset's recipe, to copy and edit. |
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
-| `duck-echo schema` | The JSON Schema for recipes, with descriptions and defaults. |
+| `duck-echo schema [song]` | The JSON Schema for recipes, or for songs, with descriptions and defaults. |
 
-Recipes are TOML on disk and JSON in tool calls; both are the same schema.
+`validate`, `render`, `analyze` and `compare` also take a song (a document
+with `tracks`). For a song, `--per-track` analyzes each track alone and
+`--solo`/`--mute` take track names; `render --solo bass` writes that
+track's stem, which lines up with the full mix in time and level.
+
+Recipes and songs are TOML on disk and JSON in tool calls; both are the same schema.
 Anywhere a recipe is expected, `preset:NAME` names a built-in preset, for
 example `duck-echo render preset:coin -o coin.wav`.
 
@@ -143,12 +159,15 @@ details: `docs/ARCHITECTURE.md`.
 
 ## Documents
 
-* `docs/RECIPE_SPEC.md`: every field, default and range, plus examples.
+* `docs/RECIPE_SPEC.md`: every field, default and range, plus examples,
+  for recipes and for songs.
+* `docs/phase1-design.md`: why songs work the way they do.
 * `docs/ANALYSIS.md`: every `analyze` and `compare` field and how it is measured.
 * `docs/ARCHITECTURE.md`: crates, data flow, determinism, realtime rules,
   the planned MCP tools and the Duck Ear bridge.
 * `docs/ROADMAP.md`: ordered tasks for the next builder.
-* `schema/recipe.schema.json`: generated schema for agents.
+* `schema/recipe.schema.json`, `schema/song.schema.json`: generated
+  schemas for agents.
 
 ## Layout
 
@@ -163,6 +182,7 @@ crates/duck-echo-mcp      the duck-echo-mcp binary: MCP server over stdio
 presets                   30 tagged starting points (see presets/README.md)
 playtest                  root for the project MCP server (.mcp.json); one
                           committed folder per playtest
+examples/songs            four_bars (two tracks, instruments written inline)
 examples/recipes          coin, jump, laser, explosion, hit, powerup,
                           ricochet (stereo), chime (note names), fanfare
                           (layers, normalize_lufs)
@@ -186,9 +206,13 @@ cargo test --workspace
 cargo clippy --workspace --all-targets && cargo fmt --all -- --check
 ```
 
-After changing the recipe types, regenerate the checked-in schema (a test
-fails when it is stale):
+After changing the recipe or song types, regenerate the checked-in schemas
+(a test fails when one is stale):
 
 ```bash
 cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
+```
+
+```bash
+cargo run -p duck-echo-cli -- schema song > schema/song.schema.json
 ```

@@ -1,6 +1,7 @@
 //! JSON Schema generation from the Rust recipe types.
 
 use crate::recipe::Recipe;
+use crate::song::Song;
 
 /// The JSON Schema for [`Recipe`], as a JSON value. Field docs become
 /// `description`s and serde defaults become `default`s, so an agent can read
@@ -60,4 +61,24 @@ fn narrow_floats(v: &mut serde_json::Value) {
 /// The schema as pretty-printed JSON text.
 pub fn recipe_schema_json() -> String {
     serde_json::to_string_pretty(&recipe_schema()).expect("schema serializes")
+}
+
+/// The JSON Schema for [`Song`], as a JSON value. Built the same way as
+/// [`recipe_schema`].
+pub fn song_schema() -> serde_json::Value {
+    let mut schema = schemars::schema_for!(Song);
+    let obj = schema.ensure_object();
+    obj.insert(
+        "$id".into(),
+        "https://github.com/mrguymrguy647-del/Duck-Echo/schema/song.schema.json".into(),
+    );
+    obj.insert("title".into(), "Duck Echo song v0".into());
+    let mut value = serde_json::to_value(schema).expect("schema serializes");
+    tidy_defaults(&mut value);
+    value
+}
+
+/// The song schema as pretty-printed JSON text.
+pub fn song_schema_json() -> String {
+    serde_json::to_string_pretty(&song_schema()).expect("schema serializes")
 }

@@ -4,6 +4,10 @@
 use crate::math::{self, Rng};
 use duck_echo_core::{Curve, Envelope, FilterKind, Source};
 
+/// Shortest release of a note in a song, in seconds. A note whose
+/// envelope has `release = 0` would stop dead when let go, which clicks.
+pub const MIN_NOTE_RELEASE: f32 = 0.005;
+
 /// Envelope with times already converted to seconds (and jittered).
 #[derive(Debug, Clone)]
 pub struct EnvShape {
@@ -13,6 +17,9 @@ pub struct EnvShape {
     sustain: f32,
     sustain_time: f32,
     release: f32,
+    /// For a note in a song: when the note is let go, and the level the
+    /// envelope had reached by then. `None` for a plain sound effect.
+    gate: Option<(f32, f32)>,
 }
 
 impl EnvShape {
@@ -25,12 +32,42 @@ impl EnvShape {
             sustain: e.sustain,
             sustain_time: e.sustain_time * time_scale,
             release: e.release * time_scale,
+            gate: None,
         }
+    }
+
+    /// Build the envelope of a note that is held for `gate` seconds, like
+    /// a key on a keyboard:
+    ///
+    /// * While held, the envelope plays as written, and stays at the
+    ///   sustain level for as long as the note lasts (the recipe's own
+    ///   `sustain_time` is not used).
+    /// * When let go, it falls to silence over `release`, starting from
+    ///   whatever level it had reached.
+    pub fn gated(e: &Envelope, time_scale: f32, gate: f32) -> Self {
+        let mut shape = Self::new(e, time_scale);
+        shape.sustain_time = f32::INFINITY;
+        shape.release = shape.release.max(MIN_NOTE_RELEASE);
+        let gate = gate.max(0.0);
+        shape.gate = Some((gate, shape.level(gate)));
+        shape
     }
 
     /// Total length in seconds.
     pub fn length(&self) -> f32 {
-        self.attack + self.hold + self.decay + self.sustain_time + self.release
+        match self.gate {
+            Some((gate, _)) => {
+                // A sound with no sustain may fade out by itself before
+                // the note is let go. Then it simply ends there.
+                let fades_alone = self.attack + self.hold + self.decay;
+                if self.sustain <= 0.0 && fades_alone <= gate {
+                    fades_alone
+                } else {
+                    gate + self.release
+                }
+            }
+            None => self.attack + self.hold + self.decay + self.sustain_time + self.release,
+        }
     }
 
     /// Level in 0..=1 at time `t` seconds from the layer start.
@@ -38,6 +75,12 @@ impl EnvShape {
     pub fn level(&self, t: f32) -> f32 {
         if t < 0.0 {
             return 0.0;
+        }
+        if let Some((gate, level)) = self.gate {
+            if t >= gate {
+                let u = (t - gate) / self.release;
+                return if u < 1.0 { level * (1.0 - u) } else { 0.0 };
+            }
         }
         let mut t = t;
         if t < self.attack {

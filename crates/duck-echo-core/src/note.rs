@@ -173,6 +173,36 @@ pub fn note_number_to_hz(number: i32) -> f32 {
     hz as f32
 }
 
+/// The name of a MIDI note number, such as `60` -> `"C4"`. Sharps are used
+/// for the black keys. `None` outside C-1..=B9, the range of note names.
+pub fn note_name(number: i32) -> Option<String> {
+    if !(0..=131).contains(&number) {
+        return None;
+    }
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    Some(format!(
+        "{}{}",
+        NAMES[number.rem_euclid(12) as usize],
+        number.div_euclid(12) - 1
+    ))
+}
+
+/// A frequency moved up (or down, when negative) by whole semitones.
+pub fn transpose_hz(hz: f32, semitones: i32) -> f32 {
+    let mut out = hz as f64 * SEMITONE_RATIOS[semitones.rem_euclid(12) as usize];
+    let octaves = semitones.div_euclid(12);
+    // Power-of-two scaling is exact.
+    for _ in 0..octaves.max(0) {
+        out *= 2.0;
+    }
+    for _ in 0..(-octaves).max(0) {
+        out *= 0.5;
+    }
+    out as f32
+}
+
 /// Frequency in Hz of a note name such as `"C5"`.
 pub fn parse_note(text: &str) -> Result<f32, NoteError> {
     note_number(text).map(note_number_to_hz)

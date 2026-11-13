@@ -1,4 +1,4 @@
-//! Loading recipes from TOML or JSON with exact error paths.
+//! Loading recipes and songs from TOML or JSON with exact error paths.
 //!
 //! The pipeline reports every problem in one call:
 //!
@@ -15,9 +15,11 @@
 
 use crate::recipe::Recipe;
 use crate::report::{Code, Issue, Report};
+use crate::song::{arrange, Arrangement, InstrumentSource, Song};
 use crate::structure::{self, is_under};
 use crate::tree::{self, line_col};
 use crate::validate::validate;
+use serde::de::DeserializeOwned;
 use std::path::Path;
 
 /// Text format of a recipe.
@@ -53,11 +55,73 @@ pub struct Loaded {
     pub report: Report,
 }
 
+/// A song that parsed and validated, plus any warnings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadedSong {
+    /// The song as written.
+    pub song: Song,
+    /// The song flattened into notes per track, with instruments found.
+    pub arrangement: Arrangement,
+    /// Non-blocking observations from validation.
+    pub report: Report,
+}
+
+/// The two kinds of document Duck Echo reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentKind {
+    /// A sound: a document with `layers`.
+    Recipe,
+    /// Music: a document with `tracks`.
+    Song,
+}
+
+/// Tell a song from a recipe by its top-level fields. A song has `tracks`
+/// (or `tempo` or `patterns`, so a song with a field missing is still
+/// checked as a song). Anything else, text that does not parse included,
+/// is treated as a recipe, whose loader then reports what is wrong.
+pub fn document_kind(src: &str, format: Format) -> DocumentKind {
+    let tree = match format {
+        Format::Toml => tree::parse_toml(src),
+        Format::Json => tree::parse_json(src),
+    };
+    let Ok(tree::Node {
+        value: tree::Value::Table(entries),
+        ..
+    }) = tree
+    else {
+        return DocumentKind::Recipe;
+    };
+    let has = |key: &str| entries.iter().any(|e| e.key == key);
+    if has("tracks") || has("tempo") || has("patterns") {
+        DocumentKind::Song
+    } else {
+        DocumentKind::Recipe
+    }
+}
+
+/// A document type the pipeline can load: it has a schema to check the
+/// structure against.
+trait Document: DeserializeOwned {
+    fn check(tree: &tree::Node) -> structure::Checked;
+}
+
+impl Document for Recipe {
+    fn check(tree: &tree::Node) -> structure::Checked {
+        structure::check(tree)
+    }
+}
+
+impl Document for Song {
+    fn check(tree: &tree::Node) -> structure::Checked {
+        structure::check_song(tree)
+    }
+}
+
 /// Outcome of steps 1 to 3 of the pipeline.
-struct Parsed {
-    /// The decoded recipe; for a document with structural errors this is
+struct Parsed<T> {
+    /// The decoded document; for a document with structural errors this is
     /// the pruned version, used only for further checking.
-    recipe: Option<Recipe>,
+    recipe: Option<T>,
     /// Syntax and structural issues.
     report: Report,
     /// Paths whose semantic issues are duplicates of structural ones.
@@ -69,7 +133,7 @@ struct Parsed {
     renames: Vec<(String, String)>,
 }
 
-fn parse_full(src: &str, format: Format) -> Parsed {
+fn parse_full<T: Document>(src: &str, format: Format) -> Parsed<T> {
     let tree = match format {
         Format::Toml => tree::parse_toml(src),
         Format::Json => tree::parse_json(src),
@@ -86,7 +150,7 @@ fn parse_full(src: &str, format: Format) -> Parsed {
             }
         }
     };
-    let checked = structure::check(&tree);
+    let checked = T::check(&tree);
     if checked.issues.is_empty() {
         let decoded = match format {
             Format::Toml => typed_toml(src),
@@ -118,7 +182,7 @@ fn parse_full(src: &str, format: Format) -> Parsed {
     }
     let recipe = checked
         .pruned
-        .and_then(|v| serde_json::from_value::<Recipe>(v).ok());
+        .and_then(|v| serde_json::from_value::<T>(v).ok());
     Parsed {
         recipe,
         report,
@@ -132,7 +196,7 @@ fn parse_full(src: &str, format: Format) -> Parsed {
 /// full pipeline. On error the report lists every syntax and structural
 /// problem (but not range problems).
 pub fn parse_str(src: &str, format: Format) -> Result<Recipe, Report> {
-    let parsed = parse_full(src, format);
+    let parsed = parse_full::<Recipe>(src, format);
     match parsed.recipe {
         Some(recipe) if parsed.report.is_ok() => Ok(recipe),
         _ => Err(parsed.report),
@@ -142,46 +206,92 @@ pub fn parse_str(src: &str, format: Format) -> Result<Recipe, Report> {
 /// Parse and validate a recipe, reporting every problem at once. On
 /// success the report holds only warnings.
 pub fn load_str(src: &str, format: Format) -> Result<Loaded, Report> {
-    let parsed = parse_full(src, format);
-    let mut report = parsed.report;
-    if let Some(recipe) = &parsed.recipe {
-        let semantic = validate(recipe);
-        for mut issue in semantic.errors.into_iter().chain(semantic.warnings) {
-            // Report issues inside a misspelled entry at the name written.
-            // Outer renames were recorded last, so apply them first.
-            for (decoded, written) in parsed.renames.iter().rev() {
-                if is_under(&issue.path, decoded) {
-                    issue.path = format!("{written}{}", &issue.path[decoded.len()..]);
-                }
-            }
-            if parsed
-                .poisoned
-                .iter()
-                .any(|root| is_under(&issue.path, root))
-            {
-                continue;
-            }
-            if issue.line.is_none() {
-                if let Some((l, c)) = parsed
-                    .tree
-                    .as_ref()
-                    .and_then(|t| tree::position_of(t, &issue.path))
-                {
-                    issue = issue.at(l, c);
-                }
-            }
-            report.push(issue);
-        }
-    }
+    let mut parsed = parse_full::<Recipe>(src, format);
+    let semantic = parsed.recipe.as_ref().map(validate);
+    let report = merge_semantic(&mut parsed, semantic);
     match parsed.recipe {
         Some(recipe) if report.is_ok() => Ok(Loaded { recipe, report }),
         _ => Err(report),
     }
 }
 
+/// Parse and validate a song, reporting every problem at once. `source`
+/// finds the instruments the song does not define itself. On success the
+/// report holds only warnings.
+pub fn load_song_str(
+    src: &str,
+    format: Format,
+    source: &dyn InstrumentSource,
+) -> Result<LoadedSong, Report> {
+    let mut parsed = parse_full::<Song>(src, format);
+    let (semantic, arrangement) = match &parsed.recipe {
+        Some(song) => {
+            let (report, arrangement) = arrange(song, source);
+            (Some(report), arrangement)
+        }
+        None => (None, None),
+    };
+    let report = merge_semantic(&mut parsed, semantic);
+    match (parsed.recipe, arrangement) {
+        (Some(song), Some(arrangement)) if report.is_ok() => Ok(LoadedSong {
+            song,
+            arrangement,
+            report,
+        }),
+        _ => Err(report),
+    }
+}
+
+/// Step 4 of the pipeline: add the semantic issues to the structural ones,
+/// moving them to the names as written, dropping duplicates of structural
+/// errors, and giving each a line and column.
+fn merge_semantic<T>(parsed: &mut Parsed<T>, semantic: Option<Report>) -> Report {
+    let mut report = std::mem::take(&mut parsed.report);
+    let Some(semantic) = semantic else {
+        return report;
+    };
+    for mut issue in semantic.errors.into_iter().chain(semantic.warnings) {
+        // Report issues inside a misspelled entry at the name written.
+        // Outer renames were recorded last, so apply them first.
+        for (decoded, written) in parsed.renames.iter().rev() {
+            if is_under(&issue.path, decoded) {
+                issue.path = format!("{written}{}", &issue.path[decoded.len()..]);
+            }
+        }
+        if parsed
+            .poisoned
+            .iter()
+            .any(|root| is_under(&issue.path, root))
+        {
+            continue;
+        }
+        if issue.line.is_none() {
+            if let Some((l, c)) = parsed
+                .tree
+                .as_ref()
+                .and_then(|t| tree::position_of(t, &issue.path))
+            {
+                issue = issue.at(l, c);
+            }
+        }
+        report.push(issue);
+    }
+    report
+}
+
 /// Read, parse and validate a recipe file. Format is chosen by extension.
 pub fn load_path(path: &Path) -> Result<Loaded, Report> {
-    let src = std::fs::read_to_string(path).map_err(|e| {
+    load_str(&read_text(path)?, Format::from_path(path))
+}
+
+/// Read, parse and validate a song file. Format is chosen by extension.
+pub fn load_song_path(path: &Path, source: &dyn InstrumentSource) -> Result<LoadedSong, Report> {
+    load_song_str(&read_text(path)?, Format::from_path(path), source)
+}
+
+/// The text of a file, or a report saying why it cannot be read.
+pub fn read_text(path: &Path) -> Result<String, Report> {
+    std::fs::read_to_string(path).map_err(|e| {
         let code = if e.kind() == std::io::ErrorKind::NotFound {
             Code::NotFound
         } else {
@@ -192,8 +302,7 @@ pub fn load_path(path: &Path) -> Result<Loaded, Report> {
             "",
             format!("cannot read {}: {e}", path.display()),
         ))
-    })?;
-    load_str(&src, Format::from_path(path))
+    })
 }
 
 /// Serialize a recipe as TOML.
@@ -209,7 +318,7 @@ pub fn to_json(recipe: &Recipe) -> String {
 /// Typed decode straight from TOML text. Only reached for documents the
 /// structural check passed, so errors here mean the walker missed a case;
 /// they are still reported with a path.
-fn typed_toml(src: &str) -> Result<Recipe, Report> {
+fn typed_toml<T: DeserializeOwned>(src: &str) -> Result<T, Report> {
     let de = toml::de::Deserializer::parse(src).map_err(|e| {
         let mut issue = Issue::error(Code::Syntax, "", e.message().to_string());
         if let Some(span) = e.span() {
@@ -227,7 +336,7 @@ fn typed_toml(src: &str) -> Result<Recipe, Report> {
 }
 
 /// Typed decode straight from JSON text. See [`typed_toml`].
-fn typed_json(src: &str) -> Result<Recipe, Report> {
+fn typed_json<T: DeserializeOwned>(src: &str) -> Result<T, Report> {
     let mut de = serde_json::Deserializer::from_str(src);
     serde_path_to_error::deserialize(&mut de).map_err(|e| {
         let path = path_string(e.path());

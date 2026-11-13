@@ -1,8 +1,12 @@
 # Phase 1 design: music
 
-This is the plan for Phase 1 (roadmap tasks 16, 4, 19, 20 and 21). It is
-written before any code, so it can be changed cheaply. Nothing here is
-built yet.
+This is the plan for Phase 1 (roadmap tasks 16, 4, 19, 20 and 21). It was
+written before any code and approved with "yes to all" on the questions
+in section 8, plus three additions (marked **Added on approval** below).
+
+Where the build changed a detail, a note marked **As built** says so. The
+exact reference for what exists is the "Songs" part of
+`docs/RECIPE_SPEC.md`.
 
 The short version:
 
@@ -272,9 +276,14 @@ instrument = "drums"
 play = [{ pattern = "beat", bars = [1, 2, 3, 4] }]
 ```
 
-You can build your own kit in the `instruments` table:
-`[instruments.mykit.kit]` with `kick = "preset:thud"`, `snare = { ...a
-recipe... }` and so on.
+You can build your own kit in its own table: `[kits.mykit]` with
+`kick = "preset:thud"`, `snare = "mysnare"` and so on. Each piece names an
+instrument: a preset, a recipe file, or a name from `instruments`.
+
+**As built:** the first plan put kits inside `instruments`
+(`[instruments.mykit.kit]`). They moved to a top-level `kits` table,
+because two kinds of table under one name cannot be told apart cleanly
+when checking the file, and one string per piece is shorter to write.
 
 ---
 
@@ -691,6 +700,10 @@ Choices made now so the Studio does not need a redesign:
   See risk 10 for what is still missing for it.
 * **Solo and mute per track** exist from the start, as options on
   `render` and `analyze`.
+* **Stems add up to the mix. (Added on approval.)** A solo or per-track
+  render uses the full song's master gain, the same rule as `per_layer`.
+  So a stem lines up with the mix in both time and level, and all the
+  stems added together give the mix. A test checks this.
 * **Songs have `version = 0`** like recipes, so the format can grow with
   the same rules.
 
@@ -721,9 +734,12 @@ What a game needs from looping music, and how the design covers it:
   can switch music on a bar line.
 * **Small, plain files.** 44.1 kHz stereo WAV.
 
-I do not know Duck Forge's audio format, and you told me earlier not to
-guess it. So Phase 1 makes WAV files plus the JSON facts above. The
-export task stays on the roadmap. See open question 12.
+**Added on approval:** Duck Forge already reads 44.1 kHz WAV, so songs
+stay WAV. One thing to know: the engine currently mixes stereo down to
+mono. So a track's `pan` is lost inside a game until the Phase 3 engine
+fixes. The files themselves are true stereo and will sound right as soon
+as the engine plays both channels. Until then, do not rely on pan to keep
+two parts apart; use different pitch ranges and instruments.
 
 ---
 
@@ -802,9 +818,8 @@ song would give.
 reverb and echo only.*
 
 **12. What audio format does Duck Forge want?**
-I have not guessed. Phase 1 writes 44.1 kHz stereo 16-bit WAV.
-*Recommendation: keep WAV for now. If you know Duck Forge needs something
-else (OGG, another rate), tell me and it becomes its own small task.*
+*Answered: Duck Forge reads 44.1 kHz WAV, so keep WAV. The engine mixes
+stereo to mono for now, so pan is lost in games until Phase 3 (see 7.2).*
 
 **13. Should a loop also come with an intro?**
 The first time a loop plays, it starts with the tail of a round that
@@ -819,6 +834,11 @@ read a file, so in the MCP server it goes through `Root::read` like every
 other path: no absolute paths, no `..`, no links leading out. The path is
 relative to the song file's folder in both the CLI and the MCP server.
 *Recommendation: yes, as described.*
+
+**Added on approval:** `instrument:NAME` (a built-in instrument given
+where a recipe path is expected) goes through the same known-name check
+as `preset:` in `Root::read`: it is read-only, only a known name is
+accepted, and it is never treated as a path.
 
 **15. Limits.**
 A song sent to the MCP server should not be able to run for an hour.

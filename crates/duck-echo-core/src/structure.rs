@@ -47,9 +47,20 @@ fn recipe_schema() -> &'static J {
     SCHEMA.get_or_init(crate::schema::recipe_schema)
 }
 
+/// The song schema, generated once.
+fn song_schema() -> &'static J {
+    static SCHEMA: OnceLock<J> = OnceLock::new();
+    SCHEMA.get_or_init(crate::schema::song_schema)
+}
+
 /// Check a document against the recipe schema.
 pub fn check(root: &Node) -> Checked {
     check_against(root, recipe_schema())
+}
+
+/// Check a document against the song schema.
+pub fn check_song(root: &Node) -> Checked {
+    check_against(root, song_schema())
 }
 
 /// Check a document against an arbitrary schema of the supported subset.
@@ -270,6 +281,9 @@ impl<'s> Walker<'s> {
             None => EMPTY.get_or_init(Map::new),
         };
         let closed = s.get("additionalProperties") == Some(&J::Bool(false));
+        // A map (`[patterns.NAME]`): every key is allowed, and every value
+        // is checked against this one schema.
+        let map_values: Option<&'s J> = s.get("additionalProperties").filter(|v| v.is_object());
         let required: Vec<&str> = s
             .get("required")
             .and_then(J::as_array)
@@ -353,11 +367,19 @@ impl<'s> Walker<'s> {
                         }
                     }
                 }
-                None => {
-                    if let Some(v) = e.node.to_json() {
-                        out.insert(e.key.clone(), v);
+                None => match map_values {
+                    Some(vs) => match self.walk(vs, &e.node, &p) {
+                        Some(v) => {
+                            out.insert(e.key.clone(), v);
+                        }
+                        None => self.poisoned.push(p),
+                    },
+                    None => {
+                        if let Some(v) = e.node.to_json() {
+                            out.insert(e.key.clone(), v);
+                        }
                     }
-                }
+                },
             }
         }
         for r in required {
@@ -746,6 +768,7 @@ mod tests {
         }
         let mut bad = Vec::new();
         visit(recipe_schema(), false, &mut bad);
+        visit(song_schema(), false, &mut bad);
         assert!(bad.is_empty(), "unsupported schema keywords: {bad:?}");
     }
 

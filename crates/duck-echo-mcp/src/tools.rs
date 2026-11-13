@@ -14,7 +14,7 @@ use crate::root::Root;
 use duck_echo_audio::WavFormat;
 use duck_echo_core::{load::did_you_mean, Code, Issue, Report};
 use duck_echo_tools::edit::{self, EditOp};
-use duck_echo_tools::{measure, presets, Extras, RecipeRef, ToolError};
+use duck_echo_tools::{measure, presets, Document, Options, RecipeRef, ToolError};
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 
@@ -83,21 +83,23 @@ fn arg_error(name: &str, code: Code, msg: impl Into<String>) -> ToolError {
     ToolError::issue(Issue::error(code, format!("arguments.{name}"), msg))
 }
 
-const RECIPE_SOURCE: &str = "Give the recipe either inline as `recipe` (a JSON object) or as `path` (a .toml/.json file relative to the server root, or preset:NAME).";
+const RECIPE_SOURCE: &str = "Give the recipe (or song) either inline as `recipe` (a JSON object) or as `path` (a .toml/.json file relative to the server root, or preset:NAME).";
+
+const SONG_NOTE: &str = "A song works the same way as a recipe here: a document with `tracks` is a song (get_schema with kind \"song\" documents it), one with `layers` is a recipe.";
 
 const LOUDNESS_NOTE: &str = "Loudness (`loudness_lufs`) is BS.1770 gated for sounds of 400 ms or more and an ungated K-weighted approximation for shorter ones (`loudness_method`, and `~` in the summary); compare short sounds with short sounds.";
 
-const EXTRAS_NOTE: &str = "Options: `picture: true` adds a PNG (level over time above a spectrogram) as an image block; `per_layer: true` adds `layers`, each layer analyzed alone as heard in the mix; `solo`/`mute` (layer indices) hear only some layers.";
+const EXTRAS_NOTE: &str = "Options: `picture: true` adds a PNG (level over time above a spectrogram) as an image block; `per_layer: true` (recipes) adds `layers`, each layer analyzed alone as heard in the mix; `per_track: true` (songs) adds `tracks`, each track analyzed alone the same way; `solo`/`mute` hear only some layers (by number) or tracks (by name).";
 
 fn recipe_props() -> Value {
     json!({
         "recipe": {
             "type": "object",
-            "description": "A recipe as a JSON object, for example {\"version\": 0, \"layers\": [{\"source\": \"square\"}]}. get_schema documents every field."
+            "description": "A recipe as a JSON object, for example {\"version\": 0, \"layers\": [{\"source\": \"square\"}]}, or a song (an object with `tracks`). get_schema documents every field."
         },
         "path": {
             "type": "string",
-            "description": "A recipe file (.toml or .json) relative to the server root, or preset:NAME. list_files shows the files."
+            "description": "A recipe or song file (.toml or .json) relative to the server root, or preset:NAME. list_files shows the files."
         }
     })
 }
@@ -106,8 +108,9 @@ fn extras_props() -> Value {
     json!({
         "picture": { "type": "boolean", "description": "Add a PNG picture of the sound as an image block: level over time (peak and RMS, onset ticks) above a log-frequency spectrogram. `picture` in the result describes its axes. Default false." },
         "per_layer": { "type": "boolean", "description": "Also analyze each heard layer on its own, at the gain, timing and length it has in the mix, in `layers`. Recipes only. Default false." },
-        "solo": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "description": "Hear only these layers (indices into `layers`), at their level in the full mix. Recipes only." },
-        "mute": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "description": "Silence these layers (indices into `layers`). Recipes only." }
+        "per_track": { "type": "boolean", "description": "Also analyze each heard track on its own, at the gain, timing and length it has in the mix, in `tracks`. Songs only. Default false." },
+        "solo": { "type": "array", "items": { "type": ["integer", "string"] }, "description": "Hear only these, at their level in the full mix: layer numbers (indices into `layers`) for a recipe, track names for a song." },
+        "mute": { "type": "array", "items": { "type": ["integer", "string"] }, "description": "Silence these: layer numbers for a recipe, track names for a song." }
     })
 }
 
@@ -152,9 +155,9 @@ pub fn definitions() -> Vec<Value> {
     vec![
         tool(
             "get_schema",
-            "Recipe schema",
-            "The JSON Schema of a Duck Echo recipe: every field with its description, default and allowed range. Read it before writing recipes by hand.",
-            json!({}),
+            "Recipe or song schema",
+            "The JSON Schema of a Duck Echo recipe (a sound) or song (music): every field with its description, default and allowed range. Read it before writing one by hand.",
+            json!({ "kind": { "type": "string", "enum": ["recipe", "song"], "description": "Which schema. Default `recipe`." } }),
             &[],
             true,
         ),
@@ -187,8 +190,8 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "validate",
-            "Validate a recipe",
-            &format!("Check a recipe and report every problem in one call: unknown fields, bad values, wrong types and out-of-range numbers, each with its exact path (such as layers[0].pitch.start), the allowed range or options, and a suggestion. The report is the answer, so an invalid recipe returns isError false with `ok: false`; isError is true only when the call itself fails (a missing file, a bad argument). {RECIPE_SOURCE}"),
+            "Validate a recipe or song",
+            &format!("Check a recipe or a song and report every problem in one call: unknown fields, bad values, wrong types and out-of-range numbers, each with its exact path (such as layers[0].pitch.start or tracks[1].notes[3].note), the allowed range or options, and a suggestion. The report is the answer, so an invalid document returns isError false with `ok: false`; isError is true only when the call itself fails (a missing file, a bad argument). {RECIPE_SOURCE} {SONG_NOTE}"),
             recipe_props(),
             &[],
             true,
@@ -196,10 +199,10 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "create",
             "Create a recipe file",
-            "Validate a recipe and save it as a file (.toml or .json by extension) relative to the server root, creating folders as needed. Refuses an invalid recipe (returning its report) and refuses to replace an existing file unless `overwrite` is true.",
+            "Validate a recipe or a song and save it as a file (.toml or .json by extension) relative to the server root, creating folders as needed. Refuses an invalid document (returning its report) and refuses to replace an existing file unless `overwrite` is true.",
             json!({
                 "path": { "type": "string", "description": "File to write, ending in .toml or .json." },
-                "recipe": { "type": "object", "description": "The recipe as a JSON object." },
+                "recipe": { "type": "object", "description": "The recipe or song as a JSON object." },
                 "overwrite": { "type": "boolean", "description": "Replace an existing file. Default false." }
             }),
             &["path", "recipe"],
@@ -208,7 +211,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "edit",
             "Edit a recipe",
-            &format!("Change a recipe by path and validate the result. Each op is {{\"path\": \"layers[0].pitch.start\", \"value\": \"C5\"}} to set (an index equal to the array length appends; missing tables are created) or {{\"path\": \"effects[1]\", \"remove\": true}} to remove. Returns the edited recipe. A file is rewritten only if the result is valid (comments are not kept); an invalid result returns the report and changes nothing. {RECIPE_SOURCE}"),
+            &format!("Change a recipe by path and validate the result. Each op is {{\"path\": \"layers[0].pitch.start\", \"value\": \"C5\"}} to set (an index equal to the array length appends; missing tables are created) or {{\"path\": \"effects[1]\", \"remove\": true}} to remove. Returns the edited recipe. A file is rewritten only if the result is valid (comments are not kept); an invalid result returns the report and changes nothing. Songs are edited the same way, with paths such as tracks[1].notes[3].note. {RECIPE_SOURCE}"),
             with(recipe_props(), json!({
                 "ops": {
                     "type": "array",
@@ -232,7 +235,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "render",
             "Render to WAV",
-            &format!("Render a recipe to a WAV file and return the analysis of the result (including a one-line `summary`, `energy_over_time` and note `onsets`) and any render warnings. {LOUDNESS_NOTE} To hit a loudness target in one render, set `master.normalize_lufs`; it measures the same way. {EXTRAS_NOTE} With solo or mute the WAV holds only the heard layers. {RECIPE_SOURCE}"),
+            &format!("Render a recipe to a WAV file and return the analysis of the result (including a one-line `summary`, `energy_over_time` and note `onsets`) and any render warnings. {LOUDNESS_NOTE} To hit a loudness target in one render, set `master.normalize_lufs`; it measures the same way. {EXTRAS_NOTE} With solo or mute the WAV holds only the heard layers or tracks. A song's result also has `song` (tempo, bars, and `song_frames`, the exact length of its bars in samples). {RECIPE_SOURCE} {SONG_NOTE}"),
             with(with(recipe_props(), json!({
                 "output": { "type": "string", "description": "WAV file to write, relative to the server root." },
                 "seed": { "type": "integer", "minimum": 0, "description": "Override the recipe seed." },
@@ -244,9 +247,9 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "analyze",
             "Analyze a sound",
-            &format!("Measure a sound without listening: a one-line `summary`, duration, peak, loudness, clipping, silence, attack, decay, crest factor, spectral centroid (brightness), tonality, a pitch track, `energy_over_time` (RMS in 20 slices) and note `onsets` (time and pitch of each new note or burst). {LOUDNESS_NOTE} Give `path` (a WAV file, recipe file or preset:NAME) or an inline `recipe`, which is rendered in memory. {EXTRAS_NOTE}"),
+            &format!("Measure a sound without listening: a one-line `summary`, duration, peak, loudness, clipping, silence, attack, decay, crest factor, spectral centroid (brightness), tonality, a pitch track, `energy_over_time` (RMS in 20 slices) and note `onsets` (time and pitch of each new note or burst). {LOUDNESS_NOTE} Give `path` (a WAV file, recipe or song file, or preset:NAME) or an inline `recipe`, which is rendered in memory. {EXTRAS_NOTE} {SONG_NOTE}"),
             with(with(recipe_props(), json!({
-                "path": { "type": "string", "description": "A WAV file, recipe file or preset:NAME, relative to the server root. list_files shows the files." }
+                "path": { "type": "string", "description": "A WAV file, recipe or song file, or preset:NAME, relative to the server root. list_files shows the files." }
             })), extras_props()),
             &[],
             true,
@@ -254,10 +257,10 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "compare",
             "Compare two sounds",
-            &format!("What changed from `a` to `b`: a one-line summary (for example \"b is 3.0 LU louder, 20% brighter\"), b-minus-a deltas, waveform correlation, and both analyses. Each side is a path (WAV, recipe file or preset:NAME) or an inline recipe object. The loudness delta is given only when both sides use the same loudness method. {LOUDNESS_NOTE}"),
+            &format!("What changed from `a` to `b`: a one-line summary (for example \"b is 3.0 LU louder, 20% brighter\"), b-minus-a deltas, waveform correlation, and both analyses. Each side is a path (WAV, recipe or song file, or preset:NAME) or an inline recipe or song object. The loudness delta is given only when both sides use the same loudness method. {LOUDNESS_NOTE}"),
             json!({
-                "a": { "description": "First sound: a path string or a recipe object." },
-                "b": { "description": "Second sound: a path string or a recipe object." }
+                "a": { "description": "First sound: a path string, or a recipe or song object." },
+                "b": { "description": "Second sound: a path string, or a recipe or song object." }
             }),
             &["a", "b"],
             true,
@@ -349,42 +352,44 @@ fn opt_bool(args: &Map<String, Value>, key: &str) -> Result<Option<bool>, ToolEr
     }
 }
 
-/// A list of layer indices.
-fn opt_indices(args: &Map<String, Value>, key: &str) -> Result<Vec<usize>, ToolError> {
+/// A `solo` or `mute` list: layer numbers or track names, kept as text
+/// until the document's kind is known.
+fn opt_selectors(args: &Map<String, Value>, key: &str) -> Result<Vec<String>, ToolError> {
     match args.get(key) {
         None | Some(Value::Null) => Ok(Vec::new()),
         Some(Value::Array(items)) => items
             .iter()
             .enumerate()
-            .map(|(i, v)| {
-                v.as_u64().map(|n| n as usize).ok_or_else(|| {
-                    ToolError::issue(
-                        Issue::error(
-                            Code::TypeMismatch,
-                            format!("arguments.{key}[{i}]"),
-                            "a layer index is a whole number from 0",
-                        )
-                        .got(v.clone()),
+            .map(|(i, v)| match v {
+                Value::String(name) => Ok(name.clone()),
+                Value::Number(n) if n.is_u64() => Ok(n.to_string()),
+                _ => Err(ToolError::issue(
+                    Issue::error(
+                        Code::TypeMismatch,
+                        format!("arguments.{key}[{i}]"),
+                        "give a layer number from 0 (for a recipe) or a track name (for a song)",
                     )
-                })
+                    .got(v.clone()),
+                )),
             })
             .collect(),
         Some(v) => Err(ToolError::issue(
             Issue::error(
                 Code::TypeMismatch,
                 format!("arguments.{key}"),
-                format!("`{key}` must be a list of layer indices, such as [0, 2]"),
+                format!("`{key}` must be a list of layer numbers, such as [0, 2], or of track names, such as [\"bass\"]"),
             )
             .got(v.clone()),
         )),
     }
 }
 
-fn extras_of(args: &Map<String, Value>) -> Result<Extras, ToolError> {
-    Ok(Extras {
+fn options_of(args: &Map<String, Value>) -> Result<Options, ToolError> {
+    Ok(Options {
         per_layer: opt_bool(args, "per_layer")?.unwrap_or(false),
-        solo: opt_indices(args, "solo")?,
-        mute: opt_indices(args, "mute")?,
+        per_track: opt_bool(args, "per_track")?.unwrap_or(false),
+        solo: opt_selectors(args, "solo")?,
+        mute: opt_selectors(args, "mute")?,
         picture: opt_bool(args, "picture")?.unwrap_or(false),
     })
 }
@@ -423,29 +428,75 @@ fn source(root: &Root, args: &Map<String, Value>) -> Result<Source, ToolError> {
     }
 }
 
-fn load_source(src: &Source) -> Result<RecipeRef, ToolError> {
+/// How a song at `folder` (a path relative to the root, or empty for the
+/// root itself) reads its instrument files: relative to its own folder,
+/// and always through [`Root::read`], so an instrument file can no more
+/// leave the root than any other path. The empty key leaves the error's
+/// path free for the song field that named the file.
+fn song_files<'r>(
+    root: &'r Root,
+    folder: String,
+) -> impl Fn(&str) -> Result<PathBuf, ToolError> + 'r {
+    move |reference| {
+        let joined = if folder.is_empty() || folder == "." {
+            reference.to_string()
+        } else {
+            format!("{folder}/{reference}")
+        };
+        root.read("", &joined)
+    }
+}
+
+/// The folder of a file inside the root, as a path relative to the root.
+fn folder_in_root(root: &Root, file: &std::path::Path) -> String {
+    file.parent().map(|p| root.show(p)).unwrap_or_default()
+}
+
+/// Load the recipe or song a tool call names.
+fn load_doc(root: &Root, src: &Source) -> Result<Document, ToolError> {
     match src {
         Source::Inline(v) => {
-            let loaded = edit::load_value(v).map_err(|e| e.at(src.arg()))?;
-            let stem = loaded.recipe.name.clone().unwrap_or_else(|| "sound".into());
-            Ok(RecipeRef { loaded, stem })
+            duck_echo_tools::load_document_value(v, &song_files(root, String::new()))
         }
-        Source::Path(p) => duck_echo_tools::load_recipe(p).map_err(|e| e.at(src.arg())),
+        Source::Path(p) => {
+            duck_echo_tools::load_document(p, &song_files(root, folder_in_root(root, p)))
+        }
+    }
+    .map_err(|e| e.at(src.arg()))
+}
+
+/// Load a document that must be a recipe (for tools that make no sense on
+/// a song).
+fn load_source(root: &Root, src: &Source, tool: &str) -> Result<RecipeRef, ToolError> {
+    match load_doc(root, src)? {
+        Document::Recipe(r) => Ok(r),
+        Document::Song(_) => Err(ToolError::issue(Issue::error(
+            Code::InvalidArgument,
+            src.arg(),
+            format!("`{tool}` works on a recipe (one sound), and this is a song; to hear a song with another seed, use render with `seed`"),
+        ))),
     }
 }
 
 fn audio_of(root: &Root, v: &Value, key: &str) -> Result<duck_echo_audio::AudioBuffer, ToolError> {
     let at = format!("arguments.{key}");
     match v {
-        Value::String(p) => duck_echo_tools::load_audio(&root.read(&at, p)?).map_err(|e| e.at(&at)),
+        Value::String(p) => {
+            let path = root.read(&at, p)?;
+            let files = song_files(root, folder_in_root(root, &path));
+            duck_echo_tools::load_audio_with(&path, &files).map_err(|e| e.at(&at))
+        }
         Value::Object(_) => {
-            let loaded = edit::load_value(v).map_err(|e| e.at(&at))?;
-            duck_echo_tools::render_buffer(&loaded.recipe).map_err(|e| e.at(&at))
+            let doc = duck_echo_tools::load_document_value(v, &song_files(root, String::new()))
+                .map_err(|e| e.at(&at))?;
+            measure::measure_document(&doc, None, &Options::default(), "arguments.")
+                .map(|m| m.buffer)
+                .map_err(|e| e.at(&at))
         }
         _ => Err(arg_error(
             key,
             Code::TypeMismatch,
-            format!("`{key}` must be a path string or a recipe object"),
+            format!("`{key}` must be a path string, or a recipe or song object"),
         )),
     }
 }
@@ -485,7 +536,19 @@ fn run(
 ) -> Result<(Value, Vec<Vec<u8>>), ToolError> {
     let plain = |v: Value| Ok((v, Vec::new()));
     match name {
-        "get_schema" => plain(duck_echo_core::schema::recipe_schema()),
+        "get_schema" => match opt_str(args, "kind")? {
+            None | Some("recipe") => plain(duck_echo_core::schema::recipe_schema()),
+            Some("song") => plain(duck_echo_core::schema::song_schema()),
+            Some(other) => Err(ToolError::issue(
+                Issue::error(
+                    Code::UnknownVariant,
+                    "arguments.kind",
+                    format!("unknown kind `{other}`"),
+                )
+                .got(other)
+                .one_of(["recipe", "song"]),
+            )),
+        },
         "list_presets" => {
             let list = presets::list(opt_str(args, "tag")?).map_err(|e| e.at("arguments.tag"))?;
             plain(json!({ "presets": list }))
@@ -515,8 +578,8 @@ fn run(
         }
         "validate" => {
             let src = source(root, args)?;
-            match load_source(&src) {
-                Ok(r) => plain(to_value(&r.loaded.report)),
+            match load_doc(root, &src) {
+                Ok(doc) => plain(to_value(doc.report())),
                 // An invalid recipe is the answer here, not a failed call.
                 Err(ToolError::Invalid(report)) => plain(to_value(&report)),
                 Err(e) => Err(e),
@@ -551,11 +614,16 @@ fn run(
                     .suggest("true"),
                 ));
             }
-            let loaded = edit::load_value(doc).map_err(|e| e.at("arguments.recipe"))?;
+            let files = song_files(root, folder_in_root(root, &path));
+            let loaded = duck_echo_tools::load_document_value(doc, &files)
+                .map_err(|e| e.at("arguments.recipe"))?;
             edit::write_document(&path, doc).map_err(|e| e.at("arguments.path"))?;
-            plain(
-                json!({ "ok": true, "path": root.show(&path), "warnings": loaded.report.warnings }),
-            )
+            plain(json!({
+                "ok": true,
+                "path": root.show(&path),
+                "kind": loaded.kind(),
+                "warnings": loaded.report().warnings
+            }))
         }
         "edit" => {
             let src = source(root, args)?;
@@ -609,21 +677,26 @@ fn run(
                 }
             }
             edit::apply_edits(&mut doc, &ops).map_err(|e| e.at("arguments.ops"))?;
-            let loaded = edit::load_value(&doc).map_err(|e| e.at(src.arg()))?;
+            let folder = file
+                .as_ref()
+                .map(|p| folder_in_root(root, p))
+                .unwrap_or_default();
+            let loaded = duck_echo_tools::load_document_value(&doc, &song_files(root, folder))
+                .map_err(|e| e.at(src.arg()))?;
             if let (true, Some(p)) = (write, &file) {
                 edit::write_document(p, &doc).map_err(|e| e.at("arguments.path"))?;
             }
             plain(json!({
                 "ok": true,
                 "recipe": doc,
-                "warnings": loaded.report.warnings,
+                "warnings": loaded.report().warnings,
                 "written": write,
                 "path": file.as_ref().map(|p| root.show(p))
             }))
         }
         "render" => {
             let src = source(root, args)?;
-            let r = load_source(&src)?;
+            let doc = load_doc(root, &src)?;
             let out_arg = req_str(args, "output")?;
             let out = root.write("arguments.output", out_arg)?;
             if !duck_echo_tools::has_wav_extension(&out) {
@@ -659,17 +732,31 @@ fn run(
                     ))
                 }
             };
-            let extras = extras_of(args)?;
-            extras.heard(r.loaded.recipe.layers.len(), "arguments.")?;
-            let done = duck_echo_tools::render_to_file(&r.loaded, &out, seed, format, &extras)
-                .map_err(|e| e.at("arguments.output"))?;
+            let options = options_of(args)?;
+            let done = duck_echo_tools::render_document_to_file(
+                &doc,
+                &out,
+                seed,
+                format,
+                &options,
+                "arguments.",
+            )
+            .map_err(|e| e.at("arguments.output"))?;
             let images = done.png.clone().into_iter().collect();
             let mut v = to_value(&done);
             v["output"] = json!(root.show(&out));
             Ok((v, images))
         }
         "analyze" => {
-            let extras = extras_of(args)?;
+            let options = options_of(args)?;
+            let measure_doc = |src: Source| -> Result<measure::Measured, ToolError> {
+                let doc = load_doc(root, &src)?;
+                Ok(
+                    measure::measure_document(&doc, None, &options, "arguments.")
+                        .map_err(|e| e.at(src.arg()))?
+                        .measured,
+                )
+            };
             let measured = match (args.get("recipe"), opt_str(args, "path")?) {
                 (Some(_), Some(_)) => {
                     return Err(arg_error(
@@ -678,13 +765,7 @@ fn run(
                         "give either `recipe` or `path`, not both",
                     ))
                 }
-                (Some(v @ Value::Object(_)), None) => {
-                    let loaded = edit::load_value(v).map_err(|e| e.at("arguments.recipe"))?;
-                    extras.heard(loaded.recipe.layers.len(), "arguments.")?;
-                    measure::measure_recipe(&loaded.recipe, &loaded.report.warnings, &extras)
-                        .map_err(|e| e.at("arguments.recipe"))?
-                        .measured
-                }
+                (Some(v @ Value::Object(_)), None) => measure_doc(Source::Inline(v.clone()))?,
                 (Some(_), None) => {
                     return Err(arg_error(
                         "recipe",
@@ -695,20 +776,9 @@ fn run(
                 (None, Some(p)) => {
                     let path = root.read("arguments.path", p)?;
                     if duck_echo_tools::is_recipe_ref(&path) {
-                        let r = duck_echo_tools::load_recipe(&path)
-                            .map_err(|e| e.at("arguments.path"))?;
-                        extras.heard(r.loaded.recipe.layers.len(), "arguments.")?;
-                        measure::measure_recipe(
-                            &r.loaded.recipe,
-                            &r.loaded.report.warnings,
-                            &extras,
-                        )
-                        .map_err(|e| e.at("arguments.path"))?
-                        .measured
+                        measure_doc(Source::Path(path))?
                     } else {
-                        if let Some(e) = extras.wav_error("arguments.") {
-                            return Err(e);
-                        }
+                        let extras = options.for_wav("arguments.")?;
                         let buffer = duck_echo_tools::load_audio(&path)
                             .map_err(|e| e.at("arguments.path"))?;
                         measure::measure_audio(&buffer, &extras)?
@@ -718,7 +788,7 @@ fn run(
                     return Err(arg_error(
                         "path",
                         Code::MissingField,
-                        "give `path` (WAV, recipe file or preset:NAME) or `recipe`",
+                        "give `path` (WAV, recipe or song file, or preset:NAME) or `recipe`",
                     ))
                 }
             };
@@ -732,7 +802,7 @@ fn run(
         }
         "variations" => {
             let src = source(root, args)?;
-            let r = load_source(&src)?;
+            let r = load_source(root, &src, "variations")?;
             let count = match args.get("count") {
                 None | Some(Value::Null) => 8,
                 Some(v) => v

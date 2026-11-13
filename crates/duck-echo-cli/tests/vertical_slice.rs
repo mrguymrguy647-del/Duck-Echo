@@ -1003,3 +1003,125 @@ fn cli_analyze_extras_and_error_codes() {
         assert_eq!(v["errors"][0]["path"], path, "{args:?}: {v}");
     }
 }
+
+#[test]
+fn checked_in_song_schema_is_current() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/song.schema.json");
+    let on_disk = std::fs::read_to_string(&path).expect("schema file");
+    let fresh = duck_echo_core::schema::song_schema_json();
+    assert_eq!(
+        on_disk.trim(),
+        fresh.trim(),
+        "schema/song.schema.json is stale; run `duck-echo schema song > schema/song.schema.json`"
+    );
+}
+
+/// Roadmap task 16 through the `duck-echo` binary: the same commands work
+/// on a song as on a recipe.
+#[test]
+fn cli_renders_validates_and_analyzes_songs() {
+    let exe = env!("CARGO_BIN_EXE_duck-echo");
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli_songs");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let song = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs/four_bars.toml");
+    let run = |args: &[&str]| {
+        std::process::Command::new(exe)
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+    };
+    let song_arg = song.to_str().unwrap();
+
+    let out = run(&["validate", song_arg, "--json"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true);
+
+    let out = run(&[
+        "render",
+        song_arg,
+        "-o",
+        "four.wav",
+        "--json",
+        "--per-track",
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["song"]["bars"], 4);
+    assert_eq!(v["song"]["song_frames"], 384_873);
+    assert_eq!(v["tracks"][1]["name"], "lead");
+    let wav = duck_echo_audio::read_wav(&dir.join("four.wav")).unwrap();
+    assert_eq!((wav.sample_rate, wav.channels), (44_100, 2));
+
+    // A stem: the WAV holds only the bass, at its level in the mix.
+    let out = run(&[
+        "render", song_arg, "-o", "bass.wav", "--json", "--solo", "bass",
+    ]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["heard_tracks"], serde_json::json!(["bass"]));
+
+    // The song and its render compare as the same sound.
+    let out = run(&["compare", song_arg, "four.wav", "--compact"]);
+    assert!(out.status.success());
+
+    // An invalid song: every problem, with paths, and exit code 1.
+    std::fs::write(
+        dir.join("bad.toml"),
+        "version = 0\ntempo = 120\n[instruments.t]\nversion = 0\n[[instruments.t.layers]]\nsource = \"sine\"\n[[tracks]]\nname = \"a\"\ninstrument = \"t\"\nnotes = [{ beat = 0, note = \"C4\" }, { beat = 1, note = \"X9\" }, { beat = 2, nte = \"C4\" }]\n",
+    )
+    .unwrap();
+    let out = run(&["validate", "bad.toml", "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let paths: Vec<&str> = v["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        paths,
+        ["tracks[0].notes[2].nte", "tracks[0].notes[1].note"],
+        "{v}"
+    );
+    assert_eq!(v["errors"][0]["suggestion"], "note");
+    assert_eq!(v["errors"][0]["line"], 10);
+
+    for (args, code, path, exit) in [
+        (
+            vec!["analyze", song_arg, "--solo", "drums"],
+            "not_found",
+            "--solo[0]",
+            1,
+        ),
+        (
+            vec!["analyze", song_arg, "--per-layer"],
+            "invalid_argument",
+            "--per_layer",
+            2,
+        ),
+        (
+            vec!["variations", song_arg, "--json"],
+            "invalid_argument",
+            "recipe",
+            2,
+        ),
+    ] {
+        let out = run(&args);
+        assert_eq!(out.status.code(), Some(exit), "{args:?}");
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["errors"][0]["code"], code, "{args:?}: {v}");
+        assert_eq!(v["errors"][0]["path"], path, "{args:?}: {v}");
+    }
+
+    let out = run(&["schema", "song"]);
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["title"], "Duck Echo song v0");
+}

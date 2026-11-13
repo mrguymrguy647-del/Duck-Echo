@@ -31,7 +31,9 @@ before changing anything.
 - `cargo test --workspace`, `cargo clippy --workspace --all-targets` and
   `cargo fmt --all -- --check` must pass before a commit.
 - After changing recipe types: `cargo run -p duck-echo-cli -- schema >
-  schema/recipe.schema.json` and update `docs/RECIPE_SPEC.md`.
+  schema/recipe.schema.json` and update `docs/RECIPE_SPEC.md`. After
+  changing song types: the same with `schema song >
+  schema/song.schema.json`.
 - New features get an example recipe or a test that renders it.
 - Keep `docs/ROADMAP.md` current: tick off what you did, add what you
   learned the next builder needs.

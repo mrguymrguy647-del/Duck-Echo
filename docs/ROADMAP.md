@@ -52,7 +52,7 @@ Windows. Done tasks: 1, 2, 3, 6, 7, 8, 9, 17, plus review fixes R1 to R10
 and playtest fixes P1 to P7. Their notes are in "Phase 0 record" at the
 end of this file.
 
-## Phase 1: music (next)
+## Phase 1: music (in progress)
 
 Why music now: the Duck Craft game had to fake its music in Python because
 Duck Echo had none. Phase 1 makes Duck Echo the place a game gets its
@@ -70,37 +70,60 @@ Goals for the whole phase:
 
 Order: 16, then 4, then 19, then 20, then 21, then 10.
 
-### 16. Song document and scheduler (promoted, first)
+### 16. Song document and scheduler [done]
 
-* A new document type, `Song`, in core: `version`, `tempo` (beats per
-  minute), `beats_per_bar`, `tracks[]`, `master`. Each track has an
-  `instrument` (a preset name, a recipe file, or an inline recipe),
-  `volume`, `pan`, and `notes[]`: `beat`, `note` (a name like `"C5"` or Hz),
-  `length` in beats, optional `velocity`. Patterns (named groups of notes,
-  placed at bars) keep songs short to write.
-* A note plays the instrument recipe at the note's pitch: the recipe's
-  pitch curve is moved so `pitch.start` lands on the note, and the note's
-  length drives the envelope's `sustain_time`, with `release` after the
-  note ends. One `Voice` per note, scheduled at its exact sample, using the
-  same `prepare` and `process` as today. Notes in a single layer
-  (proposed as task 18 after playtest 1) are covered by this: a one-track
-  song is a melody.
-* The instrument recipe's own master `effects` (a reverb, an echo) run once
-  per track on the sum of its notes, not once per note, so tails join up
-  and a fast melody does not stack dozens of reverbs. Song-wide effects go
-  in the song's `master`.
-* Songs render at 44.1 kHz stereo by default; each track's `pan` places
-  it. Seeds: each track and note gets its own forked seed stream, chosen
-  from its position, so adding a track does not change the others (the
-  same rule that keeps per-layer solo renders matching the mix).
-* `duck-echo render song.toml` and the MCP `render` tool work by spotting
-  the document type; `validate`, `analyze` and `compare` work on songs too.
-  Validation reports every problem at once with paths such as
-  `tracks[1].notes[3].note`, like recipes.
-* Accept: a four-bar, two-track demo renders the same bytes every time on
-  Linux and Windows (pinned like the examples); `analyze` with `per_track`
-  reads each track's notes back as onsets with the right `note_hz`; the
-  recipe schema and every existing render are unchanged.
+Built as designed in `docs/phase1-design.md`; the reference is the
+"Songs" part of `docs/RECIPE_SPEC.md`.
+
+- [x] `Song` in `core::song`: `tempo`, `beats_per_bar`, `bars`, `tracks`
+  (each with a required `name`, an `instrument`, `volume`, `pan`, `notes`
+  and `play`), `patterns`, the song's own `instruments` and `kits`, and
+  the same `master` and `effects` as a recipe. Bars count from 1, beats
+  from 0. A chord is a list of notes.
+- [x] `core::arrange` checks a song and flattens it into events per track.
+  The renderer and the analyzer both read that list.
+- [x] A note is a `Voice` (`synth::prepare_note`): pitch moved by
+  `note / home`, the envelope let go when the note ends, the instrument's
+  effects run once per track, the instrument levelled once.
+- [x] Seeds by track name and note start sample.
+- [x] `validate`, `render`, `analyze`, `compare`, `create` and `edit` take
+  songs in the CLI and the MCP server, through one loader
+  (`tools::load_document`). `--per-track`, `--solo NAME`, `--mute NAME`.
+  `schema/song.schema.json`, `duck-echo schema song`.
+- [x] Stems: a track heard alone uses the full song's master gain, so the
+  stems add up to the mix (tested to 0.00001).
+- [x] A song's instrument files go through `Root::read` in the MCP server
+  (tested: no `..`, no absolute paths, no links out).
+- [x] `examples/songs/four_bars.toml` is pinned, and CI renders it on
+  Linux and Windows.
+
+Lessons for the next builder:
+
+* **A drum kit is its own table.** The design first put kits inside
+  `instruments`. They are now `[kits.NAME]`, a map from piece name to an
+  instrument reference (a string). Two tables that both hold tables cannot
+  be told apart by the schema walker, and one string per piece is shorter
+  to write anyway.
+* **The structure walker now handles maps.** `additionalProperties` with a
+  schema (what `BTreeMap<String, T>` produces) checks every value against
+  it. Use `BTreeMap`, never `HashMap`, in document types, so the order is
+  always the same.
+* **The loader is generic.** `load.rs` runs the same four steps for
+  recipes and songs. A third document type needs a `Document` impl and a
+  schema, nothing else.
+* **Onset pitch is rough when notes touch.** `onsets[].note_hz` reads the
+  100 ms after an onset against the 100 ms before. When a note starts
+  while the last one, a semitone away, is still fading, the reading can be
+  half a semitone off; low notes are also rough. The demo's long notes
+  were shortened a little for this. Task 21 reads the held part of each
+  written note instead, which is the right tool for "is this the note I
+  wrote".
+* **Speed.** The four-bar demo (29 notes, 9 seconds) renders in 0.75 s in
+  a release build. Song tests run in a few seconds in test builds
+  (`opt-level = 1`), so no profile change was needed yet.
+* **Stems are exact only for linear song effects.** Echo and reverb on
+  the song are fine; distortion or bitcrush on the whole song means the
+  stems no longer add up (the same limit as `per_layer`).
 
 ### 4. Pitched noise and LFOs (moved here from Phase 0)
 

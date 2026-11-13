@@ -13,12 +13,20 @@ pub mod note;
 pub mod recipe;
 pub mod report;
 pub mod schema;
+pub mod song;
 pub mod structure;
 pub mod tree;
 pub mod validate;
 
-pub use load::{load_path, load_str, parse_str, to_json, to_toml, Format, Loaded};
+pub use load::{
+    document_kind, load_path, load_song_path, load_song_str, load_str, parse_str, to_json, to_toml,
+    DocumentKind, Format, Loaded, LoadedSong,
+};
 pub use note::Frequency;
 pub use recipe::*;
 pub use report::{Allowed, Code, Issue, Report, Severity};
+pub use song::{
+    arrange, Arrangement, Event, Instrument, InstrumentSource, NoInstruments, NotePitch, NoteValue,
+    Pattern, PatternNote, Placement, Song, Sound, Track, TrackPlan,
+};
 pub use validate::validate;
