@@ -268,3 +268,123 @@ fn faint_tail_does_not_decide_pitch_direction() {
     assert!(a.summary.contains("around 1000 Hz"), "{}", a.summary);
     assert!(!a.summary.contains("falling"), "{}", a.summary);
 }
+
+/// Playtest 1: onset times and the pitch that starts at each.
+fn onset_notes(a: &duck_echo_analyze::Analysis) -> Vec<(f64, Option<f32>)> {
+    a.onsets
+        .iter()
+        .map(|o| (o.time_seconds, o.note_hz))
+        .collect()
+}
+
+fn close(got: &[(f64, Option<f32>)], want: &[(f64, Option<f32>)]) -> bool {
+    got.len() == want.len()
+        && got.iter().zip(want).all(|((t, hz), (wt, whz))| {
+            (t - wt).abs() < 0.012
+                && match (hz, whz) {
+                    (Some(a), Some(b)) => (12.0 * (a / b).log2()).abs() < 0.3,
+                    (None, None) => true,
+                    _ => false,
+                }
+        })
+}
+
+#[test]
+fn onsets_find_beeps_after_silence_with_their_pitch() {
+    let mut s = vec![0.0f32; (0.05 * SR as f32) as usize];
+    s.extend(sine(440.0, 0.1, 0.5));
+    s.extend(vec![0.0; (0.1 * SR as f32) as usize]);
+    s.extend(sine(880.0, 0.1, 0.3));
+    s.extend(vec![0.0; (0.05 * SR as f32) as usize]);
+    let a = analyze(&s, SR, 1);
+    let got = onset_notes(&a);
+    assert!(
+        close(&got, &[(0.05, Some(440.0)), (0.25, Some(880.0))]),
+        "{got:?}"
+    );
+    assert!(a.summary.contains("2 onsets"), "{}", a.summary);
+    assert!((a.onsets[1].level_dbfs.unwrap() - (-13.5)).abs() < 0.5);
+}
+
+#[test]
+fn onsets_find_steps_without_gaps_and_name_the_new_note_over_a_bass() {
+    // A melody stepping every 120 ms over a constant, louder bass: each
+    // onset names the melody note, not the bass.
+    let notes = [523.25f32, 659.26, 783.99, 1046.5];
+    let step = (0.12 * SR as f32) as usize;
+    let mut s = vec![0.0f32; step * notes.len()];
+    for (i, x) in s.iter_mut().enumerate() {
+        let t = i as f32 / SR as f32;
+        let hz = notes[i / step];
+        *x = 0.5 * (TAU * 110.0 * t).sin() + 0.25 * (TAU * hz * t).sin();
+    }
+    let got = onset_notes(&analyze(&s, SR, 1));
+    let want: Vec<(f64, Option<f32>)> = std::iter::once((0.0, Some(110.0)))
+        .chain((1..4).map(|i| (0.12 * i as f64, Some(notes[i]))))
+        .collect();
+    assert!(close(&got, &want), "{got:?}");
+}
+
+#[test]
+fn vibrato_sweeps_and_steady_noise_are_one_onset() {
+    // Vibrato: half a semitone at 6 Hz.
+    let vib: Vec<f32> = {
+        let mut phase = 0.0f32;
+        (0..SR as usize)
+            .map(|i| {
+                let t = i as f32 / SR as f32;
+                let hz = 440.0 * 2f32.powf(0.5 * (TAU * 6.0 * t).sin() / 12.0);
+                phase += hz / SR as f32;
+                0.5 * (TAU * phase).sin()
+            })
+            .collect()
+    };
+    // A slow sweep, an octave per second.
+    let sweep: Vec<f32> = {
+        let mut phase = 0.0f32;
+        (0..SR as usize)
+            .map(|i| {
+                phase += 300.0 * 2f32.powf(i as f32 / SR as f32) / SR as f32;
+                0.5 * (TAU * phase).sin()
+            })
+            .collect()
+    };
+    for (name, s) in [
+        ("vibrato", vib),
+        ("sweep", sweep),
+        ("noise", noise(1.0, 0.5)),
+    ] {
+        let a = analyze(&s, SR, 1);
+        assert_eq!(a.onsets.len(), 1, "{name}: {:?}", onset_notes(&a));
+        assert!(a.onsets[0].time_seconds < 0.001);
+        assert!(!a.summary.contains("onsets"), "{name}: {}", a.summary);
+    }
+    // Noise has no pitch; silence has no onsets.
+    assert_eq!(analyze(&noise(0.3, 0.5), SR, 1).onsets[0].note_hz, None);
+    assert!(analyze(&vec![0.0; 4410], SR, 1).onsets.is_empty());
+}
+
+#[test]
+fn a_noise_burst_over_a_tone_is_an_onset() {
+    let mut s = sine(220.0, 0.6, 0.2);
+    let burst = noise(0.1, 0.8);
+    let at = (0.3 * SR as f32) as usize;
+    for (x, n) in s[at..].iter_mut().zip(&burst) {
+        *x += n;
+    }
+    let got = onset_notes(&analyze(&s, SR, 1));
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!((got[1].0 - 0.3).abs() < 0.012, "{got:?}");
+    assert_eq!(got[1].1, None, "a burst has no pitch: {got:?}");
+}
+
+#[test]
+fn analysis_adds_energy_and_onsets() {
+    let v = serde_json::to_value(analyze(&sine(440.0, 0.5, 0.5), SR, 1)).unwrap();
+    assert_eq!(
+        v["energy_over_time"]["rms_dbfs"].as_array().unwrap().len(),
+        20
+    );
+    assert_eq!(v["energy_over_time"]["rms_dbfs"][3], -9.0);
+    assert!(v["onsets"][0]["time_seconds"].as_f64().unwrap() < 0.001);
+}

@@ -32,11 +32,13 @@ crates/
                            `wav` feature so synth can depend on just the type).
   duck-echo-synth/         deterministic renderer: Recipe -> Voice -> samples.
   duck-echo-analyze/       measurements over f32 samples -> JSON report, plus
-                           compare (deltas and cross-correlation) and its own
-                           small FFT.
+                           compare (deltas and cross-correlation), onsets and
+                           energy over time, a picture (spectrogram and level)
+                           as PNG, and its own small FFT and PNG encoder.
   duck-echo-tools/         operations shared by the CLI and the MCP server:
-                           load a WAV or render a recipe, compare, and (from
-                           task 7 on) presets, variations and edits.
+                           load a WAV or render a recipe, compare, presets,
+                           variations, edits, analysis extras (per layer,
+                           solo, mute, picture) and file listings.
   duck-echo-cli/           the `duck-echo` binary and the end-to-end tests.
   duck-echo-mcp/           the `duck-echo-mcp` binary: the agent tools as an MCP
                            server over stdio.
@@ -91,7 +93,10 @@ server and a future UI reuse the libraries rather than shelling out.
  Voice::process  block by block, allocation-free, f32 (interleaved if stereo)
         │
         ▼
- synth::render   offline wrapper: normalize (optional), clip -> AudioBuffer
+ synth::render   offline wrapper: normalize by peak or loudness (optional),
+        │        clip, trim -> AudioBuffer (render_mastered also returns the
+        │        gain and length, so render_layers can finish one layer
+        │        exactly like the mix)
         │
         ├──> audio::write_wav  (16/24-bit PCM or 32-bit float)
         │
@@ -99,8 +104,9 @@ server and a future UI reuse the libraries rather than shelling out.
  analyze::analyze  summary line, duration, peak, RMS, loudness (gated
         │          BS.1770 from 400 ms, ungated K-weighted below, method
         │          named), clipping, silence, DC, crest factor, attack,
-        │          decay, spectral centroid, tonality, pitch track
-        │          (all defined in ANALYSIS.md)
+        │          decay, spectral centroid, tonality, pitch track,
+        │          energy over time, onsets (all defined in ANALYSIS.md);
+        │          picture::draw for a PNG of level and spectrogram
         │
  analyze::compare  two sounds -> both analyses, b-minus-a deltas, waveform
         │          cross-correlation, summary line
@@ -112,14 +118,33 @@ server and a future UI reuse the libraries rather than shelling out.
 Per layer, the signal path inside `Voice::process` is:
 
 ```
-oscillator (pitch curve: sweep + arpeggio + vibrato)
+oscillator (pitch curve: sweep + arpeggio + vibrato;
+            square and saw add a BLEP correction at each jump unless
+            the layer says aliasing = "retro")
   × envelope × volume
   → filter (biquad, cutoff sweep updated every 16 samples)
   → layer effects (in order), still mono
   → [stereo: equal-power pan] summed into the mix at `offset`
 master: effects (in order, one state per channel) → gain
-        → [offline: normalize → clip → trim_silence]
+        → [offline: normalize or normalize_lufs → clip → trim_silence]
 ```
+
+`normalize_lufs` measures loudness on the audio path, so the meter there
+(`synth::loudness`) is written for determinism: `f64` with `+ - * /` and
+`sqrt` only, the K-filter's `tan` as a Taylor series, the constants that
+need `pow` written out, and gates compared as mean squares instead of LUFS.
+It measures the finished render (scaled, clipped and trimmed, as written),
+correcting the gain over up to four passes, because trimming and the
+short-clip active span depend on the gain. The analyzer's `f64`/libm meter
+is the reference; a test checks the two agree within 0.001 LU on every
+preset and example.
+
+Solo, mute and per-layer analysis render the recipe with the other layers
+removed from the `Voice` after it is prepared (`Voice::keep_layers`), so
+every layer keeps its seed stream, `variation` jitter and timing, and the
+length stays the mix's. `render_layers` then applies the full mix's
+normalization gain and cuts or pads to the mix's trimmed length, so a layer
+reads at the level and times it has in the mix.
 
 Lengths are computed, never guessed: each layer lasts `offset + envelope
 length + layer effect tails`, the recipe lasts the longest layer plus the
@@ -137,11 +162,33 @@ with multiplication only so every platform agrees on the frame count.
   contract `a * b + c` into a fused multiply-add without explicit opt-in, so
   results match across x86 and ARM.
 * No threads in the renderer, no iteration over hash maps, no time.
-* Tests assert byte-identical WAVs from repeated renders on one platform.
-  Cross-platform identity is a design goal, verified in CI on the roadmap.
+* The golden tests pin a fingerprint of every example's and preset's WAV,
+  made by a release build; the tests run unoptimized, so they also check
+  that the optimization level does not change a single byte.
 
 The analysis crate uses `f64` and platform libm freely: it measures, it does
 not produce audio, and differences at the fifth decimal do not matter there.
+
+### What is guaranteed to match
+
+CI (`.github/workflows/ci.yml`) runs every test on Linux and on Windows,
+then renders every example and every preset on both with
+`scripts/render-fingerprints.sh` and checks that the SHA-256 of every WAV
+is the same on both. In plain words:
+
+* **Same recipe, same file.** With the same Duck Echo version, a recipe
+  (with its seed) renders to the same WAV bytes on Linux and Windows
+  (x86-64), in a release or a debug build. This is checked for every
+  example and preset on each push, and it holds for any recipe by design:
+  the render path uses only operations that IEEE-754 defines exactly.
+* **A sound only changes on purpose.** Every example and preset is pinned;
+  a commit that changes one says so.
+* **Not promised to match:** analysis numbers (`analyze`, `compare`) may
+  differ in the last decimals between platforms, because they use the
+  platform's math library; pictures are drawn from those numbers. macOS
+  and ARM machines are not in CI yet; nothing in the design should differ
+  there, but it is not checked. A different Duck Echo version may change a
+  sound, and its commit will say which.
 
 ## Realtime constraints (for later phases)
 
@@ -170,7 +217,7 @@ features are added as new optional fields or new enum variants. Existing
 recipes keep rendering identically. The `version` number only increments when
 the meaning of an existing field changes.
 
-### Phase 2: music
+### Music (roadmap Phase 1)
 
 A song is a second document type that references sound recipes rather than a
 change to the recipe itself:
@@ -196,7 +243,7 @@ by hand, the music phase sets them from the timeline. The renderer gains a
 scheduler that creates one `Voice` per note at the right frame, which is the
 same `prepare` and `process` API used today.
 
-### Phase 3: voice
+### Voice (roadmap Phase 5)
 
 Formant synthesis adds a `formant` source and an optional
 `[layers.formant]` table:
@@ -234,16 +281,27 @@ A recipe argument is either `recipe` (an inline JSON object) or `path` (a
 | Tool | Input | Output |
 |---|---|---|
 | `get_schema` | none | The recipe JSON Schema, same as `duck-echo schema`. |
-| `list_presets` | optional `tag` | `{presets: [{name, category, target_lufs, description, tags}]}`. Presets are levelled to per-category loudness targets (see `presets/README.md`). |
+| `list_presets` | optional `tag` | `{presets: [{name, category, target_lufs, description, tags}]}`. Presets are levelled to per-category loudness targets (see `presets/README.md`). A tag no preset has is a `not_found` error at `arguments.tag` with the closest real tag as `suggestion` and every tag in `allowed`, so a typo is never an empty list. |
 | `get_preset` | `name` | `{name, category, description, tags, recipe, toml}`: the recipe as a JSON object and its TOML source with comments. |
+| `list_files` | optional `path` (a folder), `recursive` (default true) | `{folder, entries: [{path, kind, bytes, seconds}], truncated}`. Kinds: `folder`, `recipe`, `audio`, `image`, `link`, `other`; `seconds` for WAV files. Hidden files are skipped, links are not followed, at most 500 entries. |
 | `validate` | recipe | The `Report`. An invalid recipe is a normal answer here, not a tool error. |
 | `create` | `path`, `recipe`, optional `overwrite` | `{ok, path, warnings}`. Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. |
 | `edit` | recipe, `ops`, optional `write` | `{ok, recipe, warnings, written, path}`. Each op is `{path, value}` or `{path, remove: true}`, with paths as in error messages; an index equal to the length appends. Edits apply to the document as written (defaults stay implicit), and a file is rewritten only when the result is valid. Comments are not kept. |
-| `render` | recipe, `output`, optional `seed`, `format` | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`. |
-| `analyze` | `path` (WAV, recipe or preset) or `recipe` | The `Analysis` (see `ANALYSIS.md`). |
+| `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. |
+| `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. |
 | `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
 | `variations` | recipe, optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
 | `export` | (task 13) | Not built: the Duck Forge format is still to be agreed. |
+
+Extras on `render` and `analyze`, shared with the CLI's `--per-layer`,
+`--solo`, `--mute` and `--picture`: `picture: true` adds a PNG as an MCP
+image block (`{"type": "image", "mimeType": "image/png", "data": base64}`)
+after the text, and a `picture` object in the result describing its axes;
+`per_layer: true` adds `layers: [{index, name, analysis}]`, each heard layer
+alone as heard in the mix; `solo` and `mute` (layer indices) choose the
+heard layers, reported as `heard_layers`. Layer extras need a recipe; a WAV
+file is an `invalid_argument` error. The tool descriptions name the two
+loudness methods.
 
 Rules the server keeps:
 
@@ -251,7 +309,22 @@ Rules the server keeps:
   validation `Report` shape, whether the recipe was invalid, an argument was
   misspelled (with a suggestion, at path `arguments.<name>`), or a file was
   missing. Line numbers are dropped for inline recipes, since they would
-  refer to text the agent never wrote.
+  refer to text the agent never wrote. `validate` is the one tool whose
+  answer is a report, so an invalid recipe there is `isError: false` with
+  `ok: false`; it is `isError: true` only when the call itself fails.
+* **Every error has a code and a path.** Codes are specific (see
+  Diagnostics); there is no catch-all. The path is a recipe field
+  (`layers[0].volume`) or the argument at fault (`arguments.output`,
+  `arguments.solo[1]`); a whole-document problem in a file, such as a
+  syntax error, is at `arguments.path` with its line. `duck-echo-tools`
+  returns file and argument failures with an empty path and each front end
+  names its argument (`ToolError::at`); the server fills any path still
+  empty with `arguments`, and a test calls every tool wrongly to check.
+* **Messages fit the front end.** Shared errors name no CLI command (a
+  missing preset lists every name in `allowed` instead), a missing file
+  suggests the closest name in its folder and points at `list_files`, and
+  every message has the root's absolute location replaced by paths
+  relative to it.
 * **Results as data.** Every result is a JSON object, sent both as
   `structuredContent` and as text.
 * **Paths stay inside the root.** File paths are relative to `--root`
@@ -341,11 +414,17 @@ not checked, to avoid misleading nested errors. A number written in quotes
 }
 ```
 
-Codes: `syntax`, `unknown_field`, `unknown_variant`, `missing_field`,
-`type_mismatch`, `out_of_range`, `invalid_format`, `unsupported_version`,
-`invalid`, `other`,
-and for warnings `unused`, `suspicious`. Human output is one line per issue
-in the same order.
+Codes for recipes: `syntax`, `unknown_field`, `unknown_variant`,
+`missing_field`, `type_mismatch`, `out_of_range`, `invalid_format`,
+`unsupported_version`, `invalid`, `duplicate_field`. For files and tool
+arguments: `not_found` (a file, folder or preset), `already_exists`,
+`path_refused` (outside the root, absolute, `..`, a preset as a write
+target, the wrong extension), `io` (exists but cannot be read, decoded or
+written) and `invalid_argument` (a value or combination that cannot be
+used); wrong types and ranges of arguments reuse `type_mismatch`,
+`out_of_range` and `unknown_variant`. Warnings: `unused`, `suspicious`.
+There is no catch-all code: a new kind of failure gets a new code. Human
+output is one line per issue in the same order.
 
 ## Dependencies and why
 
@@ -360,7 +439,11 @@ in the same order.
 
 The MCP server and the tools crate add no external dependencies: the
 protocol layer is plain `serde_json` (see above), and `toml` writes edited
-recipes.
+recipes. Pictures add none either: `analyze::png` is a small PNG encoder
+(palette image, zlib with fixed-Huffman deflate and LZ77, CRC-32 and
+Adler-32, about 240 lines plus a test-only inflater that proves round
+trips), and the server's base64 is twenty lines. An image crate would pull
+in a compression crate and more for one 480×254 palette image.
 
 Synth and analyze bring no external dependencies beyond serde for the
 analysis report. No `rand`, no DSP crates, no async runtime.

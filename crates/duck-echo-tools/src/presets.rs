@@ -114,16 +114,23 @@ pub fn find(name: &str) -> Option<&'static Preset> {
     PRESETS.iter().find(|p| p.name == name)
 }
 
-/// A preset by name, or an error listing the closest names.
+/// A preset by name, or a `not_found` error with every preset name as the
+/// allowed options and the closest one as the suggestion. The message names
+/// no command, since the CLI and the MCP server list presets differently.
 pub fn get(name: &str) -> Result<&'static Preset, ToolError> {
     find(name).ok_or_else(|| {
         let names: Vec<String> = PRESETS.iter().map(|p| p.name.to_string()).collect();
-        let hint = duck_echo_core::load::did_you_mean(name, &names)
-            .map(|s| format!(" Did you mean `{s}`?"))
-            .unwrap_or_default();
-        ToolError::Io(format!(
-            "no preset named `{name}`.{hint} List them with `duck-echo presets list`."
-        ))
+        let mut issue = duck_echo_core::Issue::error(
+            duck_echo_core::Code::NotFound,
+            "",
+            format!("no preset named `{name}`; `allowed` lists every preset"),
+        )
+        .got(name)
+        .one_of(names.clone());
+        if let Some(s) = duck_echo_core::load::did_you_mean(name, &names) {
+            issue = issue.suggest(s);
+        }
+        ToolError::issue(issue)
     })
 }
 
@@ -151,13 +158,52 @@ pub fn info(preset: &Preset) -> Result<PresetInfo, ToolError> {
 }
 
 /// Listing of all presets, or of those carrying `tag`.
+///
+/// A tag that no preset has is a `not_found` error, not an empty list, so
+/// a typo is noticed: it suggests the closest real tag, and `allowed` lists
+/// every tag (categories first).
 pub fn list(tag: Option<&str>) -> Result<Vec<PresetInfo>, ToolError> {
-    let mut out = Vec::new();
-    for p in PRESETS {
-        let i = info(p)?;
-        if tag.map_or(true, |t| i.tags.iter().any(|x| x == t)) {
-            out.push(i);
-        }
+    let all: Vec<PresetInfo> = PRESETS.iter().map(info).collect::<Result<_, _>>()?;
+    let Some(tag) = tag else {
+        return Ok(all);
+    };
+    let out: Vec<PresetInfo> = all
+        .iter()
+        .filter(|i| i.tags.iter().any(|x| x == tag))
+        .cloned()
+        .collect();
+    if out.is_empty() {
+        return Err(ToolError::issue(unknown_tag(tag, &all)));
     }
     Ok(out)
+}
+
+/// The error for a tag no preset has.
+fn unknown_tag(tag: &str, all: &[PresetInfo]) -> duck_echo_core::Issue {
+    // Every tag once: the categories in their usual order, then the rest
+    // alphabetically.
+    let mut others: Vec<String> = all
+        .iter()
+        .flat_map(|i| i.tags.iter())
+        .filter(|t| !CATEGORIES.contains(&t.as_str()))
+        .cloned()
+        .collect();
+    others.sort();
+    others.dedup();
+    let tags: Vec<String> = CATEGORIES
+        .iter()
+        .map(|c| c.to_string())
+        .chain(others)
+        .collect();
+    let mut issue = duck_echo_core::Issue::error(
+        duck_echo_core::Code::NotFound,
+        "",
+        format!("no preset has the tag `{tag}`; `allowed` lists every tag"),
+    )
+    .got(tag)
+    .one_of(tags.clone());
+    if let Some(s) = duck_echo_core::load::did_you_mean(tag, &tags) {
+        issue = issue.suggest(s);
+    }
+    issue
 }

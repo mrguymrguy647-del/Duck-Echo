@@ -43,12 +43,34 @@ which renders a 0.205 s square-wave blip at 440 Hz.
 | `gain` | number | `1.0` | 0..4 | Linear gain after the master effects. |
 | `normalize` | bool | `false` | | Scale the whole render so its peak equals `normalize_peak_db`. Offline only; realtime playback ignores it. |
 | `normalize_peak_db` | number | `-1` | -40..0 | Target peak in dBFS. |
+| `normalize_lufs` | number | none | -60..0 | Scale the render so its loudness, as `analyze` measures it, is this many LUFS. Replaces `normalize` and `normalize_peak_db`; the peak never goes above -1 dBFS. Offline only. |
 | `trim_silence` | bool | `false` | | Cut the render after its last sample above -60 dBFS. Offline only. Ignored, with a warning, when `duration` is set. |
 
-Order of the offline steps: master effects, gain, normalize, clip to
--1..1, trim. Trimming only removes trailing frames, so a trimmed render is
-an exact prefix of the untrimmed one, and `analyze` reports no trailing
-silence for it (both use the same -60 dBFS threshold).
+Order of the offline steps: master effects, gain, normalize (by peak or by
+loudness), clip to -1..1, trim.
+
+`normalize_lufs` levels a sound to a loudness target in one render, so a
+recipe keeps its level through edits; set it to the category target that
+`list_presets` reports (`target_lufs`). It measures the finished render the
+way `analyze` does (gated BS.1770 from 400 ms, the ungated short-clip
+method below; see `ANALYSIS.md`) and lands within 0.1 LU of the target as
+measured from the written 16-bit WAV. Rules:
+
+* The gain never puts the peak above -1 dBFS. A target that would need
+  more renders quieter, and `render` (and `analyze` of the recipe) returns
+  a `suspicious` warning at `master.normalize_lufs` with the loudness
+  reached. A sine peaking at -1 dBFS measures about -4 LUFS, so very loud
+  targets only suit full, steady sounds.
+* `normalize` and `normalize_peak_db` have no effect while it is set;
+  `normalize = true` next to it gives an `unused` warning, so a preset
+  edited to use it says which line to remove.
+* Silence (or a long sound entirely under -70 LUFS) is left as it is.
+* It is deterministic like the rest of the render path: the meter used
+  while rendering avoids platform math (see `ARCHITECTURE.md`).
+
+Trimming only removes trailing frames, so a trimmed render is an exact
+prefix of the untrimmed one, and `analyze` reports no trailing silence for
+it (both use the same -60 dBFS threshold).
 
 Output is hard-clipped to -1..1 after normalization. Analysis reports
 clipping, so leave `normalize` off while designing and turn it on when a
@@ -63,6 +85,7 @@ stack of layers must not clip.
 | `volume` | number | `0.8` | 0..2 | Linear level, applied after the envelope and before the filter. |
 | `offset` | number | `0` | 0..30 | Start time of the layer. |
 | `duty` | number | `0.5` | 0.01..0.99 | Pulse width for `square`. Other sources ignore it (warning). |
+| `aliasing` | string | `"clean"` | `clean`, `retro` | How `square` and `saw` handle high notes (see below). Other sources sound the same either way (`retro` on them gives a warning). |
 | `pan` | number | `0` | -1..1 | Stereo position, left to right. Mono recipes ignore it (warning). |
 | `envelope` | table | defaults | | Volume envelope. |
 | `pitch` | table | defaults | | Pitch over time. |
@@ -79,8 +102,21 @@ Source details:
 * `saw` rises from -1 to +1 each cycle. `triangle` is symmetric.
 * `noise` is white noise from the seed. It ignores `pitch` (pitched noise is
   on the roadmap).
-* Oscillators are naive, not band-limited. Aliasing is audible on high
-  pitches, which suits retro effects; anti-aliasing is on the roadmap.
+* `aliasing` chooses how `square` and `saw` treat high notes. A raw square
+  or saw jumps from one level to another in a single sample, and that jump
+  has energy above half the sample rate, which folds back down as harsh
+  extra tones ("aliasing") that are not part of the note.
+  * `clean` (default) smooths every jump over 2 samples on each side with
+    a cubic B-spline curve (a "BLEP" correction). On a 2 kHz saw at
+    44.1 kHz the folded tones are more than 40 dB under the note (they are
+    about 22 dB under it with `retro`). The cost is a gentler top end:
+    about -3 dB at 10 kHz and -7 dB at 15 kHz. It adds no delay and needs
+    no memory, so it is safe for realtime playback later.
+  * `retro` keeps the raw wave, bright and gritty like old sound chips. It
+    is exactly how Duck Echo rendered before this option, so a recipe
+    marked `retro` renders byte for byte as it did then.
+  * `sine` and `triangle` stay as they are in both modes (a triangle has
+    no jumps, so it aliases very little), and so does `noise`.
 
 ### `layers[].envelope`
 
@@ -299,7 +335,9 @@ JSON (`"layers": [...]`), and `type = "echo"` becomes `"type": "echo"`.
 
 ## Examples
 
-All in `examples/recipes/`, all render without clipping:
+All in `examples/recipes/`, all render without clipping. Their square
+and saw layers say `aliasing = "retro"`, so each example still renders
+exactly as it was first pinned (the presets use the `clean` default):
 
 | File | What it shows |
 |---|---|
@@ -311,6 +349,7 @@ All in `examples/recipes/`, all render without clipping:
 | `powerup.toml` | two layers with `offset`, arpeggio over a sweep, `normalize`, `trim_silence` |
 | `ricochet.toml` | `channels = 2`, two layers panned left and right, master reverb |
 | `chime.toml` | note-name pitches, sustain and release, vibrato with delay |
+| `fanfare.toml` | four layers (arpeggio lead, two-note chord, bass), `normalize_lufs`, master reverb; reads note by note in `onsets` and layer by layer with `--per-layer` |
 
 ## Deferred (not in v0, never silently ignored)
 
@@ -318,11 +357,10 @@ These are not accepted by the schema yet; using them is an `unknown_field`
 error until implemented. See `ROADMAP.md` for the order.
 
 * Pitched noise (sample-and-hold noise at the layer pitch, NES style).
-* Band-limited oscillators (anti-aliasing).
 * LFOs on volume, filter cutoff and duty.
 * Per-parameter random ranges (`volume = { min = 0.6, max = 0.9 }`).
 * Sample layers.
-* Music timeline documents and formant voice sources (phases 2 and 3).
+* Song documents (roadmap Phase 1) and formant voice sources (Phase 5).
 
 ## Versioning
 

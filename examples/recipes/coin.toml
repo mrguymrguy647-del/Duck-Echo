@@ -2,8 +2,10 @@
 version = 0
 name = "coin"
 
+# "retro" keeps the raw Phase 0 wave, so this pinned example renders unchanged.
 [[layers]]
 source = "square"
+aliasing = "retro"
 duty = 0.5
 volume = 0.7
 

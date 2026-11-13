@@ -196,8 +196,12 @@ pub fn load_value(doc: &Value) -> Result<Loaded, ToolError> {
 
 /// The recipe document of a file, as written (no defaults filled in).
 pub fn read_document(path: &Path) -> Result<Value, ToolError> {
-    let src = std::fs::read_to_string(path)
-        .map_err(|e| ToolError::Io(format!("cannot read {}: {e}", path.display())))?;
+    let src = std::fs::read_to_string(path).map_err(|e| {
+        ToolError::failed(
+            crate::io_code(&e),
+            format!("cannot read {}: {e}", path.display()),
+        )
+    })?;
     let tree = match Format::from_path(path) {
         Format::Toml => duck_echo_core::tree::parse_toml(&src),
         Format::Json => duck_echo_core::tree::parse_json(&src),
@@ -207,10 +211,10 @@ pub fn read_document(path: &Path) -> Result<Value, ToolError> {
         // Only non-finite numbers or datetimes get here; validation names them.
         match duck_echo_core::load_str(&src, Format::from_path(path)) {
             Err(r) => ToolError::Invalid(r),
-            Ok(_) => ToolError::Io(format!(
-                "{} holds values JSON cannot represent",
-                path.display()
-            )),
+            Ok(_) => ToolError::failed(
+                Code::Invalid,
+                format!("{} holds values JSON cannot represent", path.display()),
+            ),
         }
     })
 }
@@ -248,9 +252,12 @@ fn drop_nulls(v: &mut Value) {
 pub fn to_toml_document(doc: &Value) -> Result<String, ToolError> {
     let mut doc = doc.clone();
     drop_nulls(&mut doc);
-    let obj = doc
-        .as_object()
-        .ok_or_else(|| ToolError::Io("a recipe must be a table".into()))?;
+    let obj = doc.as_object().ok_or_else(|| {
+        ToolError::failed(
+            Code::TypeMismatch,
+            "a recipe must be a table (a JSON object)",
+        )
+    })?;
     let mut keys: Vec<&String> = obj.keys().collect();
     keys.sort_by_key(|k| TOP_ORDER.iter().position(|o| o == k).unwrap_or(usize::MAX));
     let (plain, tables): (Vec<&String>, Vec<&String>) = keys.into_iter().partition(|k| {
@@ -261,8 +268,13 @@ pub fn to_toml_document(doc: &Value) -> Result<String, ToolError> {
         for k in group {
             let mut one = Map::new();
             one.insert(k.clone(), obj[k.as_str()].clone());
-            let text = toml::to_string(&Value::Object(one))
-                .map_err(|e| ToolError::Io(format!("cannot write `{k}` as TOML: {e}")))?;
+            let text = toml::to_string(&Value::Object(one)).map_err(|e| {
+                ToolError::issue(Issue::error(
+                    Code::Invalid,
+                    k.clone(),
+                    format!("cannot write `{k}` as TOML: {e}"),
+                ))
+            })?;
             if !out.is_empty() && !out.ends_with("\n\n") && text.starts_with('[') {
                 out.push('\n');
             }
@@ -283,11 +295,12 @@ pub fn write_document(path: &Path, doc: &Value) -> Result<(), ToolError> {
         }
     };
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| ToolError::Io(format!("cannot create {}: {e}", dir.display())))?;
+        std::fs::create_dir_all(dir).map_err(|e| {
+            ToolError::failed(Code::Io, format!("cannot create {}: {e}", dir.display()))
+        })?;
     }
     std::fs::write(path, text)
-        .map_err(|e| ToolError::Io(format!("cannot write {}: {e}", path.display())))
+        .map_err(|e| ToolError::failed(Code::Io, format!("cannot write {}: {e}", path.display())))
 }
 
 #[cfg(test)]

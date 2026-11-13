@@ -29,10 +29,23 @@ pub enum Code {
     InvalidFormat,
     /// The `version` field is not supported by this build.
     UnsupportedVersion,
-    /// The recipe cannot render as written (for example it has no layers).
+    /// The recipe, or one value in it, cannot be used as written (for
+    /// example it has no layers, or an edit cannot apply).
     Invalid,
-    /// Anything else that stops the recipe from loading.
-    Other,
+    /// The same field appears twice in one table.
+    DuplicateField,
+    /// A file, folder or preset that does not exist.
+    NotFound,
+    /// A file that a tool would create already exists.
+    AlreadyExists,
+    /// A path a tool may not use: outside the server root, absolute, with
+    /// `..`, a built-in preset as a write target, or the wrong extension.
+    PathRefused,
+    /// A file that exists but cannot be read, decoded or written.
+    Io,
+    /// A tool argument whose value or combination with others cannot be
+    /// used (for example both `recipe` and `path`).
+    InvalidArgument,
     /// A field that is set but has no effect in this context.
     Unused,
     /// Something that renders but is probably not what was intended.
@@ -51,7 +64,12 @@ impl fmt::Display for Code {
             Code::InvalidFormat => "invalid_format",
             Code::UnsupportedVersion => "unsupported_version",
             Code::Invalid => "invalid",
-            Code::Other => "other",
+            Code::DuplicateField => "duplicate_field",
+            Code::NotFound => "not_found",
+            Code::AlreadyExists => "already_exists",
+            Code::PathRefused => "path_refused",
+            Code::Io => "io",
+            Code::InvalidArgument => "invalid_argument",
             Code::Unused => "unused",
             Code::Suspicious => "suspicious",
         };
@@ -94,8 +112,10 @@ pub struct Issue {
     pub severity: Severity,
     /// Stable machine-readable code.
     pub code: Code,
-    /// Exact field path, for example `layers[1].pitch.start`. Empty for the
-    /// root document.
+    /// Exact field path, for example `layers[1].pitch.start`, or the tool
+    /// argument at fault, for example `arguments.output`. Empty only for a
+    /// problem with a whole recipe document (a syntax error) when no tool
+    /// argument named it; the tools fill in the argument.
     pub path: String,
     /// Human-readable explanation.
     pub message: String,

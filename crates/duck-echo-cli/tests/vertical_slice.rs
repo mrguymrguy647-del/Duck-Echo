@@ -262,6 +262,23 @@ fn warnings_do_not_block() {
     assert_eq!(loaded.report.warnings.len(), 1);
     assert_eq!(loaded.report.warnings[0].code, Code::Unused);
     assert_eq!(loaded.report.warnings[0].path, "layers[0].duty");
+
+    // `aliasing = "retro"` changes nothing on a sine, so it is flagged too.
+    let loaded = load_str(
+        "version = 0\n[[layers]]\nsource = \"sine\"\naliasing = \"retro\"\n",
+        Format::Toml,
+    )
+    .expect("warnings only");
+    assert_eq!(loaded.report.warnings[0].code, Code::Unused);
+    assert_eq!(loaded.report.warnings[0].path, "layers[0].aliasing");
+    // A typo in the value is caught with a suggestion.
+    let report = load_str(
+        "version = 0\n[[layers]]\naliasing = \"retor\"\n",
+        Format::Toml,
+    )
+    .unwrap_err();
+    assert_eq!(report.errors[0].path, "layers[0].aliasing");
+    assert_eq!(report.errors[0].suggestion.as_deref(), Some("retro"));
 }
 
 #[test]
@@ -453,7 +470,8 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 
 /// PCM16 WAV size and fingerprint of every example as first rendered, with
 /// `trim_silence` off: the first six by Phase 0 (commit c5acbdb), chime and
-/// ricochet by commit c6f131e. Any change to the render path must keep
+/// ricochet by commit c6f131e, fanfare (the first `normalize_lufs` render)
+/// with the playtest 1 fixes. Any change to the render path must keep
 /// these. If one changes on purpose, say so in the commit and update the
 /// value; never update it to make a test pass.
 const GOLDEN: &[(&str, usize, u64)] = &[
@@ -465,6 +483,7 @@ const GOLDEN: &[(&str, usize, u64)] = &[
     ("powerup", 135872, 0x4587_bbac_ba84_9319),
     ("chime", 127494, 0xb5a1_c5f4_8c03_8d1f),
     ("ricochet", 152100, 0xce1b_45c1_7590_5b49),
+    ("fanfare", 138870, 0x3059_bbd5_3975_1723),
 ];
 
 #[test]
@@ -562,6 +581,8 @@ decay = 0
 start = 440
 [[layers]]
 source = "saw"
+# Retro: the raw saw peaks exactly at its volume, which the test checks.
+aliasing = "retro"
 volume = 0.3
 pan = 1
 [layers.envelope]
@@ -915,4 +936,70 @@ fn top_level_key_under_a_table_says_where_it_belongs() {
         "{}",
         e.message
     );
+}
+
+/// Playtest 1 fixes through the `duck-echo` binary: per-layer analysis,
+/// pictures, solo, and errors with specific codes and argument paths.
+#[test]
+fn cli_analyze_extras_and_error_codes() {
+    let exe = env!("CARGO_BIN_EXE_duck-echo");
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli_extras");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let fanfare = examples_dir().join("fanfare.toml");
+    let png = dir.join("fanfare.png");
+    let out = std::process::Command::new(exe)
+        .arg("analyze")
+        .arg(&fanfare)
+        .args(["--per-layer", "--compact", "--picture"])
+        .arg(&png)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["layers"].as_array().unwrap().len(), 4);
+    assert_eq!(v["layers"][3]["name"], "bass");
+    assert_eq!(v["picture"]["mime_type"], "image/png");
+    assert_eq!(&std::fs::read(&png).unwrap()[..4], b"\x89PNG");
+
+    let wav = dir.join("chord.wav");
+    let out = std::process::Command::new(exe)
+        .arg("render")
+        .arg(&fanfare)
+        .args(["--solo", "1,2", "--json", "-o"])
+        .arg(&wav)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["heard_layers"], serde_json::json!([1, 2]));
+
+    for (args, code, path, exit) in [
+        (vec!["analyze", "no/such.wav"], "not_found", "input", 2),
+        (
+            vec!["analyze", "preset:coin", "--solo", "4"],
+            "out_of_range",
+            "--solo[0]",
+            1,
+        ),
+        (
+            vec!["render", "preset:gemm", "--json"],
+            "not_found",
+            "recipe",
+            2,
+        ),
+    ] {
+        let out = std::process::Command::new(exe)
+            .args(&args)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(exit), "{args:?}");
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["errors"][0]["code"], code, "{args:?}: {v}");
+        assert_eq!(v["errors"][0]["path"], path, "{args:?}: {v}");
+    }
 }

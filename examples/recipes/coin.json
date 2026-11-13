@@ -4,6 +4,7 @@
   "layers": [
     {
       "source": "square",
+      "aliasing": "retro",
       "duty": 0.5,
       "volume": 0.7,
       "envelope": { "attack": 0.002, "hold": 0.06, "decay": 0.25 },

@@ -1,0 +1,75 @@
+# Tests on Linux and Windows, and a check that both render every example
+# and preset to exactly the same bytes (roadmap task 8).
+name: CI
+
+# Runs on every push (any branch, so a branch is checked before its pull
+# request) and by hand from the Actions tab.
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test and render (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Git Bash on Windows, so one script works on both systems.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        if: runner.os == 'Linux'
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (no warnings allowed)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: All tests
+        run: cargo test --workspace
+
+      - name: Render every example and preset, and hash each WAV
+        run: |
+          cargo build --release -p duck-echo-cli
+          scripts/render-fingerprints.sh renders
+          cat renders/SHA256SUMS
+
+      - name: Upload the hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: sha256-${{ runner.os }}
+          path: renders/SHA256SUMS
+
+  same-bytes:
+    name: Linux and Windows renders match
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sha256-*
+
+      - name: Compare the two lists of hashes
+        run: |
+          echo "Linux:   $(wc -l < sha256-Linux/SHA256SUMS) files"
+          echo "Windows: $(wc -l < sha256-Windows/SHA256SUMS) files"
+          if diff -u sha256-Linux/SHA256SUMS sha256-Windows/SHA256SUMS; then
+            echo "Every WAV is byte-identical on Linux and Windows."
+          else
+            echo "::error::Some renders differ between Linux and Windows (see the diff above). Fix the cause in duck-echo-synth's math module, not in this check."
+            exit 1
+          fi

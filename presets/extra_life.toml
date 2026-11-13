@@ -6,7 +6,7 @@ tags = ["pickup", "extra_life", "rising", "long"]
 
 [master]
 normalize = true
-normalize_peak_db = -13.9
+normalize_peak_db = -13.7
 trim_silence = true
 
 [[layers]]

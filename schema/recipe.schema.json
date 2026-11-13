@@ -1,5 +1,20 @@
 {
   "$defs": {
+    "Aliasing": {
+      "description": "How square and saw waves handle high notes (`layers[].aliasing`).",
+      "oneOf": [
+        {
+          "const": "clean",
+          "description": "Smooth each jump in the wave (band-limited), so high notes stay\nclean. The very top of the sound gets a little softer.",
+          "type": "string"
+        },
+        {
+          "const": "retro",
+          "description": "The raw wave, as on old sound chips: bright, with extra tones on\nhigh notes.",
+          "type": "string"
+        }
+      ]
+    },
     "Arpeggio": {
       "additionalProperties": false,
       "description": "Stepped pitch offsets, the classic chiptune arpeggio.",
@@ -346,6 +361,11 @@
       "additionalProperties": false,
       "description": "One sound layer: an oscillator shaped by an envelope, pitch curve, filter\nand optional effects.",
       "properties": {
+        "aliasing": {
+          "$ref": "#/$defs/Aliasing",
+          "default": "clean",
+          "description": "How `square` and `saw` handle high notes. `clean` (default) smooths\neach jump in the wave, so high notes do not fold back into harsh\nextra tones (\"aliasing\"). `retro` keeps the raw wave of old sound\nchips, as Duck Echo made it before this option. Sine, triangle and\nnoise sound the same either way."
+        },
         "duty": {
           "default": 0.5,
           "description": "Pulse width for `square`, range 0.01..=0.99. Ignored by other\nsources. Default `0.5`.",
@@ -438,6 +458,14 @@
           "default": false,
           "description": "Scale the final render so its peak sits at `normalize_peak_db`.\nOffline only. Default `false`.",
           "type": "boolean"
+        },
+        "normalize_lufs": {
+          "description": "Scale the render so its loudness, as `analyze` measures it, is this\nmany LUFS, range -60..=0. Replaces `normalize` and\n`normalize_peak_db`; the peak never goes above -1 dBFS, so a target\nthat needs more gain renders quieter (the render result warns).\nOffline only. Default: off.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "normalize_peak_db": {
           "default": -1.0,

@@ -6,6 +6,8 @@ use crate::report::{Code, Issue, Report};
 
 /// Maximum total length of a render in seconds.
 pub const MAX_DURATION: f32 = 60.0;
+/// Quietest `master.normalize_lufs` target.
+pub const MIN_NORMALIZE_LUFS: f32 = -60.0;
 /// Maximum length of any single effect tail in seconds.
 pub const MAX_TAIL: f32 = 10.0;
 /// Silence floor used to decide when a tail has died out (-60 dB).
@@ -85,6 +87,21 @@ impl Validator {
             -40.0,
             0.0,
         );
+        self.range_opt(
+            "master.normalize_lufs",
+            r.master.normalize_lufs,
+            MIN_NORMALIZE_LUFS,
+            0.0,
+        );
+        if r.master.normalize && r.master.normalize_lufs.is_some() {
+            self.warn(
+                Code::Unused,
+                "master.normalize",
+                format!(
+                    "normalize and normalize_peak_db have no effect when normalize_lufs is set; loudness normalization replaces them and keeps the peak at or under {LOUDNESS_CEILING_DBFS} dBFS; remove normalize"
+                ),
+            );
+        }
         if r.master.trim_silence && r.duration.is_some() {
             self.warn(
                 Code::Unused,
@@ -141,6 +158,16 @@ impl Validator {
         self.range(&format!("{p}.offset"), l.offset, 0.0, 30.0);
         self.range(&format!("{p}.duty"), l.duty, 0.01, 0.99);
         self.range(&format!("{p}.pan"), l.pan, -1.0, 1.0);
+        if l.aliasing == Aliasing::Retro && !matches!(l.source, Source::Square | Source::Saw) {
+            self.warn(
+                Code::Unused,
+                &format!("{p}.aliasing"),
+                format!(
+                    "aliasing only changes `square` and `saw`; this layer is `{}`",
+                    source_name(l.source)
+                ),
+            );
+        }
         if l.source != Source::Square && l.duty != 0.5 {
             self.warn(
                 Code::Unused,

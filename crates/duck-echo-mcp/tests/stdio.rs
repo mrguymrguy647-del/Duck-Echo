@@ -55,12 +55,23 @@ impl Session {
 
     /// Call a tool; returns (structuredContent, isError).
     fn call(&mut self, tool: &str, args: Value) -> (Value, bool) {
+        let (structured, err, _) = self.call_content(tool, args);
+        (structured, err)
+    }
+
+    /// Call a tool; returns (structuredContent, isError, content blocks).
+    fn call_content(&mut self, tool: &str, args: Value) -> (Value, bool, Vec<Value>) {
         let reply = self.request("tools/call", json!({"name": tool, "arguments": args}));
         let result = &reply["result"];
+        assert_eq!(result["content"][0]["type"], "text");
         let text = result["content"][0]["text"].as_str().expect("text content");
         let structured = result["structuredContent"].clone();
         assert_eq!(serde_json::from_str::<Value>(text).unwrap(), structured);
-        (structured, result["isError"].as_bool().unwrap())
+        (
+            structured,
+            result["isError"].as_bool().unwrap(),
+            result["content"].as_array().unwrap().clone(),
+        )
     }
 }
 
@@ -112,6 +123,7 @@ fn create_edit_render_analyze_loop() {
             "get_schema",
             "list_presets",
             "get_preset",
+            "list_files",
             "validate",
             "create",
             "edit",
@@ -306,10 +318,15 @@ fn arguments_paths_and_protocol_edges() {
 
     let (e, err) = s.call("get_preset", json!({"name": "gemm"}));
     assert!(err);
-    assert!(e["errors"][0]["message"]
-        .as_str()
+    assert_eq!(e["errors"][0]["code"], "not_found");
+    assert_eq!(e["errors"][0]["path"], "arguments.name");
+    assert_eq!(e["errors"][0]["suggestion"], "gem");
+    assert!(e["errors"][0]["allowed"]["options"]
+        .as_array()
         .unwrap()
-        .contains("`gem`"));
+        .contains(&json!("gem")));
+    // MCP errors never point at the CLI.
+    assert!(!e.to_string().contains("duck-echo presets"), "{e}");
 
     let unknown = s.request("tools/call", json!({"name": "explode", "arguments": {}}));
     assert_eq!(unknown["error"]["code"], -32602);
@@ -537,5 +554,443 @@ fn read_paths_cannot_leave_the_root() {
         "compare",
         json!({"a": "preset:coin", "b": "out_link/secret.wav"}),
         "outside the server root through a symbolic link",
+    );
+}
+
+/// Playtest 1: an agent can see what it made, picture a sound, hear layers
+/// on their own and level a sound to a loudness target in one render.
+#[test]
+fn files_pictures_layers_and_loudness_targets() {
+    let root = fresh_root("mcp_playtest_fixes");
+    std::fs::write(root.join(".gitkeep"), "").unwrap();
+    let mut s = started(&root);
+
+    let (coin, _) = s.call("get_preset", json!({"name": "coin"}));
+    let (_, err) = s.call(
+        "create",
+        json!({"path": "sfx/coin.toml", "recipe": coin["recipe"]}),
+    );
+    assert!(!err);
+    // Level it to a louder target in one edit and one render.
+    let (edited, err) = s.call(
+        "edit",
+        json!({"path": "sfx/coin.toml", "ops": [
+            {"path": "master.normalize", "remove": true},
+            {"path": "master.normalize_lufs", "value": -16}
+        ]}),
+    );
+    assert!(!err, "{edited}");
+    assert_eq!(edited["warnings"], json!([]));
+    let (r, err, content) = s.call_content(
+        "render",
+        json!({"path": "sfx/coin.toml", "output": "sfx/coin.wav"}),
+    );
+    assert!(!err, "{r}");
+    assert_eq!(content.len(), 1, "no picture unless asked");
+    let lufs = r["analysis"]["loudness_lufs"].as_f64().unwrap();
+    assert!((lufs + 16.0).abs() <= 0.1, "{lufs}");
+    assert_eq!(r["warnings"], json!([]));
+
+    // A target the peak ceiling does not allow renders quieter and warns.
+    let (r, err) = s.call(
+        "render",
+        json!({"recipe": {"version": 0, "master": {"normalize_lufs": -2},
+                          "layers": [{"source": "sine"}]},
+               "output": "loud.wav"}),
+    );
+    assert!(!err, "{r}");
+    assert_eq!(r["warnings"][0]["path"], "master.normalize_lufs");
+    assert_eq!(r["warnings"][0]["code"], "suspicious");
+
+    // list_files shows what was made, relative to the root.
+    let (files, err) = s.call("list_files", json!({}));
+    assert!(!err, "{files}");
+    assert_eq!(files["folder"], ".");
+    let entries: Vec<(String, String)> = files["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["path"].as_str().unwrap().to_string(),
+                e["kind"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    let want = [
+        ("loud.wav", "audio"),
+        ("sfx", "folder"),
+        ("sfx/coin.toml", "recipe"),
+        ("sfx/coin.wav", "audio"),
+    ];
+    assert_eq!(
+        entries,
+        want.map(|(p, k)| (p.to_string(), k.to_string())),
+        "{files}"
+    );
+    let wav = &files["entries"][3];
+    assert!(
+        (wav["seconds"].as_f64().unwrap() - r["analysis"]["duration_seconds"].as_f64().unwrap())
+            .abs()
+            < 1.0
+    );
+    let (flat, err) = s.call("list_files", json!({"path": "sfx", "recursive": false}));
+    assert!(!err);
+    assert_eq!(flat["entries"].as_array().unwrap().len(), 2);
+    #[cfg(unix)]
+    {
+        let outside = fresh_root("mcp_playtest_outside");
+        std::fs::write(outside.join("secret.wav"), "x").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        let (files, _) = s.call("list_files", json!({}));
+        let link = files["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["path"] == "link")
+            .unwrap();
+        assert_eq!(link["kind"], "link");
+        assert!(
+            !files.to_string().contains("secret"),
+            "links are not followed"
+        );
+    }
+
+    // A picture comes back as an image block, with its axes described.
+    let (a, err, content) =
+        s.call_content("analyze", json!({"path": "sfx/coin.wav", "picture": true}));
+    assert!(!err, "{a}");
+    assert_eq!(content.len(), 2);
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["mimeType"], "image/png");
+    // Base64 of the PNG signature.
+    assert!(content[1]["data"]
+        .as_str()
+        .unwrap()
+        .starts_with("iVBORw0KGgo"));
+    assert_eq!(a["picture"]["width"], 480);
+    assert!(a["energy_over_time"]["rms_dbfs"].as_array().unwrap().len() == 20);
+    assert_eq!(a["onsets"].as_array().unwrap().len(), 2);
+    let (_, err, content) = s.call_content(
+        "render",
+        json!({"path": "preset:explosion", "output": "boom.wav", "picture": true}),
+    );
+    assert!(!err);
+    assert_eq!(content[1]["type"], "image");
+
+    // Layers on their own, at their level in the mix.
+    let layered = json!({"version": 0, "layers": [
+        {"name": "lead", "source": "square", "pitch": {"start": "C5", "arpeggio": {"steps": [0, 7], "step_time": 0.1, "repeat": false}},
+         "envelope": {"hold": 0.2, "decay": 0.05}, "volume": 0.4},
+        {"name": "bass", "source": "triangle", "pitch": {"start": "C3"}, "envelope": {"hold": 0.2, "decay": 0.05}}
+    ]});
+    let (a, err) = s.call("analyze", json!({"recipe": layered, "per_layer": true}));
+    assert!(!err, "{a}");
+    assert_eq!(a["layers"][0]["name"], "lead");
+    let lead_notes: Vec<f64> = a["layers"][0]["analysis"]["onsets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["note_hz"].as_f64().unwrap())
+        .collect();
+    assert_eq!(lead_notes.len(), 2, "{lead_notes:?}");
+    assert!((lead_notes[0] - 523.3).abs() < 5.0 && (lead_notes[1] - 784.0).abs() < 5.0);
+    let (solo, err) = s.call("analyze", json!({"recipe": layered, "mute": [0]}));
+    assert!(!err);
+    assert_eq!(solo["heard_layers"], json!([1]));
+    // The muted mix reads like layer 1 alone, plus the note on what was heard.
+    assert_eq!(
+        solo["summary"].as_str().unwrap(),
+        format!(
+            "{}, 1 of 2 layers heard",
+            a["layers"][1]["analysis"]["summary"].as_str().unwrap()
+        )
+    );
+    let (r, err) = s.call(
+        "render",
+        json!({"recipe": layered, "output": "bass.wav", "solo": [1], "per_layer": true}),
+    );
+    assert!(!err, "{r}");
+    assert_eq!(r["heard_layers"], json!([1]));
+    assert_eq!(r["layers"].as_array().unwrap().len(), 1);
+}
+
+/// Playtest 1: every failure has a specific code and a path, messages show
+/// paths relative to the root, and hints point at MCP tools.
+#[test]
+fn every_error_has_a_code_a_path_and_no_absolute_path() {
+    let root = fresh_root("mcp_error_polish");
+    let mut s = started(&root);
+    let (_, err) = s.call(
+        "render",
+        json!({"path": "preset:coin", "output": "sfx/coin.wav"}),
+    );
+    assert!(!err);
+    std::fs::write(root.join("notes.txt"), "not audio").unwrap();
+    std::fs::write(
+        root.join("broken.toml"),
+        "version = 0\n[[layers]\nsource = 1\n",
+    )
+    .unwrap();
+    let (_, err) = s.call(
+        "create",
+        json!({"path": "a.toml", "recipe": {"version": 0, "layers": [{}]}}),
+    );
+    assert!(!err);
+    let abs = root.canonicalize().unwrap().display().to_string();
+
+    let cases: Vec<(&str, Value, &str, &str)> = vec![
+        (
+            "analyze",
+            json!({"path": "sfx/con.wav"}),
+            "not_found",
+            "arguments.path",
+        ),
+        (
+            "analyze",
+            json!({"path": "notes.txt"}),
+            "io",
+            "arguments.path",
+        ),
+        ("analyze", json!({}), "missing_field", "arguments.path"),
+        (
+            "analyze",
+            json!({"path": "sfx/coin.wav", "per_layer": true}),
+            "invalid_argument",
+            "arguments.per_layer",
+        ),
+        (
+            "analyze",
+            json!({"path": "preset:coin", "solo": [3]}),
+            "out_of_range",
+            "arguments.solo[0]",
+        ),
+        (
+            "analyze",
+            json!({"path": "preset:coin", "solo": "0"}),
+            "type_mismatch",
+            "arguments.solo",
+        ),
+        (
+            "analyze",
+            json!({"path": "preset:coin", "picture": "yes"}),
+            "type_mismatch",
+            "arguments.picture",
+        ),
+        (
+            "render",
+            json!({"output": "x.wav"}),
+            "missing_field",
+            "arguments.recipe",
+        ),
+        (
+            "render",
+            json!({"path": "preset:coin", "output": "x.wav", "format": "mp3"}),
+            "unknown_variant",
+            "arguments.format",
+        ),
+        (
+            "render",
+            json!({"path": "preset:coin", "output": "x.wav", "seed": -1}),
+            "type_mismatch",
+            "arguments.seed",
+        ),
+        (
+            "render",
+            json!({"path": "preset:coin", "output": "x.txt"}),
+            "path_refused",
+            "arguments.output",
+        ),
+        (
+            "render",
+            json!({"path": "preset:coin", "output": "../x.wav"}),
+            "path_refused",
+            "arguments.output",
+        ),
+        (
+            "render",
+            json!({"path": "preset:coin", "recipe": {}, "output": "x.wav"}),
+            "invalid_argument",
+            "arguments.recipe",
+        ),
+        (
+            "render",
+            json!({"path": "broken.toml", "output": "x.wav"}),
+            "syntax",
+            "arguments.path",
+        ),
+        (
+            "create",
+            json!({"path": "a.toml", "recipe": {"version": 0, "layers": [{}]}}),
+            "already_exists",
+            "arguments.overwrite",
+        ),
+        (
+            "create",
+            json!({"path": "a.txt", "recipe": {"version": 0, "layers": [{}]}}),
+            "path_refused",
+            "arguments.path",
+        ),
+        (
+            "edit",
+            json!({"path": "a.toml", "ops": [{"path": "", "value": 1}]}),
+            "invalid",
+            "arguments.ops",
+        ),
+        (
+            "edit",
+            json!({"path": "a.toml", "ops": "nope"}),
+            "type_mismatch",
+            "arguments.ops",
+        ),
+        (
+            "edit",
+            json!({"recipe": {"version": 0, "layers": [{}]}, "ops": [], "write": true}),
+            "invalid_argument",
+            "arguments.write",
+        ),
+        (
+            "variations",
+            json!({"path": "preset:coin", "count": 0}),
+            "out_of_range",
+            "arguments.count",
+        ),
+        (
+            "variations",
+            json!({"path": "preset:coin", "variation": 2}),
+            "out_of_range",
+            "arguments.variation",
+        ),
+        (
+            "compare",
+            json!({"a": 5, "b": "preset:coin"}),
+            "type_mismatch",
+            "arguments.a",
+        ),
+        (
+            "compare",
+            json!({"a": "preset:coin", "b": "gone.wav"}),
+            "not_found",
+            "arguments.b",
+        ),
+        (
+            "get_preset",
+            json!({"name": "gemm"}),
+            "not_found",
+            "arguments.name",
+        ),
+        (
+            "list_files",
+            json!({"path": "nothere"}),
+            "not_found",
+            "arguments.path",
+        ),
+        (
+            "list_files",
+            json!({"path": ".."}),
+            "path_refused",
+            "arguments.path",
+        ),
+        (
+            "list_files",
+            json!({"path": "preset:coin"}),
+            "path_refused",
+            "arguments.path",
+        ),
+        (
+            "list_files",
+            json!({"recursive": "yes"}),
+            "type_mismatch",
+            "arguments.recursive",
+        ),
+        (
+            "validate",
+            json!({"path": "preset:nope"}),
+            "not_found",
+            "arguments.path",
+        ),
+    ];
+    for (tool, args, code, path) in cases {
+        let (report, err) = s.call(tool, args.clone());
+        assert!(err, "{tool} {args}: not an error: {report}");
+        let text = report.to_string();
+        assert!(!text.contains(&abs), "{tool} {args} leaks the root: {text}");
+        assert!(
+            !text.contains("duck-echo "),
+            "{tool} {args} names the CLI: {text}"
+        );
+        for e in report["errors"].as_array().unwrap() {
+            assert_ne!(e["code"], "other", "{tool} {args}");
+            assert!(
+                !e["path"].as_str().unwrap().is_empty(),
+                "{tool} {args}: {e}"
+            );
+        }
+        assert_eq!(report["errors"][0]["code"], code, "{tool} {args}: {report}");
+        assert_eq!(report["errors"][0]["path"], path, "{tool} {args}: {report}");
+    }
+
+    // A missing file names the closest file and the tool that lists them.
+    let (e, _) = s.call("analyze", json!({"path": "sfx/con.wav"}));
+    assert_eq!(e["errors"][0]["suggestion"], "sfx/coin.wav");
+    assert!(e["errors"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("list_files"));
+    let (e, _) = s.call("analyze", json!({"path": "notes.txt"}));
+    assert!(e["errors"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("notes.txt"));
+
+    // validate answers a bad recipe with isError false; the report says ok false.
+    let (v, err) = s.call("validate", json!({"path": "broken.toml"}));
+    assert!(!err);
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["errors"][0]["path"], "arguments.path");
+    assert!(v["errors"][0]["line"].is_number());
+
+    // The descriptions explain loudness methods and isError.
+    let tools = s.request("tools/list", json!({}));
+    let desc = |name: &str| {
+        tools["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap()["description"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    for name in ["analyze", "render", "compare"] {
+        assert!(desc(name).contains("400 ms"), "{name}");
+    }
+    assert!(desc("validate").contains("isError"));
+}
+
+/// An unknown tag is an error with the closest real tag, not an empty list;
+/// a layered recipe's summary says how many layers it has.
+#[test]
+fn tag_typos_and_layer_counts_help_the_agent() {
+    let root = fresh_root("mcp_agent_hints");
+    let mut s = started(&root);
+
+    let (e, err) = s.call("list_presets", json!({"tag": "explsion"}));
+    assert!(err, "{e}");
+    assert_eq!(e["errors"][0]["code"], "not_found");
+    assert_eq!(e["errors"][0]["path"], "arguments.tag");
+    assert_eq!(e["errors"][0]["suggestion"], "explosion");
+
+    let (ok, err) = s.call("list_presets", json!({"tag": "explosion"}));
+    assert!(!err);
+    assert!(!ok["presets"].as_array().unwrap().is_empty());
+
+    let (a, err) = s.call("analyze", json!({"path": "preset:powerup"}));
+    assert!(!err, "{a}");
+    let summary = a["summary"].as_str().unwrap();
+    assert!(
+        summary.ends_with("2 layers; per_layer describes each"),
+        "{summary}"
     );
 }

@@ -17,6 +17,7 @@
 
 pub mod dsp;
 pub mod effects;
+pub mod loudness;
 pub mod math;
 
 use duck_echo_audio::AudioBuffer;
@@ -57,6 +58,8 @@ pub struct Voice {
 
 #[derive(Debug, Clone)]
 struct LayerVoice {
+    /// Position in the recipe's `layers`.
+    index: usize,
     start_frame: usize,
     end_frame: usize,
     env_frames: usize,
@@ -100,6 +103,7 @@ pub fn prepare_unchecked(recipe: &Recipe) -> Voice {
         let time_scale = 1.0 + recipe.variation * 0.3 * time_jitter;
 
         let lv = LayerVoice::new(
+            i,
             layer,
             sr,
             pitch_mult,
@@ -143,7 +147,14 @@ pub fn prepare_unchecked(recipe: &Recipe) -> Voice {
 }
 
 impl LayerVoice {
-    fn new(layer: &Layer, sr: f32, pitch_mult: f32, time_scale: f32, rng: Rng) -> Self {
+    fn new(
+        index: usize,
+        layer: &Layer,
+        sr: f32,
+        pitch_mult: f32,
+        time_scale: f32,
+        rng: Rng,
+    ) -> Self {
         let env = EnvShape::new(&layer.envelope, time_scale);
         let env_len = env.length().min(30.0);
         let tail = chain_tail_seconds(&layer.effects);
@@ -189,6 +200,7 @@ impl LayerVoice {
         });
 
         Self {
+            index,
             start_frame,
             end_frame,
             env_frames,
@@ -197,7 +209,12 @@ impl LayerVoice {
             inv_sample_rate: 1.0 / sr,
             env,
             pitch,
-            osc: Oscillator::new(layer.source, layer.duty, rng),
+            osc: Oscillator::new(
+                layer.source,
+                layer.duty,
+                layer.aliasing == duck_echo_core::Aliasing::Clean,
+                rng,
+            ),
             filter,
             control_counter: 0,
             effects: layer
@@ -330,6 +347,15 @@ impl Voice {
         self.total_frames as f64 / self.sample_rate as f64
     }
 
+    /// Silence every layer whose index (its position in the recipe's
+    /// `layers`) is not in `heard`. Layers keep their seed streams,
+    /// `variation` jitter and timing, and the length stays that of the full
+    /// mix, so the heard layers sound exactly as they do in it. Call before
+    /// the first [`Self::process`]; indices past the end are ignored.
+    pub fn keep_layers(&mut self, heard: &[usize]) {
+        self.layers.retain(|l| heard.contains(&l.index));
+    }
+
     /// Frames rendered so far.
     pub fn position(&self) -> usize {
         self.position
@@ -412,11 +438,27 @@ impl Voice {
     }
 }
 
-/// Render a recipe offline to a buffer (interleaved when stereo),
-/// applying `master.normalize`, clipping to -1..=1 and
-/// `master.trim_silence`. Errors are the validation report.
-pub fn render(recipe: &Recipe) -> Result<AudioBuffer, Report> {
-    let mut voice = prepare(recipe)?;
+/// What the offline master steps did to a render. [`render_layers`] uses it
+/// to finish part of a mix exactly like the whole.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Mastering {
+    /// Gain applied by `master.normalize` or `master.normalize_lufs`; `1`
+    /// when neither is on.
+    pub gain: f32,
+    /// Frames in the finished render, after `trim_silence`.
+    pub frames: usize,
+    /// True when `normalize_lufs` needed more gain than the -1 dBFS peak
+    /// ceiling allowed, so the render is quieter than its target.
+    pub ceiling_limited: bool,
+}
+
+/// Most measuring passes `normalize_lufs` makes. The first gain comes from
+/// the raw mix; later passes correct for what trimming and the active span
+/// change. Two passes usually settle within 0.001 dB.
+const LOUDNESS_PASSES: usize = 4;
+
+/// Run a voice to the end, unclipped.
+fn mix(mut voice: Voice) -> Vec<f32> {
     let channels = voice.channels();
     let mut samples = vec![0.0f32; voice.total_frames() * channels];
     let mut pos = 0;
@@ -428,29 +470,153 @@ pub fn render(recipe: &Recipe) -> Result<AudioBuffer, Report> {
         }
         pos += n * channels;
     }
+    samples
+}
 
-    if recipe.master.normalize {
-        let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-        if peak > 0.0 {
-            let target = math::db_to_gain(recipe.master.normalize_peak_db);
-            let g = target / peak;
-            for s in &mut samples {
-                *s *= g;
-            }
-        }
-    }
+/// Render a recipe offline to a buffer (interleaved when stereo),
+/// applying `master.normalize` or `master.normalize_lufs`, clipping to
+/// -1..=1 and `master.trim_silence`. Errors are the validation report.
+pub fn render(recipe: &Recipe) -> Result<AudioBuffer, Report> {
+    render_mastered(recipe).map(|(buffer, _)| buffer)
+}
+
+/// [`render`], also returning what the master steps did.
+pub fn render_mastered(recipe: &Recipe) -> Result<(AudioBuffer, Mastering), Report> {
+    let voice = prepare(recipe)?;
+    let channels = voice.channels();
+    let (samples, mastering) = master(recipe, mix(voice), channels);
+    Ok((
+        AudioBuffer {
+            sample_rate: recipe.sample_rate,
+            channels: channels as u16,
+            samples,
+        },
+        mastering,
+    ))
+}
+
+/// Render only the layers whose indices are in `heard`, finished with the
+/// full mix's `mastering` (from [`render_mastered`]): the same gain, then
+/// clipping, then cut or padded to the same length. The result is what
+/// those layers contribute to the mix, time-aligned with it. Master effects
+/// still apply, so with a nonlinear master effect (distortion, bitcrush)
+/// the parts do not add up to the whole.
+pub fn render_layers(
+    recipe: &Recipe,
+    heard: &[usize],
+    mastering: &Mastering,
+) -> Result<AudioBuffer, Report> {
+    let mut voice = prepare(recipe)?;
+    voice.keep_layers(heard);
+    let channels = voice.channels();
+    let mut samples = mix(voice);
     for s in &mut samples {
-        *s = s.clamp(-1.0, 1.0);
+        *s = (*s * mastering.gain).clamp(-1.0, 1.0);
     }
-    if recipe.master.trim_silence && recipe.duration.is_none() {
-        trim_trailing_silence(&mut samples, channels);
-    }
-
+    samples.resize(mastering.frames * channels, 0.0);
     Ok(AudioBuffer {
         sample_rate: recipe.sample_rate,
         channels: channels as u16,
         samples,
     })
+}
+
+/// The offline master steps on a raw mix: normalize (by peak or loudness),
+/// clip, trim.
+fn master(recipe: &Recipe, mut samples: Vec<f32>, channels: usize) -> (Vec<f32>, Mastering) {
+    let trim = recipe.master.trim_silence && recipe.duration.is_none();
+    if let Some(target) = recipe.master.normalize_lufs {
+        return normalize_loudness(recipe, &samples, channels, target, trim);
+    }
+    let mut gain = 1.0;
+    if recipe.master.normalize {
+        let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        if peak > 0.0 {
+            let target = math::db_to_gain(recipe.master.normalize_peak_db);
+            gain = target / peak;
+            for s in &mut samples {
+                *s *= gain;
+            }
+        }
+    }
+    clip_and_trim(&mut samples, channels, trim);
+    let frames = samples.len() / channels;
+    (
+        samples,
+        Mastering {
+            gain,
+            frames,
+            ceiling_limited: false,
+        },
+    )
+}
+
+fn clip_and_trim(samples: &mut Vec<f32>, channels: usize, trim: bool) {
+    for s in samples.iter_mut() {
+        *s = s.clamp(-1.0, 1.0);
+    }
+    if trim {
+        trim_trailing_silence(samples, channels);
+    }
+}
+
+/// `master.normalize_lufs`: find the gain that makes the finished render
+/// (scaled, clipped and trimmed, as written) measure `target` LUFS, capped
+/// so the peak stays at or under [`duck_echo_core::LOUDNESS_CEILING_DBFS`]. Deterministic: the
+/// measurement is [`loudness::mean_square`] and the pass count is fixed.
+fn normalize_loudness(
+    recipe: &Recipe,
+    raw: &[f32],
+    channels: usize,
+    target: f32,
+    trim: bool,
+) -> (Vec<f32>, Mastering) {
+    let finish = |gain: f32| {
+        let mut out: Vec<f32> = raw.iter().map(|s| s * gain).collect();
+        clip_and_trim(&mut out, channels, trim);
+        out
+    };
+    let done = |samples: Vec<f32>, gain: f32, ceiling_limited: bool| {
+        let frames = samples.len() / channels;
+        (
+            samples,
+            Mastering {
+                gain,
+                frames,
+                ceiling_limited,
+            },
+        )
+    };
+    let sr = recipe.sample_rate;
+    let peak = raw.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    let measured = (peak > 0.0)
+        .then(|| loudness::mean_square(raw, channels, sr))
+        .flatten();
+    let Some((ms, _)) = measured else {
+        // Silence (or below the -70 LUFS gate): nothing to level.
+        return done(finish(1.0), 1.0, false);
+    };
+    let ceiling = math::db_to_gain(duck_echo_core::LOUDNESS_CEILING_DBFS) / peak;
+    let mut gain = loudness::gain_to(target, ms);
+    let mut out = Vec::new();
+    let mut used = gain;
+    let mut limited = false;
+    for _ in 0..LOUDNESS_PASSES {
+        let capped = gain >= ceiling;
+        used = if capped { ceiling } else { gain };
+        out = finish(used);
+        let Some((ms, _)) = loudness::mean_square(&out, channels, sr) else {
+            break;
+        };
+        let correction = loudness::gain_to(target, ms);
+        // 1e-4 is about 0.001 dB.
+        limited = capped && correction > 1.0 + 1e-3;
+        if (correction - 1.0).abs() < 1e-4 || (capped && correction >= 1.0) {
+            break;
+        }
+        gain = used * correction;
+    }
+    done(out, used, limited)
 }
 
 /// Drop trailing frames whose samples are all at or below

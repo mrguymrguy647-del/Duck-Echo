@@ -43,8 +43,8 @@ curve = "exponential"
 | Command | What it does |
 |---|---|
 | `duck-echo validate <recipe> [--json]` | Reports every problem with its field path, allowed range and a suggestion. Exit 1 when invalid. |
-| `duck-echo render <recipe> [-o out.wav] [--seed N] [--format pcm16\|pcm24\|float32] [--json]` | Renders to WAV. `--json` adds the analysis of the result. |
-| `duck-echo analyze <wav-or-recipe> [--compact]` | JSON measurements headed by a one-line `summary`: duration, peak, RMS, loudness in LUFS with its method, clipping, silence, attack, decay, crest factor, brightness, tonality and a pitch track. A recipe is rendered in memory. See `docs/ANALYSIS.md`. |
+| `duck-echo render <recipe> [-o out.wav] [--seed N] [--format pcm16\|pcm24\|float32] [--json]` | Renders to WAV. `--json` adds the analysis of the result. Takes the same `--per-layer`, `--solo`, `--mute` and `--picture` options as `analyze`; with `--solo` or `--mute` the WAV holds only the heard layers. |
+| `duck-echo analyze <wav-or-recipe> [--compact] [--per-layer] [--solo 0,2] [--mute 1] [--picture out.png]` | JSON measurements headed by a one-line `summary`: duration, peak, RMS, loudness in LUFS with its method, clipping, silence, attack, decay, crest factor, brightness, tonality, a pitch track, energy over time and note onsets. A recipe is rendered in memory. `--per-layer` also analyzes each layer as heard in the mix; `--solo`/`--mute` hear only some layers; `--picture` draws level over time above a spectrogram. See `docs/ANALYSIS.md`. |
 | `duck-echo compare <a> <b> [--compact]` | What changed from A to B (loudness, brightness, length, attack, ...), waveform correlation, and both analyses. WAV files or recipes. |
 | `duck-echo presets list [--tag T] [--json]` | The 30 built-in presets with category, loudness target and description. |
 | `duck-echo presets show <name> [--json]` | A preset's recipe, to copy and edit. |
@@ -58,10 +58,13 @@ example `duck-echo render preset:coin -o coin.wav`.
 ## Use it from an agent (MCP)
 
 `duck-echo-mcp` serves the Duck Echo tools over the Model Context Protocol:
-`get_schema`, `list_presets`, `get_preset`, `validate`, `create`, `edit`,
-`render`, `analyze`, `compare` and `variations`. File paths are relative to
-`--root` and cannot leave it: absolute paths, `..` and symbolic links that
-lead out are refused, and `render` only writes `.wav` files.
+`get_schema`, `list_presets`, `get_preset`, `list_files`, `validate`,
+`create`, `edit`, `render`, `analyze`, `compare` and `variations`. File
+paths are relative to `--root` and cannot leave it: absolute paths, `..`
+and symbolic links that lead out are refused, and `render` only writes
+`.wav` files. `render` and `analyze` can return a picture of the sound as
+an MCP image (`picture: true`) and analyze layers on their own
+(`per_layer`, `solo`, `mute`).
 
 ### Playtest in this repository (project `.mcp.json`)
 
@@ -69,7 +72,12 @@ The repository ships a project-scoped `.mcp.json` that starts the server
 for anyone who opens Claude Code here. It runs
 `cargo run --release -q -p duck-echo-mcp -- --root <repo>/playtest`, so
 the server is built when needed, and every file the tools write lands in
-`playtest/`. That folder is git-ignored apart from its `.gitkeep`.
+`playtest/`. Playtest results are committed: give each playtest its own
+folder (for example `playtest/2-shooter/`, with the recipes, the WAVs and a
+`REVIEW.md`), so playtests do not overwrite each other. The repository's
+`*.wav` ignore rule does not apply under `playtest/`, so renders can be
+pushed with their recipes. The first playtest's results and review are on
+the `playtest-1` branch.
 
 1. Build once before the first session:
 
@@ -126,8 +134,12 @@ Claude Desktop, in `claude_desktop_config.json` (absolute paths):
 ```
 
 A typical agent loop: `list_presets`, `get_preset`, `create` a file from it,
-`edit` fields by path, `render`, then `analyze` or `compare` to check the
-result by numbers. Tool details: `docs/ARCHITECTURE.md`.
+`edit` fields by path (`master.normalize_lufs` to the preset's
+`target_lufs` keeps its level through edits), `render`, then `analyze` or
+`compare` to check the result by numbers, and `list_files` to see what is
+there. A failed call sets `isError` and returns a report whose errors each
+have a code and a path (a recipe field or the argument at fault). Tool
+details: `docs/ARCHITECTURE.md`.
 
 ## Documents
 
@@ -149,12 +161,22 @@ crates/duck-echo-tools    operations shared by the CLI and the MCP server
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
 crates/duck-echo-mcp      the duck-echo-mcp binary: MCP server over stdio
 presets                   30 tagged starting points (see presets/README.md)
-playtest                  scratch root for the project MCP server (.mcp.json)
+playtest                  root for the project MCP server (.mcp.json); one
+                          committed folder per playtest
 examples/recipes          coin, jump, laser, explosion, hit, powerup,
-                          ricochet (stereo), chime (note names)
+                          ricochet (stereo), chime (note names), fanfare
+                          (layers, normalize_lufs)
 ```
 
 ## Development
+
+CI runs the tests on Linux and Windows and checks that both render every
+example and preset to identical bytes (see "What is guaranteed to match"
+in `docs/ARCHITECTURE.md`). To fingerprint the renders on your machine:
+
+```bash
+cargo build --release -p duck-echo-cli && scripts/render-fingerprints.sh
+```
 
 ```bash
 cargo test --workspace

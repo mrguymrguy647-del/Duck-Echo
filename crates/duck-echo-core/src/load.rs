@@ -182,8 +182,13 @@ pub fn load_str(src: &str, format: Format) -> Result<Loaded, Report> {
 /// Read, parse and validate a recipe file. Format is chosen by extension.
 pub fn load_path(path: &Path) -> Result<Loaded, Report> {
     let src = std::fs::read_to_string(path).map_err(|e| {
+        let code = if e.kind() == std::io::ErrorKind::NotFound {
+            Code::NotFound
+        } else {
+            Code::Io
+        };
         Report::from_error(Issue::error(
-            Code::Other,
+            code,
             "",
             format!("cannot read {}: {e}", path.display()),
         ))
@@ -335,7 +340,7 @@ fn issue_from_message(msg: &str, path: &str, pos: Option<(usize, usize)>) -> Iss
     } else if msg.starts_with("invalid type") || msg.starts_with("invalid value") {
         Issue::error(Code::TypeMismatch, path, msg.to_string())
     } else {
-        Issue::error(Code::Other, path, msg.to_string())
+        Issue::error(Code::Invalid, path, msg.to_string())
     };
     if let Some((l, c)) = pos {
         issue = issue.at(l, c);

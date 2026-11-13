@@ -164,12 +164,23 @@ pub struct Master {
     pub normalize: bool,
     /// Target peak in dBFS when `normalize` is on, range -40..=0. Default `-1`.
     pub normalize_peak_db: f32,
+    /// Scale the render so its loudness, as `analyze` measures it, is this
+    /// many LUFS, range -60..=0. Replaces `normalize` and
+    /// `normalize_peak_db`; the peak never goes above -1 dBFS, so a target
+    /// that needs more gain renders quieter (the render result warns).
+    /// Offline only. Default: off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalize_lufs: Option<f32>,
     /// Cut the end of the render after the last sample above -60 dBFS (the
     /// analyzer's silence threshold). Removes the silent part of computed
     /// effect tails. Offline only; has no effect when `duration` is set.
     /// Default `false`.
     pub trim_silence: bool,
 }
+
+/// The peak ceiling of `master.normalize_lufs`, in dBFS: the gain never
+/// puts the peak above it.
+pub const LOUDNESS_CEILING_DBFS: f32 = -1.0;
 
 /// Trailing samples at or below this magnitude are removed by
 /// `master.trim_silence`. Equals -60 dBFS, the analyzer's silence threshold.
@@ -181,6 +192,7 @@ impl Default for Master {
             gain: default_gain(),
             normalize: false,
             normalize_peak_db: default_normalize_peak_db(),
+            normalize_lufs: None,
             trim_silence: false,
         }
     }
@@ -214,6 +226,14 @@ pub struct Layer {
     #[serde(default = "default_duty")]
     pub duty: f32,
 
+    /// How `square` and `saw` handle high notes. `clean` (default) smooths
+    /// each jump in the wave, so high notes do not fold back into harsh
+    /// extra tones ("aliasing"). `retro` keeps the raw wave of old sound
+    /// chips, as Duck Echo made it before this option. Sine, triangle and
+    /// noise sound the same either way.
+    #[serde(default)]
+    pub aliasing: Aliasing,
+
     /// Stereo position, -1 (left) ..= 1 (right), equal-power. Only used
     /// when the recipe has `channels = 2`. Default `0` (centre).
     #[serde(default)]
@@ -244,6 +264,7 @@ impl Default for Layer {
             volume: default_volume(),
             offset: 0.0,
             duty: default_duty(),
+            aliasing: Aliasing::default(),
             pan: 0.0,
             envelope: Envelope::default(),
             pitch: Pitch::default(),
@@ -268,6 +289,19 @@ pub enum Source {
     Triangle,
     /// White noise driven by `seed`.
     Noise,
+}
+
+/// How square and saw waves handle high notes (`layers[].aliasing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Aliasing {
+    /// Smooth each jump in the wave (band-limited), so high notes stay
+    /// clean. The very top of the sound gets a little softer.
+    #[default]
+    Clean,
+    /// The raw wave, as on old sound chips: bright, with extra tones on
+    /// high notes.
+    Retro,
 }
 
 /// Volume envelope, all times in seconds (each 0..=30).
