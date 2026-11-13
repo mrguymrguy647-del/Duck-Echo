@@ -1,0 +1,26 @@
+# Kick drum: a sine that drops fast from 150 Hz to 45 Hz (the thump),
+# plus a very short click of noise (the beater).
+#
+# A piece of the built-in `drums` kit. As a kit piece it always plays as
+# written; the note's pitch and length are not used.
+version = 0
+name = "kick"
+description = "A short, deep kick drum."
+tags = ["instrument", "drum", "kick"]
+
+[master]
+normalize_lufs = -16
+
+[[layers]]
+name = "thump"
+source = "sine"
+volume = 1.0
+envelope = { attack = 0.001, decay = 0.28 }
+pitch = { start = 150, end = 45, curve = "exponential", sweep_time = 0.09 }
+
+[[layers]]
+name = "click"
+source = "noise"
+volume = 0.3
+envelope = { attack = 0.001, decay = 0.012 }
+filter = { kind = "bandpass", cutoff = 3000, resonance = 1.0 }

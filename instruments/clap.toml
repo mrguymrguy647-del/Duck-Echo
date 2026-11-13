@@ -1,0 +1,37 @@
+# Clap: three bursts of noise 11 ms apart (several hands never land at
+# once), the last one longer, with a small room around them.
+#
+# A piece of the built-in `drums` kit.
+version = 0
+name = "clap"
+description = "A hand clap with a small room."
+tags = ["instrument", "drum", "clap"]
+
+[master]
+normalize_lufs = -20
+
+[[effects]]
+type = "reverb"
+size = 0.2
+decay = 0.3
+mix = 0.2
+
+[[layers]]
+source = "noise"
+volume = 0.7
+envelope = { attack = 0.001, decay = 0.02 }
+filter = { kind = "bandpass", cutoff = 1300, resonance = 1.5 }
+
+[[layers]]
+source = "noise"
+volume = 0.7
+offset = 0.011
+envelope = { attack = 0.001, decay = 0.02 }
+filter = { kind = "bandpass", cutoff = 1300, resonance = 1.5 }
+
+[[layers]]
+source = "noise"
+volume = 0.8
+offset = 0.022
+envelope = { attack = 0.001, decay = 0.12 }
+filter = { kind = "bandpass", cutoff = 1300, resonance = 1.5 }

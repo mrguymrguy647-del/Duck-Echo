@@ -1,7 +1,10 @@
 //! `duck-echo`: validate, render, analyze and compare sound recipes from the
 //! shell, browse presets and render variations.
 //!
-//! Anywhere a recipe is expected, `preset:NAME` names a built-in preset.
+//! Anywhere a recipe is expected, `preset:NAME` names a built-in preset
+//! and `instrument:NAME` a built-in instrument.
+//! `validate`, `render`, `analyze` and `compare` also take a song (a
+//! document with `tracks`); they tell the two apart by looking inside.
 //!
 //! Exit codes: 0 success, 1 the recipe is invalid, 2 I/O or usage error.
 //! Commands that print JSON (`analyze`, `compare`, and the others with
@@ -13,7 +16,8 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use duck_echo_audio::WavFormat;
-use duck_echo_tools::{measure, Extras, ToolError};
+use duck_echo_tools::song::files_next_to;
+use duck_echo_tools::{measure, Document, Options, ToolError};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -30,7 +34,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Check a recipe and report every problem with its field path.
+    /// Check a recipe or a song and report every problem with its field
+    /// path.
     Validate {
         /// Recipe file (.toml or .json) or preset:NAME.
         recipe: PathBuf,
@@ -38,7 +43,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Render a recipe to a WAV file.
+    /// Render a recipe or a song to a WAV file.
     Render {
         /// Recipe file (.toml or .json) or preset:NAME.
         recipe: PathBuf,
@@ -85,6 +90,11 @@ enum Command {
         #[command(subcommand)]
         action: PresetsAction,
     },
+    /// Browse the built-in instruments a song can use.
+    Instruments {
+        #[command(subcommand)]
+        action: InstrumentsAction,
+    },
     /// Render seeds 1..N of a recipe and analyze each, to pick a variant by
     /// its numbers.
     Variations {
@@ -104,8 +114,12 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Print the JSON Schema for recipes.
-    Schema,
+    /// Print the JSON Schema for recipes, or for songs with `schema song`.
+    Schema {
+        /// Which schema: `recipe` (default) or `song`.
+        #[arg(value_enum, default_value_t = SchemaKind::Recipe)]
+        kind: SchemaKind,
+    },
 }
 
 /// Extra measurements shared by `analyze` and `render`.
@@ -115,28 +129,55 @@ struct ExtrasArgs {
     /// (`layers` in the JSON). Recipes only.
     #[arg(long)]
     per_layer: bool,
-    /// Hear only these layers, by index (comma-separated, from 0). Recipes
-    /// only. With `render`, the WAV holds only these layers.
+    /// Also analyze each heard track on its own, as heard in the mix
+    /// (`tracks` in the JSON). Songs only.
+    #[arg(long)]
+    per_track: bool,
+    /// Hear only these (comma-separated): layer numbers from 0 for a
+    /// recipe, track names for a song. With `render`, the WAV holds only
+    /// these.
     #[arg(long, value_delimiter = ',')]
-    solo: Vec<usize>,
-    /// Silence these layers, by index (comma-separated). Recipes only.
+    solo: Vec<String>,
+    /// Silence these (comma-separated): layer numbers for a recipe, track
+    /// names for a song.
     #[arg(long, value_delimiter = ',')]
-    mute: Vec<usize>,
+    mute: Vec<String>,
+    /// List every written note of a song with what was heard for it
+    /// (`note_check.tracks[].notes` in the JSON), not only the problems.
+    /// Songs only.
+    #[arg(long)]
+    notes: bool,
     /// Draw a picture of the sound (level over time and a spectrogram) to
-    /// this PNG file.
+    /// this PNG file. A song's picture has a line at each bar.
     #[arg(long, value_name = "FILE.png")]
     picture: Option<PathBuf>,
 }
 
 impl ExtrasArgs {
-    fn extras(&self) -> Extras {
-        Extras {
+    /// The options as the tools take them. `check_notes` says whether a
+    /// song's written notes are listened for: `analyze` always does,
+    /// `render` only when asked for per-track detail, because the check
+    /// renders every track once more.
+    fn options(&self, check_notes: bool) -> Options {
+        Options {
             per_layer: self.per_layer,
+            per_track: self.per_track,
             solo: self.solo.clone(),
             mute: self.mute.clone(),
             picture: self.picture.is_some(),
+            check_notes,
+            list_notes: self.notes,
         }
     }
+}
+
+/// Which schema to print.
+#[derive(Clone, Copy, ValueEnum)]
+enum SchemaKind {
+    /// The schema of a sound recipe.
+    Recipe,
+    /// The schema of a song.
+    Song,
 }
 
 #[derive(Subcommand)]
@@ -153,6 +194,25 @@ enum PresetsAction {
     /// Print a preset's recipe (TOML with comments, or JSON).
     Show {
         /// Preset name.
+        name: String,
+        /// Print the recipe as JSON instead of TOML.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum InstrumentsAction {
+    /// List the built-in instruments and kits with their range and
+    /// description.
+    List {
+        /// Print JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print an instrument's recipe (TOML with comments, or JSON).
+    Show {
+        /// Instrument name.
         name: String,
         /// Print the recipe as JSON instead of TOML.
         #[arg(long)]
@@ -206,6 +266,7 @@ fn main() -> ExitCode {
             }
         }
         Command::Presets { action } => presets(action),
+        Command::Instruments { action } => instruments(action),
         Command::Variations {
             recipe,
             count,
@@ -213,20 +274,26 @@ fn main() -> ExitCode {
             output_dir,
             json,
         } => variations(&recipe, count, variation, output_dir.as_deref(), json),
-        Command::Schema => {
-            println!("{}", duck_echo_core::schema::recipe_schema_json());
+        Command::Schema { kind } => {
+            println!(
+                "{}",
+                match kind {
+                    SchemaKind::Recipe => duck_echo_core::schema::recipe_schema_json(),
+                    SchemaKind::Song => duck_echo_core::schema::song_schema_json(),
+                }
+            );
             ExitCode::SUCCESS
         }
     }
 }
 
 fn validate(reference: &Path, json: bool) -> ExitCode {
-    match duck_echo_tools::load_recipe(reference) {
-        Ok(r) => {
+    match duck_echo_tools::load_document(reference, &files_next_to(reference)) {
+        Ok(doc) => {
             if json {
-                println!("{}", r.loaded.report.to_json());
+                println!("{}", doc.report().to_json());
             } else {
-                eprint!("{}", r.loaded.report);
+                eprint!("{}", doc.report());
             }
             ExitCode::SUCCESS
         }
@@ -235,22 +302,17 @@ fn validate(reference: &Path, json: bool) -> ExitCode {
 }
 
 fn analyze(input: &Path, compact: bool, args: &ExtrasArgs) -> ExitCode {
-    let extras = args.extras();
+    let options = args.options(true);
     let measured = if duck_echo_tools::is_recipe_ref(input) {
-        duck_echo_tools::load_recipe(input)
+        duck_echo_tools::load_document(input, &files_next_to(input))
             .map_err(|e| e.at("input"))
-            .and_then(|r| {
-                let recipe = &r.loaded.recipe;
-                extras.heard(recipe.layers.len(), "--")?;
-                Ok(measure::measure_recipe(recipe, &r.loaded.report.warnings, &extras)?.measured)
-            })
+            .and_then(|doc| Ok(measure::measure_document(&doc, None, &options, "--")?.measured))
     } else {
-        match extras.wav_error("--") {
-            Some(e) => Err(e),
-            None => duck_echo_tools::load_audio(input)
+        options.for_wav("--").and_then(|extras| {
+            duck_echo_tools::load_audio(input)
                 .map_err(|e| e.at("input"))
-                .and_then(|b| measure::measure_audio(&b, &extras)),
-        }
+                .and_then(|b| measure::measure_audio(&b, &extras))
+        })
     };
     match measured {
         Ok(m) => {
@@ -274,22 +336,25 @@ fn render(
     json: bool,
     args: &ExtrasArgs,
 ) -> ExitCode {
-    let r = match duck_echo_tools::load_recipe(reference) {
-        Ok(r) => r,
+    let doc = match duck_echo_tools::load_document(reference, &files_next_to(reference)) {
+        Ok(doc) => doc,
         Err(e) => return tool_error(e.at("recipe"), json),
     };
-    let extras = args.extras();
-    if let Err(e) = extras.heard(r.loaded.recipe.layers.len(), "--") {
-        return tool_error(e, json);
-    }
     let output = output.unwrap_or_else(|| {
         if duck_echo_tools::is_recipe_path(reference) {
             reference.with_extension("wav")
         } else {
-            PathBuf::from(format!("{}.wav", r.stem))
+            PathBuf::from(format!("{}.wav", doc.stem()))
         }
     });
-    let done = match duck_echo_tools::render_to_file(&r.loaded, &output, seed, format, &extras) {
+    let done = match duck_echo_tools::render_document_to_file(
+        &doc,
+        &output,
+        seed,
+        format,
+        &args.options(args.per_track),
+        "--",
+    ) {
         Ok(d) => d,
         Err(e) => return tool_error(e.at("--output"), json),
     };
@@ -349,6 +414,43 @@ fn presets(action: PresetsAction) -> ExitCode {
     }
 }
 
+fn instruments(action: InstrumentsAction) -> ExitCode {
+    use duck_echo_tools::instruments;
+    match action {
+        InstrumentsAction::List { json } => match instruments::list() {
+            Ok(list) if json => print_json(&list, false),
+            Ok(list) => {
+                for i in list {
+                    let range = match (&i.range, i.pieces.is_empty()) {
+                        (Some([lo, hi]), _) => format!("{lo}..{hi}"),
+                        (None, false) => i.pieces.join(","),
+                        (None, true) => "drum".into(),
+                    };
+                    println!("{:<10} {:<20} {}", i.name, range, i.description);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => tool_error(e, json),
+        },
+        InstrumentsAction::Show { name, json } => {
+            match instruments::get(&name).map_err(|e| e.at("name")) {
+                Ok(i) if json => match instruments::load(i) {
+                    Ok(l) => {
+                        println!("{}", duck_echo_core::to_json(&l.recipe));
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => tool_error(e, true),
+                },
+                Ok(i) => {
+                    print!("{}", i.source);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => tool_error(e, json),
+            }
+        }
+    }
+}
+
 fn variations(
     reference: &Path,
     count: u32,
@@ -356,9 +458,16 @@ fn variations(
     out_dir: Option<&Path>,
     json: bool,
 ) -> ExitCode {
-    let result = duck_echo_tools::load_recipe(reference)
+    let result = duck_echo_tools::load_document(reference, &files_next_to(reference))
         .map_err(|e| e.at("recipe"))
-        .and_then(|r| duck_echo_tools::variations(&r, count, variation, out_dir))
+        .and_then(|doc| match doc {
+            Document::Recipe(r) => duck_echo_tools::variations(&r, count, variation, out_dir),
+            Document::Song(_) => Err(ToolError::failed(
+                duck_echo_core::Code::InvalidArgument,
+                "variations works on a recipe (one sound); to hear a song with another seed, use `render --seed N`",
+            )
+            .at("recipe")),
+        })
         .map_err(|e| e.at("--output-dir"));
     match result {
         Ok(v) if json => print_json(&v, false),

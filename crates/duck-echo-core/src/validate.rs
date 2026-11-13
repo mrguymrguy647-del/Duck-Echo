@@ -23,9 +23,26 @@ pub fn validate(recipe: &Recipe) -> Report {
     v.report
 }
 
+/// Check the parts a song shares with a recipe: the `master` table and a
+/// top-level `effects` list. Paths are the same as in a recipe.
+pub(crate) fn validate_master_and_effects(
+    master: &Master,
+    effects: &[Effect],
+    sample_rate: u32,
+) -> Report {
+    let mut v = Validator {
+        report: Report::new(),
+    };
+    v.master(master);
+    for (i, effect) in effects.iter().enumerate() {
+        v.effect(&format!("effects[{i}]"), effect, sample_rate);
+    }
+    v.report
+}
+
 /// Widen an `f32` to the `f64` that prints the same digits, so `0.99`
 /// does not surface as `0.9900000095367432` in JSON reports.
-fn f64_clean(v: f32) -> f64 {
+pub(crate) fn f64_clean(v: f32) -> f64 {
     v.to_string().parse().unwrap_or(v as f64)
 }
 
@@ -61,6 +78,27 @@ impl Validator {
         self.report.push(Issue::warning(code, path, msg));
     }
 
+    /// The `master` table: ranges, and settings that cancel each other.
+    fn master(&mut self, m: &Master) {
+        self.range("master.gain", m.gain, 0.0, 4.0);
+        self.range("master.normalize_peak_db", m.normalize_peak_db, -40.0, 0.0);
+        self.range_opt(
+            "master.normalize_lufs",
+            m.normalize_lufs,
+            MIN_NORMALIZE_LUFS,
+            0.0,
+        );
+        if m.normalize && m.normalize_lufs.is_some() {
+            self.warn(
+                Code::Unused,
+                "master.normalize",
+                format!(
+                    "normalize and normalize_peak_db have no effect when normalize_lufs is set; loudness normalization replaces them and keeps the peak at or under {LOUDNESS_CEILING_DBFS} dBFS; remove normalize"
+                ),
+            );
+        }
+    }
+
     fn recipe(&mut self, r: &Recipe) {
         if r.version != CURRENT_VERSION {
             self.report.push(
@@ -80,28 +118,7 @@ impl Validator {
         self.range("channels", r.channels as f32, 1.0, 2.0);
         self.range("variation", r.variation, 0.0, 1.0);
         self.range_opt("duration", r.duration, 0.001, MAX_DURATION);
-        self.range("master.gain", r.master.gain, 0.0, 4.0);
-        self.range(
-            "master.normalize_peak_db",
-            r.master.normalize_peak_db,
-            -40.0,
-            0.0,
-        );
-        self.range_opt(
-            "master.normalize_lufs",
-            r.master.normalize_lufs,
-            MIN_NORMALIZE_LUFS,
-            0.0,
-        );
-        if r.master.normalize && r.master.normalize_lufs.is_some() {
-            self.warn(
-                Code::Unused,
-                "master.normalize",
-                format!(
-                    "normalize and normalize_peak_db have no effect when normalize_lufs is set; loudness normalization replaces them and keeps the peak at or under {LOUDNESS_CEILING_DBFS} dBFS; remove normalize"
-                ),
-            );
-        }
+        self.master(&r.master);
         if r.master.trim_silence && r.duration.is_some() {
             self.warn(
                 Code::Unused,
@@ -177,6 +194,64 @@ impl Validator {
                     source_name(l.source)
                 ),
             );
+        }
+
+        if l.noise_mode == NoiseMode::Pitched && l.source != Source::Noise {
+            self.warn(
+                Code::Unused,
+                &format!("{p}.noise_mode"),
+                format!(
+                    "noise_mode only affects `noise`; this layer is `{}`",
+                    source_name(l.source)
+                ),
+            );
+        }
+        if let Some(lfo) = &l.lfo {
+            let lp = format!("{p}.lfo");
+            self.range(&format!("{lp}.rate"), lfo.rate, 0.01, 50.0);
+            self.range(&format!("{lp}.delay"), lfo.delay, 0.0, 30.0);
+            let (max, unit) = match lfo.target {
+                LfoTarget::Volume => (1.0, "a part of the volume"),
+                LfoTarget::Cutoff => (4.0, "octaves"),
+                LfoTarget::Duty => (0.5, "an amount of duty"),
+            };
+            if lfo.depth.is_nan() || lfo.depth < 0.0 || lfo.depth > max {
+                self.report.push(
+                    Issue::error(
+                        Code::OutOfRange,
+                        format!("{lp}.depth"),
+                        format!(
+                            "value {} is outside the allowed range 0..={max} for target `{}` (depth is {unit} there)",
+                            lfo.depth,
+                            lfo_target_name(lfo.target)
+                        ),
+                    )
+                    .got(f64_clean(lfo.depth))
+                    .range(0.0, f64_clean(max)),
+                );
+            }
+            match lfo.target {
+                LfoTarget::Cutoff if l.filter.is_none() => self.report.push(
+                    Issue::error(
+                        Code::Invalid,
+                        format!("{lp}.target"),
+                        "an LFO on `cutoff` needs a filter on this layer; add `filter = { cutoff = 1000 }`, or use target `volume`",
+                    )
+                    .got("cutoff"),
+                ),
+                LfoTarget::Duty if l.source != Source::Square => self.report.push(
+                    Issue::error(
+                        Code::Invalid,
+                        format!("{lp}.target"),
+                        format!(
+                            "an LFO on `duty` needs `source = \"square\"`; this layer is `{}`",
+                            source_name(l.source)
+                        ),
+                    )
+                    .got("duty"),
+                ),
+                _ => {}
+            }
         }
 
         // Envelope
@@ -322,6 +397,14 @@ impl Validator {
                 }
             }
         }
+    }
+}
+
+fn lfo_target_name(t: LfoTarget) -> &'static str {
+    match t {
+        LfoTarget::Volume => "volume",
+        LfoTarget::Cutoff => "cutoff",
+        LfoTarget::Duty => "duty",
     }
 }
 

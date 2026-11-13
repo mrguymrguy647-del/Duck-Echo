@@ -234,6 +234,14 @@ pub struct Layer {
     #[serde(default)]
     pub aliasing: Aliasing,
 
+    /// What kind of noise a `noise` layer makes. `white` (default) is
+    /// plain hiss and ignores `pitch`. `pitched` picks a new random value
+    /// `pitch` times per second and holds it in between, like the noise
+    /// channel of old game consoles: a low pitch rumbles, a high pitch
+    /// hisses, and it follows the note in a song.
+    #[serde(default)]
+    pub noise_mode: NoiseMode,
+
     /// Stereo position, -1 (left) ..= 1 (right), equal-power. Only used
     /// when the recipe has `channels = 2`. Default `0` (centre).
     #[serde(default)]
@@ -251,6 +259,12 @@ pub struct Layer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<Filter>,
 
+    /// A slow wave that moves the volume, the filter cutoff or the pulse
+    /// width while the sound plays (tremolo, a moving filter, a changing
+    /// pulse). Omit for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lfo: Option<Lfo>,
+
     /// Per-layer effect chain, applied in order before mixing.
     #[serde(default)]
     pub effects: Vec<Effect>,
@@ -265,13 +279,101 @@ impl Default for Layer {
             offset: 0.0,
             duty: default_duty(),
             aliasing: Aliasing::default(),
+            noise_mode: NoiseMode::default(),
             pan: 0.0,
             envelope: Envelope::default(),
             pitch: Pitch::default(),
             filter: None,
+            lfo: None,
             effects: Vec::new(),
         }
     }
+}
+
+impl Layer {
+    /// True when the layer's `pitch` does something: every source but
+    /// plain white noise. In a song, a note moves the pitch of exactly
+    /// these layers.
+    pub fn has_pitch(&self) -> bool {
+        self.source != Source::Noise || self.noise_mode == NoiseMode::Pitched
+    }
+}
+
+/// What kind of noise a `noise` layer makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NoiseMode {
+    /// A new random value every sample: plain hiss. `pitch` is not used.
+    #[default]
+    White,
+    /// A new random value `pitch` times per second, held in between.
+    Pitched,
+}
+
+fn default_lfo_rate() -> f32 {
+    5.0
+}
+fn default_lfo_depth() -> f32 {
+    0.5
+}
+
+/// A low-frequency oscillator: a slow wave that moves one setting of the
+/// layer. It starts when the layer starts (so in a song, with each note).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct Lfo {
+    /// What the wave moves: `volume` (default), `cutoff` (needs a
+    /// `filter`) or `duty` (needs `source = "square"`).
+    pub target: LfoTarget,
+    /// Cycles per second, range 0.01..=50. Default `5`.
+    pub rate: f32,
+    /// How far it moves. `volume`: 0..=1, the level swings between full
+    /// and `1 - depth` of full. `cutoff`: 0..=4 octaves up and down from
+    /// the filter's cutoff. `duty`: 0..=0.5 added to and taken from
+    /// `duty` (the result is kept inside 0.01..=0.99). Default `0.5`.
+    pub depth: f32,
+    /// The wave: `sine` (default), `triangle` or `square`.
+    pub shape: LfoShape,
+    /// Seconds before the wave starts, range 0..=30. Default `0`.
+    pub delay: f32,
+}
+
+impl Default for Lfo {
+    fn default() -> Self {
+        Self {
+            target: LfoTarget::default(),
+            rate: default_lfo_rate(),
+            depth: default_lfo_depth(),
+            shape: LfoShape::default(),
+            delay: 0.0,
+        }
+    }
+}
+
+/// The setting an [`Lfo`] moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LfoTarget {
+    /// The layer's volume (tremolo).
+    #[default]
+    Volume,
+    /// The filter's cutoff.
+    Cutoff,
+    /// The pulse width of a square wave.
+    Duty,
+}
+
+/// The wave of an [`Lfo`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LfoShape {
+    /// A smooth wave.
+    #[default]
+    Sine,
+    /// Straight lines up and down.
+    Triangle,
+    /// Jumps between the two ends.
+    Square,
 }
 
 /// Oscillator waveform.

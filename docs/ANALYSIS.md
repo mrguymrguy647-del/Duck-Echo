@@ -2,8 +2,8 @@
 
 `duck-echo analyze` (and the MCP `analyze` tool) turn a sound into numbers
 an agent can check without listening. `duck-echo compare` reports what
-changed between two sounds. Both accept a WAV file or a recipe, which is
-rendered in memory. This page defines every field; the code is in
+changed between two sounds. Both accept a WAV file, a recipe or a song;
+recipes and songs are rendered in memory. This page defines every field; the code is in
 `crates/duck-echo-analyze`.
 
 Silence means below -60 dBFS (0.001). The *active span* runs from the first
@@ -85,13 +85,104 @@ For a recipe, `analyze` also returns `warnings` when there are any: the
 recipe's validation warnings and render warnings (a `normalize_lufs` target
 the -1 dBFS peak ceiling did not allow).
 
+## Songs
+
+For a song (a document with `tracks`), `analyze` and `render --json`
+measure the finished mix with every field above, and add:
+
+| Field | Meaning |
+|---|---|
+| `song` | `tempo`, `beats_per_bar`, `bars`, `loop`, `song_frames` (the exact length of the bars in samples), `seconds_per_bar`, `tracks` and `notes` (after patterns are placed and chords split). Enough for a game engine to switch music on a bar line. |
+| `tracks` | With `per_track`: `[{index, name, instrument, notes, analysis}]`, one full analysis per heard track. |
+| `heard_tracks` | With `solo` or `mute` (track names): the names of the tracks heard. |
+| `loop_seam` | For a song with `loop = true`: `seam_step`, `largest_step`, `clean` (see below). |
+| `note_check` | The notes written next to the notes heard (see below). Always in `analyze`; in `render` with `per_track` or `notes`. |
+
+The summary of a song starts with its shape and ends with its checks:
+`8 bars looping at 84 BPM, 4 tracks; 22.86 s, -16.0 LUFS, ..., loop joins
+cleanly, 92 of 92 notes heard`.
+
+**Stems.** A track heard alone (`solo`, `mute`, `per_track`) is rendered
+with the other tracks silenced and finished with the full song's master
+gain and length, the same rule as `per_layer`. So a stem reads at the
+level and times it has in the mix, and the stems of all tracks add up to
+the mix (to within float rounding), unless the mix clips or the song's
+own `effects` include distortion or bitcrush.
+
+### Loop seam
+
+A click is a sudden jump between two samples. `seam_step` is the jump
+from the last sample of the file back to the first, the place where a
+loop repeats (largest of the channels, linear). `largest_step` is the
+biggest jump between two neighbouring samples anywhere inside the file.
+`clean` is true when the first is no bigger than the second: the join
+jumps no more than the music itself does, so it cannot click.
+
+### Notes written and notes heard
+
+The question this answers: "I wrote these notes. Can each one really be
+heard, at the pitch I wrote?" A note can go missing in ways the song text
+does not show: it can be outside what its instrument can play, buried,
+too short to sound, or played by an instrument whose loudest part is not
+the note itself.
+
+Each track is rendered alone (a stem), and every written note is listened
+for at its place:
+
+* A **pitched note** is read from its held part: from just after its
+  start (a quarter of its length, at most 80 ms, to skip the attack) to
+  its end, at most 0.8 s. The spectrum of that stretch is searched for a
+  peak within half a semitone of the written pitch. If one is there, the
+  note is heard, whatever else is sounding, and `cents_off` says how far
+  it is from the written pitch. For a steady tone this reads to a
+  fraction of a cent, far finer than `onsets[].note_hz`.
+* If there is no such peak, the strongest pitch in the stretch decides:
+  when it belongs to another note of the same track that could be
+  sounding there (its overtones count too), the note is `missing`;
+  otherwise something else is playing, which is `wrong_pitch`.
+* A **kit piece** has no pitch to check. It is heard when the 50 ms after
+  it was written are not silent.
+
+`note_check` holds `notes_written`, `notes_heard`, `notes_uncertain`
+(when not 0) and `tracks`, one entry per heard track with the same
+counts, plus:
+
+* `problems`: every note that was not simply heard. Each has `status`,
+  `path` (where it is written, such as `tracks[1].notes[3]` or
+  `patterns.walk.notes[2]`), `bar` (from 1) and `beat` (from 0) where it
+  landed, `written` and `written_hz`, and, when something was heard,
+  `heard` (the nearest note name), `heard_hz`, `cents_off` and
+  `level_dbfs`.
+* `extra_onsets`: clear starts of sound where no note was written, with
+  `time_seconds`, `bar`, `beat` and `note_hz`. An echo's repeats show up
+  here. They are information, not problems.
+* `notes`: every note in the same shape, with `notes: true` (MCP) or
+  `--notes` (CLI).
+
+`status` is one of:
+
+| Status | Meaning |
+|---|---|
+| `heard` | The note is there, within half a semitone of its pitch. |
+| `missing` | Nothing is there, or only other notes of the track. |
+| `quiet` | The note is there, but more than 24 dB under the usual level of its track (the middle one of its heard notes). |
+| `wrong_pitch` | Something is there at another pitch; `written` and `heard` name both. |
+| `uncertain` | The stretch is too short to read (under about 8 cycles of the note) and the note was not found. Neither heard nor counted as wrong. |
+
+Limits: two notes of the same pitch that overlap cannot be told apart, so
+the second is heard even if only the first sounds. A note is checked on
+its own track only; whether it is buried under another track is a matter
+for the mix (compare the tracks' loudness with `per_track`).
+
 ## Picture
 
 `picture: true` (MCP) or `--picture out.png` (CLI) draws the sound as a
 480×254 PNG for agents that read images, and adds a `picture` object
 describing it (`width`, `height`, `seconds`, `level_dbfs`,
 `spectrogram_hz`, `spectrogram_dbfs`, `layout`). Both panels share a time
-axis from 0 to the end of the file:
+axis from 0 to the end of the file. The picture of a song also has a thin
+grey line at the start of each bar (dotted over the spectrogram, so it
+hides nothing), and `picture.bar_lines` lists their times in seconds:
 
 * **Level** (top): per pixel column, the peak (light blue) and RMS (dark
   blue) of all channels, -60 to 0 dBFS, gridlines at -20 and -40. Red ticks

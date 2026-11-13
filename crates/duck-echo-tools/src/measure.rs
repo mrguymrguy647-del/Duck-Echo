@@ -6,10 +6,12 @@
 //! ([`duck_echo_synth::render_layers`]), so a layer analyzed alone reads at
 //! the level and times it has in the mix.
 
+use crate::notecheck::{check_track, NoteCheck};
+use crate::song::{Document, SongFacts};
 use crate::ToolError;
 use duck_echo_analyze::{Analysis, PictureInfo};
 use duck_echo_audio::AudioBuffer;
-use duck_echo_core::{Code, Issue, Recipe};
+use duck_echo_core::{Arrangement, Code, Issue, Recipe, Song};
 use serde::Serialize;
 
 /// What to measure besides the whole sound.
@@ -134,6 +136,22 @@ pub struct Measured {
     /// With `per_layer`: each heard layer analyzed on its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layers: Option<Vec<LayerAnalysis>>,
+    /// For a song: tempo, bars and exact length.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song: Option<SongFacts>,
+    /// For a song with `solo` or `mute`: the names of the tracks heard.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heard_tracks: Option<Vec<String>>,
+    /// For a song with `per_track`: each heard track analyzed on its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracks: Option<Vec<TrackAnalysis>>,
+    /// For a looping song: how the end of the file joins its start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_seam: Option<LoopSeam>,
+    /// For a song, when its notes were checked: the notes written next to
+    /// the notes heard, per track.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_check: Option<NoteCheck>,
     /// With `picture`: what the picture shows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<PictureInfo>,
@@ -162,6 +180,11 @@ pub fn measure_audio(buffer: &AudioBuffer, extras: &Extras) -> Result<Measured, 
         warnings: Vec::new(),
         heard_layers: None,
         layers: None,
+        song: None,
+        heard_tracks: None,
+        tracks: None,
+        loop_seam: None,
+        note_check: None,
         picture,
         png,
     })
@@ -179,7 +202,10 @@ pub fn measure_recipe(
     let (full, mastering) = duck_echo_synth::render_mastered(recipe)?;
     let mut warnings = warnings.to_vec();
     if mastering.ceiling_limited {
-        warnings.push(ceiling_warning(recipe, &full));
+        warnings.push(ceiling_warning(
+            recipe.master.normalize_lufs.unwrap_or_default(),
+            &full,
+        ));
     }
     let buffer = if extras.isolates() {
         duck_echo_synth::render_layers(recipe, &heard, &mastering)?
@@ -213,6 +239,11 @@ pub fn measure_recipe(
             warnings,
             heard_layers: extras.isolates().then_some(heard),
             layers,
+            song: None,
+            heard_tracks: None,
+            tracks: None,
+            loop_seam: None,
+            note_check: None,
             picture,
             png,
         },
@@ -259,7 +290,7 @@ fn picture_of(
 
 /// The warning for a `normalize_lufs` target that needed more gain than
 /// the peak ceiling allowed.
-fn ceiling_warning(recipe: &Recipe, full: &AudioBuffer) -> Issue {
+fn ceiling_warning(target: f32, full: &AudioBuffer) -> Issue {
     let ch = full.channels.max(1) as usize;
     let planar: Vec<Vec<f32>> = (0..ch)
         .map(|c| full.samples.iter().skip(c).step_by(ch).copied().collect())
@@ -268,7 +299,6 @@ fn ceiling_warning(recipe: &Recipe, full: &AudioBuffer) -> Issue {
     let reached = duck_echo_analyze::loudness(&slices, full.sample_rate)
         .map(|(l, _)| format!("{l:.1} LUFS"))
         .unwrap_or_else(|| "too quiet to measure".into());
-    let target = recipe.master.normalize_lufs.unwrap_or_default();
     Issue::warning(
         Code::Suspicious,
         "master.normalize_lufs",
@@ -277,4 +307,408 @@ fn ceiling_warning(recipe: &Recipe, full: &AudioBuffer) -> Issue {
             duck_echo_core::LOUDNESS_CEILING_DBFS
         ),
     )
+}
+
+/// The measuring options as a front end receives them, before it is known
+/// whether the document is a recipe, a song or a WAV file. `solo` and
+/// `mute` are text: layer numbers for a recipe, track names (or numbers)
+/// for a song.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Options {
+    /// Analyze each heard layer of a recipe on its own.
+    pub per_layer: bool,
+    /// Analyze each heard track of a song on its own.
+    pub per_track: bool,
+    /// Hear only these layers or tracks.
+    pub solo: Vec<String>,
+    /// Hear all layers or tracks but these.
+    pub mute: Vec<String>,
+    /// Draw a picture of the sound.
+    pub picture: bool,
+    /// For a song: listen for every written note (`note_check` in the
+    /// result). `analyze` turns this on; it costs one extra render per
+    /// track. Does nothing for a recipe or a WAV file.
+    pub check_notes: bool,
+    /// For a song: list every note in `note_check`, not only the
+    /// problems. Turns the note check on.
+    pub list_notes: bool,
+}
+
+impl Options {
+    fn wrong_kind(prefix: &str, arg: &str, why: &str) -> ToolError {
+        ToolError::issue(Issue::error(
+            Code::InvalidArgument,
+            format!("{prefix}{arg}"),
+            why,
+        ))
+    }
+
+    /// The options for a recipe. `solo` and `mute` must be layer numbers.
+    pub fn for_recipe(&self, prefix: &str) -> Result<Extras, ToolError> {
+        if self.per_track {
+            return Err(Self::wrong_kind(
+                prefix,
+                "per_track",
+                "`per_track` needs a song; a recipe has layers, so use `per_layer`",
+            ));
+        }
+        if self.list_notes {
+            return Err(Self::wrong_kind(
+                prefix,
+                "notes",
+                "`notes` needs a song; a recipe has no written notes to list (its `onsets` show what is heard)",
+            ));
+        }
+        let numbers = |arg: &str, list: &[String]| -> Result<Vec<usize>, ToolError> {
+            list.iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    text.trim().parse::<usize>().map_err(|_| {
+                        ToolError::issue(
+                            Issue::error(
+                                Code::TypeMismatch,
+                                format!("{prefix}{arg}[{i}]"),
+                                format!(
+                                    "`{text}` is not a layer number; layers are numbered from 0"
+                                ),
+                            )
+                            .got(text.clone()),
+                        )
+                    })
+                })
+                .collect()
+        };
+        Ok(Extras {
+            per_layer: self.per_layer,
+            solo: numbers("solo", &self.solo)?,
+            mute: numbers("mute", &self.mute)?,
+            picture: self.picture,
+        })
+    }
+
+    /// The options for a WAV file, which has neither layers nor tracks.
+    pub fn for_wav(&self, prefix: &str) -> Result<Extras, ToolError> {
+        for (arg, on) in [
+            ("per_layer", self.per_layer),
+            ("per_track", self.per_track),
+            ("solo", !self.solo.is_empty()),
+            ("mute", !self.mute.is_empty()),
+            ("notes", self.list_notes),
+        ] {
+            if on {
+                return Err(Self::wrong_kind(
+                    prefix,
+                    arg,
+                    &format!("`{arg}` needs a recipe or a song (a .toml/.json file, preset:NAME or an inline document); a WAV file has no layers or tracks"),
+                ));
+            }
+        }
+        Ok(Extras {
+            picture: self.picture,
+            ..Extras::default()
+        })
+    }
+
+    /// The options for a song with tracks named `names`. `solo` and `mute`
+    /// take track names, or track numbers from 0.
+    pub fn for_song(&self, names: &[String], prefix: &str) -> Result<SongExtras, ToolError> {
+        if self.per_layer {
+            return Err(Self::wrong_kind(
+                prefix,
+                "per_layer",
+                "`per_layer` needs a recipe; a song has tracks, so use `per_track`",
+            ));
+        }
+        let mut report = duck_echo_core::Report::new();
+        let mut pick = |arg: &str, list: &[String]| -> Vec<usize> {
+            let mut out = Vec::new();
+            for (i, text) in list.iter().enumerate() {
+                let found = names.iter().position(|n| n == text).or_else(|| {
+                    text.trim()
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| *n < names.len())
+                });
+                match found {
+                    Some(index) => out.push(index),
+                    None => {
+                        let mut issue = Issue::error(
+                            Code::NotFound,
+                            format!("{prefix}{arg}[{i}]"),
+                            format!("the song has no track named `{text}`"),
+                        )
+                        .got(text.clone())
+                        .one_of(names.iter().cloned());
+                        if let Some(s) = duck_echo_core::load::did_you_mean(text, names) {
+                            issue = issue.suggest(s);
+                        }
+                        report.push(issue);
+                    }
+                }
+            }
+            out
+        };
+        let solo = pick("solo", &self.solo);
+        let mute = pick("mute", &self.mute);
+        if !report.is_ok() {
+            return Err(ToolError::Invalid(report));
+        }
+        let heard: Vec<usize> = (0..names.len())
+            .filter(|i| solo.is_empty() || solo.contains(i))
+            .filter(|i| !mute.contains(i))
+            .collect();
+        if heard.is_empty() {
+            let arg = if self.mute.is_empty() { "solo" } else { "mute" };
+            return Err(Self::wrong_kind(
+                prefix,
+                arg,
+                "solo and mute leave no track to hear",
+            ));
+        }
+        Ok(SongExtras {
+            per_track: self.per_track,
+            isolates: !self.solo.is_empty() || !self.mute.is_empty(),
+            heard,
+            picture: self.picture,
+            check_notes: self.check_notes || self.list_notes,
+            list_notes: self.list_notes,
+        })
+    }
+}
+
+/// Measuring options for a song, checked against its tracks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SongExtras {
+    /// Analyze each heard track on its own.
+    pub per_track: bool,
+    /// True when `solo` or `mute` was given.
+    pub isolates: bool,
+    /// The indices of the tracks heard.
+    pub heard: Vec<usize>,
+    /// Draw a picture of the sound.
+    pub picture: bool,
+    /// Listen for every written note.
+    pub check_notes: bool,
+    /// List every note, not only the problems.
+    pub list_notes: bool,
+}
+
+/// One track analyzed on its own, as heard in the mix.
+#[derive(Debug, Clone, Serialize)]
+pub struct TrackAnalysis {
+    /// The track's position in the song's `tracks`.
+    pub index: usize,
+    /// The track's name.
+    pub name: String,
+    /// The instrument as written on the track.
+    pub instrument: String,
+    /// Notes on the track, with patterns placed and chords split.
+    pub notes: usize,
+    /// The analysis of the track alone.
+    pub analysis: Analysis,
+}
+
+/// Render a song and analyze it.
+///
+/// A track heard alone (`solo`, `mute`, `per_track`) is a **stem**: it is
+/// finished with the full song's master gain and length
+/// ([`duck_echo_synth::song::render_song_tracks`]), the same rule as
+/// `per_layer`. So a stem reads at the level and times it has in the mix,
+/// and the stems of all tracks add up to the mix.
+pub fn measure_song(
+    song: &Song,
+    arrangement: &Arrangement,
+    facts: &SongFacts,
+    warnings: &[Issue],
+    extras: &SongExtras,
+) -> Result<RecipeMeasurement, ToolError> {
+    use duck_echo_synth::song::{render_song, render_song_tracks};
+    let (full, mastering) = render_song(song, arrangement);
+    let mut warnings = warnings.to_vec();
+    if mastering.ceiling_limited {
+        warnings.push(ceiling_warning(
+            song.master.normalize_lufs.unwrap_or_default(),
+            &full,
+        ));
+    }
+    let buffer = if extras.isolates {
+        render_song_tracks(song, arrangement, &extras.heard, &mastering)
+    } else {
+        full
+    };
+    let mut analysis = crate::analyze_buffer(&buffer);
+    let mut head = facts.summary();
+    if extras.isolates {
+        head.push_str(&format!(" ({} heard)", extras.heard.len()));
+    }
+    analysis.summary = format!("{head}; {}", analysis.summary);
+    let loop_seam = song.loop_.then(|| loop_seam(&buffer));
+    if let Some(seam) = &loop_seam {
+        analysis.summary.push_str(if seam.clean {
+            ", loop joins cleanly"
+        } else {
+            ", LOOP CLICKS AT THE JOIN"
+        });
+    }
+    // Each heard track alone, when something needs it. One render per
+    // track serves both the per-track analysis and the note check.
+    let mut tracks = extras.per_track.then(Vec::new);
+    let mut checks = extras.check_notes.then(Vec::new);
+    if extras.per_track || extras.check_notes {
+        for &i in &extras.heard {
+            let alone = render_song_tracks(song, arrangement, &[i], &mastering);
+            let track_analysis = crate::analyze_buffer(&alone);
+            if let Some(checks) = &mut checks {
+                checks.push(check_track(
+                    song,
+                    &arrangement.tracks[i],
+                    &song.tracks[i].instrument,
+                    &alone,
+                    &track_analysis.onsets,
+                    extras.list_notes,
+                ));
+            }
+            if let Some(tracks) = &mut tracks {
+                tracks.push(TrackAnalysis {
+                    index: i,
+                    name: song.tracks[i].name.clone(),
+                    instrument: song.tracks[i].instrument.clone(),
+                    notes: arrangement.tracks[i].events.len(),
+                    analysis: track_analysis,
+                });
+            }
+        }
+    }
+    let note_check = checks.map(NoteCheck::of);
+    if let Some(check) = &note_check {
+        analysis.summary.push_str(", ");
+        analysis.summary.push_str(&check.summary());
+    }
+    if facts.tracks > 1 && !extras.per_track && extras.heard.len() > 1 {
+        analysis.summary.push_str("; per_track describes each");
+    }
+
+    // The picture of a song has a line at the start of each bar.
+    let (picture, png) = if extras.picture {
+        let onsets: Vec<f64> = analysis.onsets.iter().map(|o| o.time_seconds).collect();
+        let bar_lines: Vec<f64> = (0..facts.bars)
+            .map(|bar| bar as f64 * facts.seconds_per_bar)
+            .collect();
+        let pic = duck_echo_analyze::picture::draw_with_bars(
+            &buffer.samples,
+            buffer.sample_rate,
+            buffer.channels,
+            &onsets,
+            &bar_lines,
+        );
+        (Some(pic.info), Some(pic.png))
+    } else {
+        (None, None)
+    };
+    Ok(RecipeMeasurement {
+        buffer,
+        measured: Measured {
+            analysis,
+            warnings,
+            heard_layers: None,
+            layers: None,
+            song: Some(facts.clone()),
+            heard_tracks: extras.isolates.then(|| {
+                extras
+                    .heard
+                    .iter()
+                    .map(|&i| song.tracks[i].name.clone())
+                    .collect()
+            }),
+            tracks,
+            loop_seam,
+            note_check,
+            picture,
+            png,
+        },
+    })
+}
+
+/// How the end of a looping file joins its start, so an agent can check a
+/// loop without hearing it.
+///
+/// A click is a sudden jump between two samples. `seam_step` is the jump
+/// from the last sample back to the first (the place the loop repeats);
+/// `largest_step` is the biggest jump between two neighbouring samples
+/// anywhere inside the file. When the jump at the join is no bigger than
+/// the music's own, the join cannot click.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct LoopSeam {
+    /// The jump from the last sample to the first, largest of the
+    /// channels, linear (1.0 is half of full scale to full scale).
+    pub seam_step: f32,
+    /// The largest jump between neighbouring samples inside the file.
+    pub largest_step: f32,
+    /// True when `seam_step` is no larger than `largest_step`.
+    pub clean: bool,
+}
+
+/// Measure the join of a looping buffer.
+pub fn loop_seam(buffer: &AudioBuffer) -> LoopSeam {
+    let ch = buffer.channels.max(1) as usize;
+    let frames = buffer.samples.len() / ch;
+    let mut seam_step = 0.0f32;
+    let mut largest_step = 0.0f32;
+    if frames >= 2 {
+        for c in 0..ch {
+            let at = |frame: usize| buffer.samples[frame * ch + c];
+            seam_step = seam_step.max((at(0) - at(frames - 1)).abs());
+            for f in 1..frames {
+                largest_step = largest_step.max((at(f) - at(f - 1)).abs());
+            }
+        }
+    }
+    LoopSeam {
+        seam_step,
+        largest_step,
+        clean: seam_step <= largest_step,
+    }
+}
+
+/// Render a recipe or a song and analyze it, with `seed` replacing the
+/// document's own when given. `prefix` is put before argument names in
+/// errors (`--` for the CLI, `arguments.` for the MCP server).
+pub fn measure_document(
+    doc: &Document,
+    seed: Option<u64>,
+    options: &Options,
+    prefix: &str,
+) -> Result<RecipeMeasurement, ToolError> {
+    match doc {
+        Document::Recipe(r) => {
+            let extras = options.for_recipe(prefix)?;
+            let mut recipe = r.loaded.recipe.clone();
+            if let Some(s) = seed {
+                recipe.seed = s;
+            }
+            extras.heard(recipe.layers.len(), prefix)?;
+            measure_recipe(&recipe, &r.loaded.report.warnings, &extras)
+        }
+        Document::Song(s) => {
+            let names: Vec<String> = s
+                .loaded
+                .song
+                .tracks
+                .iter()
+                .map(|t| t.name.clone())
+                .collect();
+            let extras = options.for_song(&names, prefix)?;
+            let mut song = s.loaded.song.clone();
+            if let Some(seed) = seed {
+                song.seed = seed;
+            }
+            measure_song(
+                &song,
+                &s.loaded.arrangement,
+                &SongFacts::of(&s.loaded),
+                &s.loaded.report.warnings,
+                &extras,
+            )
+        }
+    }
 }

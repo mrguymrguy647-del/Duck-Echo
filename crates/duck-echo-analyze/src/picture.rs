@@ -77,6 +77,10 @@ pub struct PictureInfo {
     pub spectrogram_dbfs: [f32; 2],
     /// How to read it, in one sentence.
     pub layout: String,
+    /// For a song: the time of each bar line drawn, in seconds. Empty for
+    /// anything else.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bar_lines: Vec<f64>,
 }
 
 /// A picture and its PNG bytes.
@@ -90,6 +94,19 @@ pub struct Picture {
 
 /// Draw interleaved `samples`, marking `onsets` (seconds).
 pub fn draw(samples: &[f32], sample_rate: u32, channels: u16, onsets: &[f64]) -> Picture {
+    draw_with_bars(samples, sample_rate, channels, onsets, &[])
+}
+
+/// [`draw`], with a thin vertical line at each time in `bar_lines`
+/// (seconds), so a song's picture can be read against its bars. With no
+/// bar lines the picture is exactly what [`draw`] makes.
+pub fn draw_with_bars(
+    samples: &[f32],
+    sample_rate: u32,
+    channels: u16,
+    onsets: &[f64],
+    bar_lines: &[f64],
+) -> Picture {
     let ch = channels.max(1) as usize;
     let frames = samples.len() / ch;
     let seconds = frames as f64 / sample_rate as f64;
@@ -100,6 +117,16 @@ pub fn draw(samples: &[f32], sample_rate: u32, channels: u16, onsets: &[f64]) ->
     c.fill(LEFT, TOP, PLOT_W, LEVEL_H, PANEL);
     for db in [-20.0, -40.0] {
         c.fill(LEFT, level_y(db), PLOT_W, 1, GRID);
+    }
+    // Bar lines go under the level curves, so the curves stay readable.
+    let bar_x = |t: f64| LEFT + ((t / seconds * PLOT_W as f64) as usize).min(PLOT_W - 1);
+    let drawn_bars: Vec<f64> = bar_lines
+        .iter()
+        .copied()
+        .filter(|t| seconds > 0.0 && *t >= 0.0 && *t < seconds)
+        .collect();
+    for &t in &drawn_bars {
+        c.fill(bar_x(t), TOP, 1, LEVEL_H, GRID);
     }
     for x in 0..PLOT_W {
         let (a, b) = column(x, frames);
@@ -187,6 +214,14 @@ pub fn draw(samples: &[f32], sample_rate: u32, channels: u16, onsets: &[f64]) ->
         }
     }
 
+    // Bar lines over the spectrogram are dotted (2 pixels on, 6 off), so
+    // they do not hide what is under them.
+    for &t in &drawn_bars {
+        for y in (0..SPEC_H).step_by(8) {
+            c.fill(bar_x(t), SPEC_TOP + y, 1, 2, GRID);
+        }
+    }
+
     // Frames, ticks and labels.
     c.outline(LEFT, TOP, PLOT_W, LEVEL_H, AXIS);
     c.outline(LEFT, SPEC_TOP, PLOT_W, SPEC_H, AXIS);
@@ -250,7 +285,15 @@ pub fn draw(samples: &[f32], sample_rate: u32, channels: u16, onsets: &[f64]) ->
         level_dbfs: LEVEL_RANGE_DBFS,
         spectrogram_hz: [MIN_HZ, max_hz],
         spectrogram_dbfs: SPECTROGRAM_RANGE_DBFS,
-        layout: "Top: level over time, peak light blue and RMS dark blue in dBFS, red ticks at onsets. Bottom: spectrogram, log frequency with low notes at the bottom, black quiet to pale yellow loud. Both panels share the time axis in seconds.".into(),
+        layout: format!(
+            "Top: level over time, peak light blue and RMS dark blue in dBFS, red ticks at onsets. Bottom: spectrogram, log frequency with low notes at the bottom, black quiet to pale yellow loud. Both panels share the time axis in seconds.{}",
+            if drawn_bars.is_empty() {
+                ""
+            } else {
+                " Grey vertical lines (dotted over the spectrogram) mark the start of each bar; `bar_lines` gives their times."
+            }
+        ),
+        bar_lines: drawn_bars,
     };
     Picture {
         png: encode(&c.into_image()),

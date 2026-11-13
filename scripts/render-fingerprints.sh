@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Render every example recipe and every preset with the release build, and
-# write one line per WAV file: its SHA-256 hash and its name. CI runs this
-# on Linux and on Windows and checks that the two lists are identical:
-# the same recipe must give the same file on every platform.
+# Render every example recipe, every example song, every built-in
+# instrument and every preset with the release build, and write one line per WAV file: its SHA-256 hash and
+# its name. CI runs this on Linux and on Windows and checks that the two
+# lists are identical: the same recipe or song must give the same file on
+# every platform.
 #
 # Usage: scripts/render-fingerprints.sh [output-folder]   (default: renders)
 # Run it from the repository root after `cargo build --release -p duck-echo-cli`.
@@ -17,6 +18,20 @@ mkdir -p "$out"
 for recipe in examples/recipes/*.toml examples/recipes/*.json; do
   base="$(basename "$recipe")"
   "$bin" render "$recipe" -o "$out/example-${base//./-}.wav" 2>/dev/null
+done
+
+# Songs: music documents render through the same command.
+for song in examples/songs/*.toml; do
+  base="$(basename "$song" .toml)"
+  "$bin" render "$song" -o "$out/song-$base.wav" 2>/dev/null
+done
+
+# Built-in instruments, each played alone as written. The first word of
+# each line of `instruments list` is a name. A kit is not one sound (its
+# second column lists its pieces, with commas), so it is skipped; its
+# pieces are in the list themselves.
+for name in $("$bin" instruments list | awk '$2 !~ /,/ { print $1 }'); do
+  "$bin" render "instrument:$name" -o "$out/instrument-$name.wav" 2>/dev/null
 done
 
 # Presets: the first word of each line of `presets list` is a name.

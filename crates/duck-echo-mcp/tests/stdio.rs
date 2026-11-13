@@ -123,6 +123,8 @@ fn create_edit_render_analyze_loop() {
             "get_schema",
             "list_presets",
             "get_preset",
+            "list_instruments",
+            "get_instrument",
             "list_files",
             "validate",
             "create",
@@ -993,4 +995,505 @@ fn tag_typos_and_layer_counts_help_the_agent() {
         summary.ends_with("2 layers; per_layer describes each"),
         "{summary}"
     );
+}
+
+/// A small song with its own instruments, as an agent would send it.
+fn song_json(lead: &str) -> Value {
+    json!({
+        "version": 0,
+        "name": "tune",
+        "tempo": 120,
+        "bars": 2,
+        "instruments": {
+            "tone": {
+                "version": 0,
+                "layers": [{
+                    "source": "sine",
+                    "envelope": {"attack": 0.01, "decay": 0.05, "sustain": 0.7, "release": 0.05},
+                    "pitch": {"start": "A4"}
+                }]
+            }
+        },
+        "patterns": {"up": {"notes": [
+            {"beat": 0, "note": "A3"}, {"beat": 1, "note": "C4"},
+            {"beat": 2, "note": "E4"}, {"beat": 3, "note": "A4"}
+        ]}},
+        "tracks": [
+            {"name": "melody", "instrument": lead, "notes": [
+                {"beat": 0, "note": "A4", "length": 2},
+                {"bar": 2, "beat": 0, "note": ["C5", "E5"], "length": 2}
+            ]},
+            {"name": "bass", "instrument": "tone", "volume": 0.8,
+             "play": [{"pattern": "up", "bars": [1, 2]}]}
+        ]
+    })
+}
+
+/// Roadmap task 16: every tool that takes a recipe takes a song.
+#[test]
+fn songs_work_through_every_tool() {
+    let root = fresh_root("mcp_songs");
+    let mut s = started(&root);
+
+    let (schema, err) = s.call("get_schema", json!({"kind": "song"}));
+    assert!(!err);
+    assert_eq!(schema["title"], "Duck Echo song v0");
+    assert!(schema["properties"]["tracks"].is_object());
+    let (schema, _) = s.call("get_schema", json!({}));
+    assert_eq!(schema["title"], "Duck Echo recipe v0");
+    let (report, err) = s.call("get_schema", json!({"kind": "tune"}));
+    assert!(err);
+    assert_eq!(report["errors"][0]["path"], "arguments.kind");
+
+    // A recipe file next to the song is its lead instrument.
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "songs/lead.toml", "recipe": {
+            "version": 0,
+            "layers": [{"source": "square", "volume": 0.4,
+                "envelope": {"attack": 0.01, "decay": 0.05, "sustain": 0.7, "release": 0.05},
+                "pitch": {"start": "C4"}}]
+        }}),
+    );
+    assert!(!err, "{made}");
+    assert_eq!(made["kind"], "recipe");
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "songs/tune.toml", "recipe": song_json("lead.toml")}),
+    );
+    assert!(!err, "{made}");
+    assert_eq!(made["kind"], "song");
+    assert_eq!(made["path"], "songs/tune.toml");
+
+    let (report, err) = s.call("validate", json!({"path": "songs/tune.toml"}));
+    assert!(!err);
+    assert_eq!(report["ok"], true, "{report}");
+
+    let (done, err) = s.call(
+        "render",
+        json!({"path": "songs/tune.toml", "output": "out/tune.wav", "per_track": true}),
+    );
+    assert!(!err, "{done}");
+    assert_eq!(done["output"], "out/tune.wav");
+    assert_eq!(done["song"]["bars"], 2);
+    assert_eq!(done["song"]["tempo"], 120.0);
+    // Two bars at 120 BPM are exactly four seconds of 44.1 kHz stereo.
+    assert_eq!(done["song"]["song_frames"], 176_400);
+    assert_eq!(done["analysis"]["per_channel"].as_array().unwrap().len(), 2);
+    let tracks = done["tracks"].as_array().unwrap();
+    assert_eq!(tracks.len(), 2);
+    assert_eq!(tracks[0]["name"], "melody");
+    assert_eq!(tracks[0]["notes"], 3);
+    assert_eq!(tracks[1]["notes"], 8);
+    assert!(root.join("out/tune.wav").exists());
+
+    let (heard, err) = s.call(
+        "analyze",
+        json!({"path": "songs/tune.toml", "solo": ["bass"]}),
+    );
+    assert!(!err, "{heard}");
+    assert_eq!(heard["heard_tracks"], json!(["bass"]));
+    assert!(heard["summary"]
+        .as_str()
+        .unwrap()
+        .starts_with("2 bars at 120 BPM, 2 tracks (1 heard); "));
+    assert!(heard["onsets"].as_array().unwrap().len() >= 6, "{heard}");
+
+    // analyze listens for every written note; render does with per_track.
+    assert_eq!(heard["note_check"]["notes_written"], 8);
+    assert_eq!(heard["note_check"]["notes_heard"], 8);
+    assert_eq!(heard["note_check"]["tracks"][0]["name"], "bass");
+    assert!(heard["summary"]
+        .as_str()
+        .unwrap()
+        .contains("8 of 8 notes heard"));
+    assert_eq!(done["note_check"]["notes_written"], 11);
+    let (listed, err) = s.call(
+        "analyze",
+        json!({"path": "songs/tune.toml", "notes": true, "picture": true}),
+    );
+    assert!(!err, "{listed}");
+    let notes = listed["note_check"]["tracks"][0]["notes"]
+        .as_array()
+        .unwrap();
+    assert_eq!(notes.len(), 3);
+    assert_eq!(notes[1]["written"], "C5");
+    assert_eq!(notes[1]["status"], "heard");
+    assert_eq!(listed["picture"]["bar_lines"].as_array().unwrap().len(), 2);
+    let (plain, _) = s.call(
+        "render",
+        json!({"path": "songs/tune.toml", "output": "out/plain.wav"}),
+    );
+    assert!(plain.get("note_check").is_none());
+
+    // An inline song, and comparing a song with a WAV of itself.
+    let (inline, err) = s.call("analyze", json!({"recipe": song_json("tone")}));
+    assert!(!err, "{inline}");
+    assert_eq!(inline["song"]["notes"], 11);
+    let (same, err) = s.call(
+        "compare",
+        json!({"a": "songs/tune.toml", "b": "out/tune.wav"}),
+    );
+    assert!(!err, "{same}");
+    assert!(
+        same["correlation"]["value"].as_f64().unwrap_or(0.0) > 0.99
+            || same["summary"].as_str().unwrap().contains("same"),
+        "{same}"
+    );
+
+    // Edits use song paths, and a bad note is reported at its path.
+    let (edited, err) = s.call(
+        "edit",
+        json!({"path": "songs/tune.toml", "ops": [{"path": "tracks[0].notes[0].note", "value": "B4"}]}),
+    );
+    assert!(!err, "{edited}");
+    assert_eq!(edited["recipe"]["tracks"][0]["notes"][0]["note"], "B4");
+    assert_eq!(edited["written"], true);
+    let (report, err) = s.call(
+        "edit",
+        json!({"path": "songs/tune.toml", "ops": [{"path": "tracks[0].notes[0].note", "value": "H4"}]}),
+    );
+    assert!(err);
+    assert_eq!(report["errors"][0]["path"], "tracks[0].notes[0].note");
+    assert_eq!(report["errors"][0]["suggestion"], "B4");
+
+    // Wrong kind of option or tool for a song.
+    for (tool, args, path) in [
+        (
+            "analyze",
+            json!({"path": "songs/tune.toml", "per_layer": true}),
+            "arguments.per_layer",
+        ),
+        (
+            "analyze",
+            json!({"path": "songs/tune.toml", "solo": ["drums"]}),
+            "arguments.solo[0]",
+        ),
+        (
+            "analyze",
+            json!({"path": "preset:coin", "per_track": true}),
+            "arguments.per_track",
+        ),
+        (
+            "analyze",
+            json!({"path": "out/tune.wav", "per_track": true}),
+            "arguments.per_track",
+        ),
+        (
+            "analyze",
+            json!({"path": "preset:coin", "notes": true}),
+            "arguments.notes",
+        ),
+        (
+            "analyze",
+            json!({"path": "out/tune.wav", "notes": true}),
+            "arguments.notes",
+        ),
+        (
+            "variations",
+            json!({"path": "songs/tune.toml"}),
+            "arguments.path",
+        ),
+    ] {
+        let (report, err) = s.call(tool, args.clone());
+        assert!(err, "{tool} {args}: {report}");
+        assert_eq!(report["errors"][0]["path"], path, "{tool} {args}: {report}");
+    }
+}
+
+/// Security: a song's instrument files go through the root guard like
+/// every other path.
+#[test]
+fn song_instrument_files_cannot_leave_the_root() {
+    let (root, outside) = sandbox("mcp_security_songs");
+    let recipe = "version = 0\n[[layers]]\nsource = \"sine\"\n";
+    std::fs::write(outside.join("recipe.toml"), recipe).unwrap();
+    std::fs::create_dir_all(root.join("shared")).unwrap();
+    std::fs::create_dir_all(root.join("songs")).unwrap();
+    std::fs::write(root.join("shared/lead.toml"), recipe).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, root.join("out_link")).unwrap();
+    let mut s = started(&root);
+
+    let absolute = outside.join("recipe.toml").display().to_string();
+    for (reference, why) in [
+        ("../outside/recipe.toml", "`..` is not allowed"),
+        ("../../outside/recipe.toml", "`..` is not allowed"),
+        // Even a `..` that would stay inside the root: paths never go up.
+        ("../shared/lead.toml", "`..` is not allowed"),
+        (&absolute[..], "absolute paths are not allowed"),
+        #[cfg(unix)]
+        (
+            "out_link/recipe.toml",
+            "outside the server root through a symbolic link",
+        ),
+        ("missing.toml", "does not exist under the server root"),
+    ] {
+        // Inline (read from the root) and as a file in a folder.
+        let song = song_json(reference);
+        let (made, err) = s.call(
+            "create",
+            json!({"path": "songs/bad.toml", "recipe": song.clone(), "overwrite": true}),
+        );
+        assert!(err, "{reference}: {made}");
+        for (tool, args) in [
+            ("validate", json!({"recipe": song.clone()})),
+            ("render", json!({"recipe": song.clone(), "output": "x.wav"})),
+            ("analyze", json!({"recipe": song.clone()})),
+        ] {
+            let (report, err) = s.call(tool, args);
+            // validate answers with the report; the others fail.
+            assert_eq!(err, tool != "validate", "{tool} {reference}: {report}");
+            assert_eq!(report["ok"], false);
+            let e = &report["errors"][0];
+            assert_eq!(
+                e["path"], "tracks[0].instrument",
+                "{tool} {reference}: {report}"
+            );
+            let msg = e["message"].as_str().unwrap();
+            assert!(
+                msg.contains(why),
+                "{tool} {reference}: expected `{why}` in: {msg}"
+            );
+            assert!(!report.to_string().contains(&root.display().to_string()));
+        }
+    }
+    assert!(!root.join("songs/bad.toml").exists());
+    assert!(!root.join("x.wav").exists());
+
+    // A file inside the root, next to the song, is fine.
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "shared/ok.toml", "recipe": song_json("lead.toml")}),
+    );
+    assert!(!err, "{made}");
+    // The same reference from the root does not find it: paths are
+    // relative to the song's folder.
+    let (report, _) = s.call("validate", json!({"recipe": song_json("lead.toml")}));
+    assert_eq!(report["errors"][0]["code"], "not_found");
+    let (report, _) = s.call("validate", json!({"recipe": song_json("shared/lead.toml")}));
+    assert_eq!(report["ok"], true, "{report}");
+}
+
+/// Roadmap task 19: built-in instruments through the tools, and
+/// `instrument:NAME` held to the same rules as `preset:NAME`: read-only,
+/// a known name only, never a path.
+#[test]
+fn built_in_instruments_are_listed_played_and_read_only() {
+    let (root, _outside) = sandbox("mcp_instruments");
+    let mut s = started(&root);
+
+    let (list, err) = s.call("list_instruments", json!({}));
+    assert!(!err, "{list}");
+    let names: Vec<&str> = list["instruments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "bass",
+            "chip_lead",
+            "clap",
+            "hat",
+            "kick",
+            "pad",
+            "piano",
+            "snare",
+            "drums"
+        ]
+    );
+    assert_eq!(list["instruments"][6]["range"], json!(["C2", "C7"]));
+    assert_eq!(
+        list["instruments"][8]["pieces"],
+        json!(["clap", "hat", "kick", "snare"])
+    );
+
+    let (piano, err) = s.call("get_instrument", json!({"name": "piano"}));
+    assert!(!err, "{piano}");
+    assert_eq!(piano["home"], "C4");
+    assert_eq!(piano["recipe"]["layers"].as_array().unwrap().len(), 7);
+    assert!(piano["toml"].as_str().unwrap().contains("hammer"));
+    let (report, err) = s.call("get_instrument", json!({"name": "pianoo"}));
+    assert!(err);
+    assert_eq!(report["errors"][0]["path"], "arguments.name");
+    assert_eq!(report["errors"][0]["suggestion"], "piano");
+
+    // An instrument can be heard alone, like a preset.
+    let (a, err) = s.call("analyze", json!({"path": "instrument:piano"}));
+    assert!(!err, "{a}");
+    assert!((a["loudness_lufs"].as_f64().unwrap() + 18.0).abs() < 0.1);
+    let (done, err) = s.call(
+        "render",
+        json!({"path": "instrument:kick", "output": "kick.wav"}),
+    );
+    assert!(!err, "{done}");
+    assert!(root.join("kick.wav").exists());
+    // Editing one gives a changed copy and writes nothing.
+    let (edited, err) = s.call(
+        "edit",
+        json!({"path": "instrument:bass", "ops": [{"path": "layers[0].volume", "value": 0.3}]}),
+    );
+    assert!(!err, "{edited}");
+    assert_eq!(edited["written"], false);
+
+    // A song names instruments plainly; a whole tune needs no other file.
+    let song = json!({
+        "version": 0, "tempo": 120, "bars": 1,
+        "tracks": [
+            {"name": "keys", "instrument": "piano", "notes": [{"beat": 0, "note": ["C4", "E4", "G4"], "length": 2}]},
+            {"name": "beat", "instrument": "drums", "notes": [{"beat": 0, "note": "kick"}, {"beat": 1, "note": "snare"}]}
+        ]
+    });
+    let (a, err) = s.call("analyze", json!({"recipe": song, "per_track": true}));
+    assert!(!err, "{a}");
+    assert_eq!(a["tracks"][1]["instrument"], "drums");
+
+    // Only known names, only for reading, never a path.
+    let before = files_under(&root);
+    for (path, why) in [
+        ("instrument:../piano", "instrument name"),
+        ("instrument:/etc/passwd", "instrument name"),
+        ("instrument:Piano", "instrument name"),
+        ("instrument:piano.toml", "instrument name"),
+        ("instrument:nope", "no built-in instrument named"),
+        ("instrument:drums", "is a kit"),
+    ] {
+        assert_refused(&mut s, "validate", json!({"path": path}), why);
+        assert_refused(&mut s, "analyze", json!({"path": path}), why);
+        assert_refused(
+            &mut s,
+            "compare",
+            json!({"a": path, "b": "preset:coin"}),
+            why,
+        );
+    }
+    for (tool, args) in [
+        (
+            "render",
+            json!({"path": "preset:coin", "output": "instrument:piano"}),
+        ),
+        (
+            "render",
+            json!({"path": "preset:coin", "output": "instrument:../x.wav"}),
+        ),
+        (
+            "create",
+            json!({"path": "instrument:piano", "recipe": {"version": 0, "layers": [{}]}}),
+        ),
+        (
+            "variations",
+            json!({"path": "preset:coin", "output_dir": "instrument:piano"}),
+        ),
+    ] {
+        assert_refused(&mut s, tool, args, "instruments are built in and read-only");
+    }
+    assert_refused(
+        &mut s,
+        "list_files",
+        json!({"path": "instrument:piano"}),
+        "instruments are built in, not files",
+    );
+    assert_eq!(files_under(&root), before, "a refused call wrote something");
+}
+
+/// Security: a drive letter in the middle of a path. On Windows, joining
+/// `C:\x` onto a folder replaces the folder, so `sub/C:\Windows\x.wav`
+/// could leave the root once `sub` exists. `:` is refused in every path,
+/// on every platform, and nothing is ever written or read outside.
+#[test]
+fn drive_letters_inside_a_path_cannot_leave_the_root() {
+    let (root, outside) = sandbox("mcp_security_drives");
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(
+        outside.join("recipe.toml"),
+        "version = 0\n[[layers]]\nsource = \"sine\"\n",
+    )
+    .unwrap();
+    let mut s = started(&root);
+    let before_root = files_under(&root);
+    let before_outside = files_under(&outside);
+    let why = "`:` is not allowed in a path";
+
+    // The real thing on this machine: an existing folder, then the full
+    // path of a place outside the root.
+    let real_out = format!("sub/{}", outside.join("evil.wav").display());
+    let real_in = format!("sub/{}", outside.join("recipe.toml").display());
+
+    for path in [
+        "sub/C:\\Windows\\evil.wav",
+        "sub/C:/Windows/evil.wav",
+        "x:y.wav",
+    ] {
+        assert_refused(
+            &mut s,
+            "render",
+            json!({"path": "preset:coin", "output": path}),
+            why,
+        );
+        assert_refused(
+            &mut s,
+            "variations",
+            json!({"path": "preset:coin", "output_dir": path}),
+            why,
+        );
+    }
+    for path in ["sub/C:\\Windows\\x.toml", "sub/C:/x.toml", "a:b.toml"] {
+        assert_refused(
+            &mut s,
+            "create",
+            json!({"path": path, "recipe": {"version": 0, "layers": [{}]}}),
+            why,
+        );
+        assert_refused(&mut s, "validate", json!({"path": path}), why);
+        assert_refused(&mut s, "analyze", json!({"path": path}), why);
+        assert_refused(&mut s, "list_files", json!({"path": path}), why);
+        assert_refused(
+            &mut s,
+            "compare",
+            json!({"a": path, "b": "preset:coin"}),
+            why,
+        );
+        // As a song's instrument file, inline and next to a song file.
+        let (report, _) = s.call("validate", json!({"recipe": song_json(path)}));
+        assert_eq!(report["ok"], false, "{path}");
+        assert_eq!(report["errors"][0]["path"], "tracks[0].instrument");
+        assert!(report["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains(why));
+        let (made, err) = s.call(
+            "create",
+            json!({"path": "sub/song.toml", "recipe": song_json(path), "overwrite": true}),
+        );
+        assert!(err, "{path}: {made}");
+    }
+
+    // Whatever this platform makes of the real paths, the calls may
+    // fail or stay inside the root, but nothing outside is touched or
+    // read: the outside recipe is never accepted as an instrument.
+    let _ = s.call("render", json!({"path": "preset:coin", "output": real_out}));
+    let (report, _) = s.call("validate", json!({"recipe": song_json(&real_in)}));
+    assert_eq!(report["ok"], false, "{report}");
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "sub/song.toml", "recipe": song_json(&real_in), "overwrite": true}),
+    );
+    assert!(err, "{made}");
+    let (report, err) = s.call("analyze", json!({"path": real_in}));
+    assert!(err, "{report}");
+
+    assert_eq!(
+        files_under(&outside),
+        before_outside,
+        "something outside changed"
+    );
+    let after: Vec<String> = files_under(&root)
+        .into_iter()
+        .filter(|f| !f.ends_with("evil.wav"))
+        .collect();
+    assert_eq!(after, before_root, "a refused call wrote something");
+    assert!(!outside.join("evil.wav").exists());
 }

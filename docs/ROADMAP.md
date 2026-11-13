@@ -21,7 +21,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 | Phase | What | Status |
 |---|---|---|
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
-| 1 | **Music**: songs, starter instruments, seamless loops | next |
+| 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops | built; only the agent guide (task 10) is left |
 | 2 | Duck Echo Studio: an app for people, with no terminal | |
 | 3 | Link with Duck Forge, the game engine | |
 | 4 | Duck Ear: listening models | |
@@ -52,7 +52,7 @@ Windows. Done tasks: 1, 2, 3, 6, 7, 8, 9, 17, plus review fixes R1 to R10
 and playtest fixes P1 to P7. Their notes are in "Phase 0 record" at the
 end of this file.
 
-## Phase 1: music (next)
+## Phase 1: music (in progress)
 
 Why music now: the Duck Craft game had to fake its music in Python because
 Duck Echo had none. Phase 1 makes Duck Echo the place a game gets its
@@ -68,84 +68,275 @@ Goals for the whole phase:
 * A small set of starter instruments, so an agent can write a tune
   without designing every sound first.
 
-Order: 16, then 4, then 19, then 20, then 21, then 10.
+Order: 16, then 4, then 19, then 20, then 21, then 10. All but 10 are
+done; 10 (the agent guide) is next.
 
-### 16. Song document and scheduler (promoted, first)
+### 16. Song document and scheduler [done]
 
-* A new document type, `Song`, in core: `version`, `tempo` (beats per
-  minute), `beats_per_bar`, `tracks[]`, `master`. Each track has an
-  `instrument` (a preset name, a recipe file, or an inline recipe),
-  `volume`, `pan`, and `notes[]`: `beat`, `note` (a name like `"C5"` or Hz),
-  `length` in beats, optional `velocity`. Patterns (named groups of notes,
-  placed at bars) keep songs short to write.
-* A note plays the instrument recipe at the note's pitch: the recipe's
-  pitch curve is moved so `pitch.start` lands on the note, and the note's
-  length drives the envelope's `sustain_time`, with `release` after the
-  note ends. One `Voice` per note, scheduled at its exact sample, using the
-  same `prepare` and `process` as today. Notes in a single layer
-  (proposed as task 18 after playtest 1) are covered by this: a one-track
-  song is a melody.
-* The instrument recipe's own master `effects` (a reverb, an echo) run once
-  per track on the sum of its notes, not once per note, so tails join up
-  and a fast melody does not stack dozens of reverbs. Song-wide effects go
-  in the song's `master`.
-* Songs render at 44.1 kHz stereo by default; each track's `pan` places
-  it. Seeds: each track and note gets its own forked seed stream, chosen
-  from its position, so adding a track does not change the others (the
-  same rule that keeps per-layer solo renders matching the mix).
-* `duck-echo render song.toml` and the MCP `render` tool work by spotting
-  the document type; `validate`, `analyze` and `compare` work on songs too.
-  Validation reports every problem at once with paths such as
-  `tracks[1].notes[3].note`, like recipes.
-* Accept: a four-bar, two-track demo renders the same bytes every time on
-  Linux and Windows (pinned like the examples); `analyze` with `per_track`
-  reads each track's notes back as onsets with the right `note_hz`; the
-  recipe schema and every existing render are unchanged.
+Built as designed in `docs/phase1-design.md`; the reference is the
+"Songs" part of `docs/RECIPE_SPEC.md`.
 
-### 4. Pitched noise and LFOs (moved here from Phase 0)
+- [x] `Song` in `core::song`: `tempo`, `beats_per_bar`, `bars`, `tracks`
+  (each with a required `name`, an `instrument`, `volume`, `pan`, `notes`
+  and `play`), `patterns`, the song's own `instruments` and `kits`, and
+  the same `master` and `effects` as a recipe. Bars count from 1, beats
+  from 0. A chord is a list of notes.
+- [x] `core::arrange` checks a song and flattens it into events per track.
+  The renderer and the analyzer both read that list.
+- [x] A note is a `Voice` (`synth::prepare_note`): pitch moved by
+  `note / home`, the envelope let go when the note ends, the instrument's
+  effects run once per track, the instrument levelled once.
+- [x] Seeds by track name and note start sample.
+- [x] `validate`, `render`, `analyze`, `compare`, `create` and `edit` take
+  songs in the CLI and the MCP server, through one loader
+  (`tools::load_document`). `--per-track`, `--solo NAME`, `--mute NAME`.
+  `schema/song.schema.json`, `duck-echo schema song`.
+- [x] Stems: a track heard alone uses the full song's master gain, so the
+  stems add up to the mix (tested to 0.00001).
+- [x] A song's instrument files go through `Root::read` in the MCP server
+  (tested: no `..`, no absolute paths, no links out).
+- [x] `examples/songs/four_bars.toml` is pinned, and CI renders it on
+  Linux and Windows.
 
-* `noise` gains a sample-and-hold mode when `pitch` is set: add
-  `noise_mode = "white" | "pitched"` on the layer (default `white`). This
-  gives chip-style drums and hi-hats.
-* `[layers.lfo]` with `target` (`volume`, `cutoff`, `duty`), `rate`,
-  `depth`, `shape` (`sine`, `triangle`, `square`), `delay`, for tremolo,
-  filter movement and pulse-width movement in pads and leads.
-* Accept: unit tests on rate and depth; spec and schema updated; new
-  example `siren.toml` using an LFO on cutoff; existing renders unchanged.
+Lessons for the next builder:
 
-### 19. Starter instruments
+* **A drum kit is its own table.** The design first put kits inside
+  `instruments`. They are now `[kits.NAME]`, a map from piece name to an
+  instrument reference (a string). Two tables that both hold tables cannot
+  be told apart by the schema walker, and one string per piece is shorter
+  to write anyway.
+* **The structure walker now handles maps.** `additionalProperties` with a
+  schema (what `BTreeMap<String, T>` produces) checks every value against
+  it. Use `BTreeMap`, never `HashMap`, in document types, so the order is
+  always the same.
+* **The loader is generic.** `load.rs` runs the same four steps for
+  recipes and songs. A third document type needs a `Document` impl and a
+  schema, nothing else.
+* **Onset pitch is rough when notes touch.** `onsets[].note_hz` reads the
+  100 ms after an onset against the 100 ms before. When a note starts
+  while the last one, a semitone away, is still fading, the reading can be
+  half a semitone off; low notes are also rough. The demo's long notes
+  were shortened a little for this. Task 21 reads the held part of each
+  written note instead, which is the right tool for "is this the note I
+  wrote".
+* **Speed.** The four-bar demo (29 notes, 9 seconds) renders in 0.75 s in
+  a release build. Song tests run in a few seconds in test builds
+  (`opt-level = 1`), so no profile change was needed yet.
+* **Stems are exact only for linear song effects.** Echo and reverb on
+  the song are fine; distortion or bitcrush on the whole song means the
+  stems no longer add up (the same limit as `per_layer`).
 
-* An `instruments/` folder like `presets/`, compiled in, with tags and a
-  loudness target per instrument: **piano**, **pad**, **bass**, **drums**
-  (a kit: kick, snare, hi-hat, clap) and **chip lead**. Each is a recipe
-  that sounds right across its useful note range.
-* A real piano needs more than today's oscillators. Try layered sines with
-  a fast decay and a noise "hammer" first; if that is not good enough, add
-  the smallest new source that is (for example a list of partials, or
-  simple FM), as its own small step with its own tests.
-* `list_presets` (or a new `list_instruments`) shows them; a song track can
-  name one.
-* Accept: each instrument plays a C major scale (drums: each kit piece) and
-  `analyze` reads every note back within 10 cents; levels match their
-  targets; all pinned.
+### 4. Pitched noise and LFOs [done]
 
-### 20. Loops with no seam
+- [x] `noise_mode = "white" | "pitched"` on a layer (default `white`).
+  Pitched noise holds each random value for one cycle of the layer's
+  pitch, and follows the note in a song.
+- [x] `[layers.lfo]`: `target` (`volume`, `cutoff`, `duty`), `rate`,
+  `depth`, `shape` (`sine`, `triangle`, `square`), `delay`. One per layer.
+- [x] Unit tests on rate and depth; tests that hear the tremolo, the
+  moving filter and the moving pulse; validation with paths and
+  suggestions; spec and both schemas updated.
+- [x] `examples/recipes/siren.toml`, pinned. Every older fingerprint is
+  unchanged.
 
-* A song can say `loop = true` (and a length in bars). The render is then
-  exactly that length, and anything still ringing at the end (reverb,
-  echo, long releases) is wrapped round and added to the start, so the
-  file can repeat forever with no click and no gap.
-* Accept: the last and first samples join smoothly (no step larger than
-  the music's own); `analyze` of the loop played twice finds no onset at
-  the join; the length is exact to the sample.
+Lessons for the next builder:
 
-### 21. Checking music without ears
+* **Defaults must fit every choice.** The first depth range for `duty`
+  was 0..0.45, but the default depth is 0.5, so `lfo = { target = "duty" }`
+  alone was an error. The range is now 0..0.5 (the duty is clamped
+  anyway). When a range depends on another field, check the default
+  against each case.
+* **New optional things must not touch the old path.** White noise draws
+  nothing extra when the oscillator is made, and the layer loop only does
+  LFO work when there is an LFO. That is why no old fingerprint moved.
+* **The LFO has no state.** Its wave is worked out from the time, so it
+  does not matter how a render is cut into blocks.
+* **Held noise is never dark.** Even at 200 Hz it keeps a lot of hiss,
+  because each step is a sharp edge. For a deep drum, put a low-pass
+  filter after it or use a sine.
+* An LFO restarts with each note. A slow filter sweep across a whole
+  phrase is not possible yet (listed under Deferred).
 
-* `analyze` on a song reports per track: the notes heard (time, pitch,
-  level) next to the notes written, and any that are missing or wrong;
-  plus tempo and bar lines in the picture.
-* Accept: a test song with one deliberately wrong note is reported with
-  that note's track, beat and both pitches.
+### 19. Starter instruments [done]
+
+- [x] `instruments/`: `piano`, `pad`, `bass`, `chip_lead`, and the drum
+  pieces `kick`, `snare`, `hat`, `clap`, which make up the kit `drums`.
+  All are plain recipes, compiled in (`tools::instruments`). See
+  `instruments/README.md`.
+- [x] The piano needs no new sound source: six sine layers and a noise
+  hammer. It sounds like an electric piano, not a grand.
+- [x] A track names one plainly (`instrument = "piano"`).
+  `duck-echo instruments list|show`, MCP `list_instruments` and
+  `get_instrument`. `instrument:NAME` works wherever a recipe path does,
+  and in the MCP server it is checked like `preset:NAME`: a known name
+  only, read-only, never a path (tested).
+- [x] Every pitched instrument plays a C major scale in each octave of its
+  range and reads back within 10 cents; every kit piece is found at its
+  time; each is at its loudness target; all eight are pinned, and CI
+  renders them on Linux and Windows.
+- [x] A new precise pitch reader, `analyze::notes::spectrum_peak`, reads a
+  steady tone to a fraction of a cent. Task 21 builds on it.
+
+Lessons for the next builder:
+
+* **Detuned layers can cancel.** The first pad had three equal saws, 5
+  cents apart. Twice per beat cycle they cancelled, the note dropped away
+  for a moment, and its pitch read 12 cents off. The fix is in the recipe:
+  the centre layer is louder than the two side layers together, so they
+  can never cancel. Keep that rule for any detuned instrument.
+* **A pad cannot be tested like a piano.** It swells in slowly and rings
+  for a second after each note, so in a fast scale the note before is
+  louder than the new one. The scale test plays the pad in three-beat
+  notes and reads the second half of each note.
+* **White noise is too bright for a snare.** High-passed white noise has
+  its centre near 11 kHz, brighter than the hi-hat. The snare uses a wide
+  band-pass at 3.2 kHz instead.
+* **Levels.** With each instrument at its target and every track at
+  `volume = 1`, a five-track test mix came out within 3 LU from track to
+  track. That is the reason for the targets in the table.
+* **Filters do not follow the note** (Deferred). Each instrument therefore
+  has a useful range, listed in the README. Outside it the instrument
+  still plays but sounds dull or thin.
+* **Still weak:** the piano's fade is a straight line (the envelope has no
+  curved decay), so long notes sound a little flat and electric; all
+  notes of an instrument have the same tone whatever their `velocity`.
+
+### 20. Loops with no seam [done]
+
+- [x] `loop = true` on a song. The render is exactly the song's bars, to
+  the sample, and everything that still rings after the last bar is
+  folded onto the start (`synth::song`, `wrap_loop`).
+- [x] `analyze` and `render --json` report the join as `loop_seam`
+  (`seam_step`, `largest_step`, `clean`), and the summary says "loop joins
+  cleanly".
+- [x] Tests, from simple to strict: the length is exact at several tempos;
+  the join has no jump (and a hard cut of the same song does); played
+  twice, no onset is found at the join; and the loop equals the second
+  pass of the same song written out twice and rendered without looping.
+- [x] A tail longer than the loop wraps round more than once. Stems of a
+  loop are loops and add up to it. `trim_silence` with `loop` is an error.
+
+Lessons for the next builder:
+
+* **The strict test is the one to trust.** "No jump at the join" only
+  proves the join is smooth. "Equals the second pass of the song played
+  twice" proves the folded tail is the true tail. It passes to within the
+  reverb's own -60 dB tail.
+* **That test needs sounds without noise.** A note's random stream comes
+  from the sample it starts on, so the same note in bar 1 and in bar 3
+  has different noise. The test instrument is a sine.
+* **The fold is offline.** The player does not loop by itself. Live
+  looping in the Studio (Phase 2) should start the next turn's notes
+  while the last turn's voices and effects keep running, which gives the
+  same result without a fold.
+* **The first sample of a loop file is an onset** for the analyzer,
+  because the file starts mid-ring. That is the start of the file, not a
+  click at the join.
+* A loop file starts with the ring of a turn that never happened. A
+  separate "first time" file is listed under Deferred.
+
+### 21. Checking music without ears [done]
+
+- [x] `analyze` on a song reports `note_check`: per track, the notes
+  written, the notes heard, and every note that is `missing`, `quiet`, at
+  a `wrong_pitch` or `uncertain`, with its path, bar, beat, both pitches,
+  the cents between them and its level. `notes: true` / `--notes` lists
+  every note. The summary line says "N of M notes heard".
+- [x] Each note is read from the held part of the note on its own track
+  (`analyze::notes`), to a fraction of a cent for a steady tone. In the
+  demo every note, the low bass included, reads within 10 cents.
+- [x] Starts of sound with no written note (an echo's repeats) are listed
+  as `extra_onsets`.
+- [x] The picture of a song has a line at each bar, and `bar_lines` gives
+  their times. A recipe's picture is unchanged.
+- [x] Test: a song with one wrong note is reported with its track, bar,
+  beat and both pitches (F5 heard where G5 is written, 200 cents flat).
+  Also tested: a silent note, a quiet note, a note too short to read, an
+  instrument that sounds a fifth higher than written, chords, drum hits,
+  and a note held across a loop's join.
+
+Lessons for the next builder:
+
+* **Ask "is my note there?", not "what is the loudest thing?".** The
+  check looks for a peak near the written pitch first. Only when there is
+  none does it look at the strongest pitch. This is why a chord note
+  under louder notes, or a pad note under the tail of the last chord, is
+  still heard.
+* **Read where the sound is.** A piano note fades, so the middle of a
+  long note can be silent. The check reads from just after the start,
+  for at most 0.8 s.
+* **It costs a render per track.** `analyze` always pays that; `render`
+  only with `per_track` or `notes`. If this gets slow on long songs, the
+  stems could be made in one pass by keeping each track's bus.
+* **What it cannot do:** tell apart two overlapping notes of the same
+  pitch; say whether a note is buried under another track (it listens to
+  the track alone); read very short low notes (they are `uncertain`).
+* The checked audio is the stem at its level in the mix, so "audible"
+  means above -60 dBFS in the finished song.
+
+### Duck Craft demo: day and night loops [done]
+
+- [x] `examples/songs/duck_craft_day.toml` (calm, C major) and
+  `examples/songs/duck_craft_night.toml` (dark, A minor): eight bars each
+  at 84 BPM, looping, 44.1 kHz stereo, on the built-in instruments.
+- [x] Both are exactly 1,008,000 samples, join cleanly, sit at -18 LUFS,
+  do not clip, and every written note is heard (113 and 92 notes). Both
+  are pinned, and CI renders them on Linux and Windows.
+- [x] Tested as a pair: the same length to the sample, night darker than
+  day, a half-way fade between them does not clip, and each keeps its
+  level when mixed down to mono (Duck Forge plays mono for now).
+
+Lessons for the next builder:
+
+* **The tools were enough to write music blind.** Both tracks were
+  written as text and checked only with `analyze`: per-track loudness to
+  balance them, the note check to see nothing was lost, the summary word
+  ("mid" for day, "dark" for night) for the mood. Nobody has listened to
+  them yet. A human should, before they go into the game.
+* **Balance came from one pass.** The first drafts had the drums 10 LU
+  under the tune and the night's twinkles 20 LU under. `per_track`
+  showed it at once. A hint in the summary when one track is far under
+  the rest would save that step.
+* **Speed.** An eight-bar, five-track loop renders in about 2 s and
+  analyzes (with the note check) in about 10 s in a release build. Most
+  of that is the pad: three saw layers with a filter and an LFO each,
+  held for four beats, three notes per chord.
+* **Same tempo and bars means same length.** That is the whole trick for
+  fading between two themes. Keep it for every pair of themes a game
+  fades between.
+* **Phase 1 is done except task 10** (the agent guide), which is next.
+
+### Security fix found by CI: drive letters inside a path [done]
+
+The Windows CI job failed on the new song test, and it was right to: the
+MCP root guard (from Phase 0) could be left on Windows.
+
+- [x] The hole: `sub/C:\outside\x.wav` has no `..` and does not start
+  with a drive, so it passed the checks. But when the part after the
+  existing folder `sub` was joined back on, Windows read `C:\outside\x.wav`
+  as an absolute path, and `Path::join` with an absolute path *replaces*
+  the folder. A write or read could land outside the root. Linux was
+  never affected.
+- [x] The fix, in `crates/duck-echo-mcp/src/root.rs`: `:` is refused in
+  every path on every platform; the resolved path is built one plain
+  name at a time instead of joining a multi-part tail; and the result is
+  checked once more to be inside the root. A song's instrument file is
+  checked by itself before it is joined to the song's folder.
+- [x] Tests: a unit test and a stdio test try drive letters at the start
+  and in the middle of read paths, write paths and song instrument
+  files, and check that nothing outside the root is read or changed.
+
+Lessons for the next builder:
+
+* **Never `join` text that came from outside.** `Path::join` (and
+  `push`) replace the whole path when the argument is absolute, and what
+  counts as absolute differs by platform. Push single names you have
+  checked.
+* **Run the security tests on Windows.** This bug could not show on
+  Linux. The CI job on Windows is what caught it; keep it.
+* **A red CI is a finding, not noise.** The first five pushes of this
+  phase had a red Windows job, and the cause was only read at the end.
+  Look at CI after every push.
 
 ### 10. Agent workflow guide (moved here from Phase 0, last in Phase 1)
 
@@ -233,6 +424,12 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
 ## Phase 3: link with Duck Forge
 
 ### 13. Save into a game, with live reload
+
+* **Known gap, found in Phase 1:** Duck Forge reads 44.1 kHz WAV but
+  mixes stereo down to mono, so a track's `pan` is lost in a game. The
+  songs are true stereo and need no change once the engine plays both
+  channels. Until then the Duck Craft loops are tested to keep their
+  level in mono. Fixing the engine side belongs to this phase.
 
 * **Ask the Duck Forge owner for the details before writing code**: the
   sounds folder layout, any manifest or asset IDs, and how the engine

@@ -1,5 +1,8 @@
 # Duck Echo recipe specification, version 0
 
+This document covers both kinds of document: the **recipe** (one sound),
+and the **song** (music made of recipes; see "Songs").
+
 A recipe is a text document that fully describes one sound. The same fields
 are accepted as TOML (files) and JSON (tool calls). The authoritative
 definition is the Rust types in `crates/duck-echo-core/src/recipe.rs`; the
@@ -86,10 +89,12 @@ stack of layers must not clip.
 | `offset` | number | `0` | 0..30 | Start time of the layer. |
 | `duty` | number | `0.5` | 0.01..0.99 | Pulse width for `square`. Other sources ignore it (warning). |
 | `aliasing` | string | `"clean"` | `clean`, `retro` | How `square` and `saw` handle high notes (see below). Other sources sound the same either way (`retro` on them gives a warning). |
+| `noise_mode` | string | `"white"` | `white`, `pitched` | What kind of noise `noise` makes (see below). Other sources ignore it (warning). |
 | `pan` | number | `0` | -1..1 | Stereo position, left to right. Mono recipes ignore it (warning). |
 | `envelope` | table | defaults | | Volume envelope. |
 | `pitch` | table | defaults | | Pitch over time. |
 | `filter` | table | none | | Optional filter. |
+| `lfo` | table | none | | Optional slow wave that moves the volume, the cutoff or the duty. |
 | `effects` | array | `[]` | | Per-layer effect chain. |
 
 Source details:
@@ -100,8 +105,13 @@ Source details:
   +1/-0.333. Narrow pulses therefore sound thinner and quieter, as on real
   chips.
 * `saw` rises from -1 to +1 each cycle. `triangle` is symmetric.
-* `noise` is white noise from the seed. It ignores `pitch` (pitched noise is
-  on the roadmap).
+* `noise` is noise from the seed. With `noise_mode = "white"` (default)
+  it is plain hiss, a new random value every sample, and it ignores
+  `pitch`. With `noise_mode = "pitched"` it picks a new random value
+  `pitch` times per second and holds it in between, like the noise channel
+  of old game consoles. A low pitch gives a rough, crunchy sound and a
+  high pitch gives hiss; it follows pitch sweeps, and in a song it follows
+  the note. Good for chip-style drums and hi-hats.
 * `aliasing` chooses how `square` and `saw` treat high notes. A raw square
   or saw jumps from one level to another in a single sample, and that jump
   has energy above half the sample rate, which folds back down as harsh
@@ -186,6 +196,42 @@ clamped below 45% of the sample rate.
 Cutoff is clamped to 45% of the sample rate. Coefficients update every 16
 samples, which is inaudible for sweeps but means the filter is not sample
 accurate.
+
+### `layers[].lfo`
+
+An LFO ("low-frequency oscillator") is a slow wave that moves one setting
+while the sound plays. One per layer. It starts when the layer starts, so
+in a song it starts again with each note.
+
+| Field | Type | Default | Range | Meaning |
+|---|---|---|---|---|
+| `target` | string | `"volume"` | `volume`, `cutoff`, `duty` | What the wave moves. `cutoff` needs a `filter` on the layer and `duty` needs `source = "square"` (errors otherwise). |
+| `rate` | number | `5` | 0.01..50 | Cycles per second. |
+| `depth` | number | `0.5` | by target | How far it moves; see below. |
+| `shape` | string | `"sine"` | `sine`, `triangle`, `square` | The wave. `square` jumps between the two ends. |
+| `delay` | number | `0` | 0..30 | Seconds before the wave starts. |
+
+What `depth` means:
+
+* `volume` (0..1): the level swings between full and `1 - depth` of full.
+  It starts at full, so nothing jumps when the wave begins. `depth = 1`
+  goes all the way to silence. This is a tremolo.
+* `cutoff` (0..4): octaves up and down from the filter's cutoff (after its
+  own sweep). `depth = 1` moves between half and double the cutoff. It
+  starts at the cutoff and goes up first. Updated every 16 samples, like
+  the filter.
+* `duty` (0..0.5): added to and taken from `duty`; the result is kept
+  inside 0.01..0.99. It starts at `duty` and goes up first. This is
+  pulse-width movement, which makes a square wave sound thicker.
+
+```toml
+[[layers]]
+source = "saw"
+filter = { cutoff = 800, resonance = 2.0 }
+lfo = { target = "cutoff", rate = 1.0, depth = 2.0 }   # a slow "wah"
+```
+
+Pitch has its own wave already: `pitch.vibrato`.
 
 ### Stereo
 
@@ -333,6 +379,255 @@ JSON (`"layers": [...]`), and `type = "echo"` becomes `"type": "echo"`.
 }
 ```
 
+## Songs
+
+A **song** is a second kind of document: music written as text. A document
+with `tracks` at the top is a song; a document with `layers` is a recipe.
+The same commands and tools take both. The Rust types are in
+`crates/duck-echo-core/src/song.rs`, and the generated schema is
+`schema/song.schema.json` (`duck-echo schema song`).
+
+Every note plays an **instrument**, and an instrument is a recipe. Nothing
+about recipes changes.
+
+```toml
+version = 0
+tempo = 110            # beats per minute
+bars = 4               # 4 beats in a bar by default
+
+[patterns.walk]        # a named group of notes
+notes = [
+  { beat = 0, note = "C2" },
+  { beat = 1, note = "E2" },
+  { beat = 2, note = "G2" },
+  { beat = 3, note = "E2" },
+]
+
+[instruments.bass]     # a full recipe, written inside the song
+version = 0
+[[instruments.bass.layers]]
+source = "saw"
+envelope = { attack = 0.005, decay = 0.25, sustain = 0.5, release = 0.08 }
+pitch = { start = "C2" }
+
+[[tracks]]
+name = "bass"
+instrument = "bass"
+play = [
+  { pattern = "walk", bars = [1, 2, 4] },
+  { pattern = "walk", bars = [3], transpose = 5 },
+]
+notes = [{ bar = 4, beat = 3.5, note = "G2", length = 0.5 }]
+```
+
+Example songs, all pinned by fingerprint tests:
+
+| File | What it shows |
+|---|---|
+| `examples/songs/four_bars.toml` | two tracks, a pattern with `transpose`, instruments written inside the song |
+| `examples/songs/duck_craft_day.toml` | an eight-bar loop on the built-in instruments: chords on `pad`, patterns for `bass` and `drums`, a `piano` tune, a song reverb |
+| `examples/songs/duck_craft_night.toml` | its dark partner: the same tempo and length, so the two can be faded into each other |
+
+### Song top level
+
+| Field | Type | Default | Range / notes |
+|---|---|---|---|
+| `version` | integer | required | must be `0` |
+| `name`, `description`, `tags` | | none | metadata, not used by the renderer |
+| `tempo` | number | required | beats per minute, 20..=400 |
+| `beats_per_bar` | integer | `4` | 1..=16 |
+| `bars` | integer | computed | length in bars, 1 or more; when omitted the song ends at the bar line after its last note |
+| `loop` | boolean | `false` | make a seamless loop, exactly `bars` long; see "Loops" |
+| `seed` | integer | `0` | see "Song seeds" |
+| `sample_rate` | integer | `44100` | 8000..=192000 Hz |
+| `channels` | integer | `2` | `1` or `2`. Songs are stereo by default (recipes are mono) |
+| `master` | table | no change | the same `master` table as a recipe, for the whole song |
+| `effects` | array | `[]` | song-wide effects, the same list as a recipe's; run once on the mix |
+| `instruments` | table of recipes | none | the song's own instruments, by name |
+| `kits` | table | none | the song's own drum kits, by name |
+| `patterns` | table | none | named groups of notes |
+| `tracks` | array | required | at least one, at most 64 |
+
+Limits: a song is at most 600 s long and has at most 20000 notes (after
+patterns are placed and chords are split).
+
+### `tracks[]`
+
+| Field | Type | Default | Range / notes |
+|---|---|---|---|
+| `name` | string | required | unique in the song. Used in reports, by `solo` and `mute`, and for the track's seed |
+| `instrument` | string | required | see "Instruments" |
+| `volume` | number | `1` | 0..=2 |
+| `pan` | number | `0` | -1 (left) ..= 1 (right). A centred track passes through unchanged; panning fades the far side out and raises the near side by up to 3 dB (equal power) |
+| `notes` | array | `[]` | notes written on the track |
+| `play` | array | `[]` | patterns placed at bars; added to `notes` |
+
+### Notes
+
+`tracks[].notes[]`:
+
+| Field | Type | Default | Range / notes |
+|---|---|---|---|
+| `beat` | number | required | when the note starts, in beats after the bar line. `0` is on the line, `0.5` half a beat later |
+| `bar` | integer | `1` | the bar `beat` is counted from. **Bars count from 1.** With no `bar`, `beat` counts from the start of the song |
+| `note` | name, number or list | required | a note name (`"C5"`), a frequency in Hz (1..=20000), a list of these for a chord, or on a kit track the name of a piece (`"kick"`) |
+| `length` | number | `1` | how long the note is held, in beats, more than 0. Not used by kit pieces |
+| `velocity` | number | `1` | 0..=1; multiplies the note's volume (0.5 is 6 dB quieter) |
+
+`{ beat = 9, note = "A5" }` and `{ bar = 3, beat = 1, note = "A5" }` are
+the same note in a 4-beat bar. A note may ring past the end of the song
+but must start before it.
+
+`patterns.NAME.notes[]` has `beat`, `note`, `length` and `velocity` (no
+`bar`); beats count from the bar the pattern is placed at, and beat
+`beats_per_bar` is the first beat of the next bar.
+
+`tracks[].play[]`:
+
+| Field | Type | Default | Range / notes |
+|---|---|---|---|
+| `pattern` | string | required | a name in `patterns` |
+| `bars` | array of integers | required | the bars it starts at, counted from 1 |
+| `transpose` | integer | `0` | semitones up or down, -48..=48. Not used by kit pieces |
+
+### Instruments
+
+A track's `instrument` is one of:
+
+* A name in the song's `instruments` (a recipe) or `kits`.
+* A built-in instrument: `"piano"`, `"pad"`, `"bass"`, `"chip_lead"`, the
+  drum kit `"drums"` (notes `kick`, `snare`, `hat`, `clap`), or one of
+  those four pieces on its own. `instruments/README.md` describes each
+  with its useful range; `duck-echo instruments list` and the MCP tool
+  `list_instruments` list them. A song's own instrument wins over a
+  built-in one of the same name.
+* `"preset:NAME"`: a built-in preset.
+* A recipe file ending in `.toml` or `.json`, relative to the folder the
+  song file is in. In the MCP server the path is checked like every other
+  path: no absolute paths, no `..`, no `:`, nothing outside the server
+  root.
+
+A **kit** maps piece names to instruments, and its notes name a piece:
+
+```toml
+[kits.drums]
+kick = "preset:thud"     # a preset, a recipe file, or a name in `instruments`
+hat = "tick"
+
+[[tracks]]
+name = "drums"
+instrument = "drums"
+notes = [{ beat = 0, note = "kick" }, { beat = 0.5, note = "hat", velocity = 0.5 }]
+```
+
+### How a note plays an instrument
+
+One voice is made per note from the instrument's recipe:
+
+* **Pitch.** The instrument's home note is the `pitch.start` of its first
+  layer that is not noise. Every layer's pitch is multiplied by
+  `note / home`, so layers stay in step with each other. Sweeps, vibrato
+  and arpeggios move with the note. A layer that would start above 20 kHz
+  is left out of that note. Filters do not move with the note.
+* **Length.** While the note is held the envelope plays as written and
+  stays at `sustain` for as long as the note lasts; `sustain_time` is not
+  used. When the note ends the envelope falls to silence over `release`
+  (at least 5 ms, so nothing clicks) from whatever level it had reached. A
+  sound that fades by itself before the note ends just ends. A layer whose
+  `offset` is later than the note's end is not played.
+* **Velocity** multiplies the volume.
+* **Kit pieces** play their recipe exactly as written: no pitch change and
+  no `length`.
+* Notes never cut each other off. Each starts on its exact sample.
+
+What a song uses from an instrument recipe:
+
+| Part | In a song |
+|---|---|
+| `layers` (with their own `effects`) | played for every note |
+| top-level `effects` | run **once per track**, on the sum of its notes: one reverb is one room, echoes carry over the next notes, and a fast melody does not stack reverbs. A kit runs each piece's effects once for that piece |
+| `seed` | mixed into every note's seed |
+| `variation` | applies per note, so each note differs a little |
+| `master.gain`, `normalize`, `normalize_peak_db`, `normalize_lufs` | used once, as one fixed level: the gain the recipe's master applies when the recipe is rendered alone. An instrument is as loud in a song as on its own, and `velocity` still works |
+| `sample_rate`, `channels`, `duration`, `master.trim_silence` | not used; the song decides |
+
+Order of the signal: note voices, summed, instrument effects, instrument
+level, track `volume` and `pan`, all tracks summed, song `effects`, song
+`master`.
+
+### Song seeds
+
+The same song and seed give the same bytes. Each track has its own random
+stream, picked by the track's **name**; each note has its own, picked by
+the **sample it starts on** (and, for notes that start together, its place
+in pitch order). So:
+
+* adding, removing or reordering tracks never changes another track;
+* adding, removing or changing a note never changes another note;
+* a track rendered alone is exactly that track in the mix;
+* renaming a track changes that track's random parts only.
+
+### Loops
+
+`loop = true` makes a song that can repeat forever with no click and no
+gap:
+
+* The file is **exactly** as long as its bars, to the sample
+  (`song.song_frames`). Eight bars of four beats at 84 BPM and 44.1 kHz
+  are exactly 1,008,000 samples.
+* Whatever still rings after the last bar (a release, an echo, a reverb,
+  a note held across the end) is cut off the end and **added onto the
+  start**. Think of the loop playing for the tenth time: the end of the
+  ninth time is still ringing under its start. The file is one turn of a
+  song that has been playing forever.
+* The fold happens after the song `effects` and before the song `master`,
+  so loudness is measured on the finished loop.
+* A tail longer than the whole loop wraps round more than once.
+* The first time a game plays the file, its start already carries the
+  ring of a turn that never happened. That is normal for loop files.
+* `master.trim_silence = true` with `loop = true` is an error, because
+  trimming would change the length.
+* The fold is exact for echo and reverb. With distortion or bitcrush on a
+  whole track or on the whole song, the join is still smooth, but the
+  file is no longer sample for sample what an endless performance would
+  give.
+
+Two songs with the same `tempo`, `beats_per_bar` and `bars` are the same
+length to the sample, so a game can start both together and fade from one
+to the other at any moment.
+
+`analyze` and `render --json` report the join of a loop as `loop_seam`:
+`seam_step` (the jump from the last sample back to the first),
+`largest_step` (the biggest jump between two neighbouring samples inside
+the file) and `clean` (true when the first is no bigger than the second,
+so the join cannot click). The summary line ends with "loop joins
+cleanly".
+
+### Song length, stems and checking
+
+Without `loop`, the file is the song's bars plus whatever still rings
+after the last bar.
+The exact length of the bars in samples is `song.song_frames` in the
+result of `render --json` and `analyze`, with `tempo`, `bars`,
+`beats_per_bar` and `seconds_per_bar`.
+
+`--solo NAME`, `--mute NAME` and `--per-track` (`solo`, `mute`,
+`per_track` in the MCP tools) hear tracks on their own. A track heard alone
+is a **stem**: it is finished with the full song's master gain and length,
+the same rule as `per_layer`. The stems of all tracks add up to the mix (to
+within float rounding), unless the mix clips or the song's own `effects`
+include distortion or bitcrush.
+
+`analyze` on a song also listens for every written note on its own track
+and reports `note_check`: how many notes were heard, and each one that is
+`missing`, `quiet`, at a `wrong_pitch` or too short to read, with its
+track, bar, beat and both pitches. `docs/ANALYSIS.md` ("Songs") defines
+it. This is how to check a tune without hearing it.
+
+Validation reports every problem at once, with paths such as
+`tracks[1].notes[3].note`, `tracks[0].play[1].pattern` and
+`instruments.lead.layers[0].volume`.
+
 ## Examples
 
 All in `examples/recipes/`, all render without clipping. Their square
@@ -350,17 +645,26 @@ exactly as it was first pinned (the presets use the `clean` default):
 | `ricochet.toml` | `channels = 2`, two layers panned left and right, master reverb |
 | `chime.toml` | note-name pitches, sustain and release, vibrato with delay |
 | `fanfare.toml` | four layers (arpeggio lead, two-note chord, bass), `normalize_lufs`, master reverb; reads note by note in `onsets` and layer by layer with `--per-layer` |
+| `siren.toml` | an LFO on the filter `cutoff` in time with a wide vibrato, and an LFO on `duty` (uses the `clean` default) |
+
+Anywhere a recipe path is accepted, `preset:NAME` names a built-in preset
+and `instrument:NAME` a built-in instrument, for example
+`duck-echo analyze instrument:piano`.
 
 ## Deferred (not in v0, never silently ignored)
 
 These are not accepted by the schema yet; using them is an `unknown_field`
 error until implemented. See `ROADMAP.md` for the order.
 
-* Pitched noise (sample-and-hold noise at the layer pitch, NES style).
-* LFOs on volume, filter cutoff and duty.
+* More than one LFO per layer, LFO rates in beats, and an LFO that runs
+  on across the notes of a song (it restarts with each note).
 * Per-parameter random ranges (`volume = { min = 0.6, max = 0.9 }`).
 * Sample layers.
-* Song documents (roadmap Phase 1) and formant voice sources (Phase 5).
+* Formant voice sources (Phase 5).
+* In songs: a separate "first time" file for a loop (one without the
+  folded tail), tempo changes inside a song, swing, volume or filter changes
+  over time (automation), sample tracks, filters that follow the note, and
+  velocity changing the tone.
 
 ## Versioning
 

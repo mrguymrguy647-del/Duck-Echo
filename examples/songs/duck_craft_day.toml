@@ -1,0 +1,112 @@
+# Duck Craft, day: a calm, bright loop for the daytime.
+#
+# Eight bars in C major, 84 beats per minute, and it loops with no seam.
+# It is exactly as long as duck_craft_night.toml (1,008,000 samples), so
+# a game can start both together and fade from one to the other at any
+# moment: they stay in time.
+#
+#   duck-echo render examples/songs/duck_craft_day.toml -o day.wav
+#   duck-echo analyze examples/songs/duck_craft_day.toml
+version = 0
+name = "duck_craft_day"
+description = "A calm daytime loop: soft keys over a warm pad and a light beat."
+tags = ["music", "loop", "calm", "day"]
+tempo = 84
+bars = 8
+loop = true
+
+[master]
+normalize_lufs = -18
+
+# A little room around the whole band.
+[[effects]]
+type = "reverb"
+size = 0.5
+decay = 1.2
+mix = 0.12
+
+# One bar of bass: the chord's root, then its fifth as a pickup. It is
+# written for C and moved to each chord with `transpose`.
+[patterns.root_and_fifth]
+notes = [
+  { beat = 0, note = "C2", length = 2.5 },
+  { beat = 3, note = "G2", length = 1, velocity = 0.7 },
+]
+
+# One bar of a light beat.
+[patterns.light_beat]
+notes = [
+  { beat = 0, note = "kick", velocity = 0.8 },
+  { beat = 1, note = "hat", velocity = 0.5 },
+  { beat = 2, note = "hat", velocity = 0.35 },
+  { beat = 2.5, note = "kick", velocity = 0.5 },
+  { beat = 3, note = "hat", velocity = 0.5 },
+  { beat = 3.5, note = "hat", velocity = 0.3 },
+]
+
+# The chords, one per bar: C, G, Am, F, then C, G, F, G to lead back.
+[[tracks]]
+name = "pad"
+instrument = "pad"
+volume = 0.9
+notes = [
+  { bar = 1, beat = 0, note = ["C4", "E4", "G4"], length = 4 },
+  { bar = 2, beat = 0, note = ["B3", "D4", "G4"], length = 4 },
+  { bar = 3, beat = 0, note = ["A3", "C4", "E4"], length = 4 },
+  { bar = 4, beat = 0, note = ["A3", "C4", "F4"], length = 4 },
+  { bar = 5, beat = 0, note = ["C4", "E4", "G4"], length = 4 },
+  { bar = 6, beat = 0, note = ["B3", "D4", "G4"], length = 4 },
+  { bar = 7, beat = 0, note = ["A3", "C4", "F4"], length = 4 },
+  { bar = 8, beat = 0, note = ["B3", "D4", "G4"], length = 4 },
+]
+
+[[tracks]]
+name = "bass"
+instrument = "bass"
+volume = 0.9
+play = [
+  { pattern = "root_and_fifth", bars = [1, 5] },                  # C
+  { pattern = "root_and_fifth", bars = [2, 6, 8], transpose = 7 },  # G
+  { pattern = "root_and_fifth", bars = [3], transpose = -3 },     # A
+  { pattern = "root_and_fifth", bars = [4, 7], transpose = 5 },   # F
+]
+
+# The tune.
+[[tracks]]
+name = "keys"
+instrument = "piano"
+pan = -0.15
+notes = [
+  { bar = 1, beat = 0, note = "E5" },
+  { bar = 1, beat = 1, note = "G5" },
+  { bar = 1, beat = 2, note = "C6", length = 2 },
+  { bar = 2, beat = 0, note = "B5" },
+  { bar = 2, beat = 1, note = "G5" },
+  { bar = 2, beat = 2, note = "D5", length = 2 },
+  { bar = 3, beat = 0, note = "C5" },
+  { bar = 3, beat = 1, note = "E5" },
+  { bar = 3, beat = 2, note = "A5", length = 2 },
+  { bar = 4, beat = 0, note = "A5" },
+  { bar = 4, beat = 1, note = "F5" },
+  { bar = 4, beat = 2, note = "C5", length = 2 },
+  { bar = 5, beat = 0, note = "E5", length = 1.5 },
+  { bar = 5, beat = 1.5, note = "G5", length = 0.5 },
+  { bar = 5, beat = 2, note = "C6", length = 2 },
+  { bar = 6, beat = 0, note = "D6" },
+  { bar = 6, beat = 1, note = "B5" },
+  { bar = 6, beat = 2, note = "G5", length = 2 },
+  { bar = 7, beat = 0, note = "A5" },
+  { bar = 7, beat = 1, note = "F5" },
+  { bar = 7, beat = 2, note = "A5" },
+  { bar = 7, beat = 3, note = "C6" },
+  { bar = 8, beat = 0, note = "B5" },
+  { bar = 8, beat = 1, note = "G5" },
+  { bar = 8, beat = 2, note = "D5", length = 2 },
+]
+
+[[tracks]]
+name = "drums"
+instrument = "drums"
+volume = 1.3
+pan = 0.1
+play = [{ pattern = "light_beat", bars = [1, 2, 3, 4, 5, 6, 7, 8] }]

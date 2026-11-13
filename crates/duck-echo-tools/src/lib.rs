@@ -9,9 +9,13 @@ use std::fmt;
 use std::path::Path;
 
 pub mod files;
+pub mod instruments;
 pub mod measure;
+pub mod notecheck;
+pub mod song;
 
-pub use measure::{Extras, LayerAnalysis, Measured};
+pub use measure::{Extras, LayerAnalysis, Measured, Options, TrackAnalysis};
+pub use song::{load_document, load_document_value, Document, FileResolver, SongFacts, SongRef};
 
 /// Why an operation failed. Both shapes become the same validation report
 /// for callers (see [`ToolError::into_report`]).
@@ -104,12 +108,18 @@ pub fn is_recipe_path(path: &Path) -> bool {
     )
 }
 
-/// Audio from a path: a WAV file is read; a recipe file or `preset:NAME`
-/// is validated and rendered in memory.
+/// Audio from a path: a WAV file is read; a recipe or song file or
+/// `preset:NAME` is validated and rendered in memory. A song's instrument
+/// files are read from the song file's own folder.
 pub fn load_audio(path: &Path) -> Result<AudioBuffer, ToolError> {
+    load_audio_with(path, &song::files_next_to(path))
+}
+
+/// [`load_audio`], with a song's instrument files read through `files`.
+pub fn load_audio_with(path: &Path, files: &FileResolver) -> Result<AudioBuffer, ToolError> {
     if is_recipe_ref(path) {
-        let r = load_recipe(path)?;
-        Ok(duck_echo_synth::render(&r.loaded.recipe)?)
+        let doc = load_document(path, files)?;
+        Ok(measure::measure_document(&doc, None, &Options::default(), "")?.buffer)
     } else {
         read_wav(path).map_err(|e| match e {
             WavError::Io(io) => {
@@ -168,6 +178,13 @@ pub struct RecipeRef {
 /// Load a recipe from a file path or a `preset:NAME` reference.
 pub fn load_recipe(reference: &Path) -> Result<RecipeRef, ToolError> {
     let text = reference.to_string_lossy();
+    if let Some(name) = text.strip_prefix(instruments::INSTRUMENT_PREFIX) {
+        let instrument = instruments::get(name)?;
+        return Ok(RecipeRef {
+            loaded: instruments::load(instrument)?,
+            stem: instrument.name.to_string(),
+        });
+    }
     if let Some(name) = text.strip_prefix(PRESET_PREFIX) {
         let preset = presets::get(name)?;
         return Ok(RecipeRef {
@@ -186,7 +203,10 @@ pub fn load_recipe(reference: &Path) -> Result<RecipeRef, ToolError> {
 /// True when `reference` names a recipe (a `.toml`/`.json` path or a
 /// preset) rather than audio.
 pub fn is_recipe_ref(reference: &Path) -> bool {
-    reference.to_string_lossy().starts_with(PRESET_PREFIX) || is_recipe_path(reference)
+    let text = reference.to_string_lossy();
+    text.starts_with(PRESET_PREFIX)
+        || text.starts_with(instruments::INSTRUMENT_PREFIX)
+        || is_recipe_path(reference)
 }
 
 /// Result of rendering a recipe to a file.
@@ -209,6 +229,22 @@ pub struct Rendered {
     /// With `per_layer`: each heard layer analyzed on its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layers: Option<Vec<LayerAnalysis>>,
+    /// For a song: tempo, bars and exact length.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song: Option<SongFacts>,
+    /// For a song with `solo` or `mute`: the tracks heard in the file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heard_tracks: Option<Vec<String>>,
+    /// For a song with `per_track`: each heard track analyzed on its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracks: Option<Vec<TrackAnalysis>>,
+    /// For a looping song: how the end of the file joins its start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_seam: Option<measure::LoopSeam>,
+    /// For a song, when its notes were checked: the notes written next to
+    /// the notes heard, per track.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_check: Option<notecheck::NoteCheck>,
     /// With `picture`: what the picture shows. The PNG is in `png`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<duck_echo_analyze::PictureInfo>,
@@ -242,18 +278,55 @@ pub fn render_to_file(
     }
     let m = measure::measure_recipe(&recipe, &loaded.report.warnings, extras)?;
     write_wav_file(output, &m.buffer, format)?;
-    let measured = m.measured;
-    Ok(Rendered {
+    Ok(rendered(output, recipe.seed, m.measured))
+}
+
+fn rendered(output: &Path, seed: u64, measured: Measured) -> Rendered {
+    Rendered {
         ok: true,
         output: output.display().to_string(),
-        seed: recipe.seed,
+        seed,
         warnings: measured.warnings,
         analysis: measured.analysis,
         heard_layers: measured.heard_layers,
         layers: measured.layers,
+        song: measured.song,
+        heard_tracks: measured.heard_tracks,
+        tracks: measured.tracks,
+        loop_seam: measured.loop_seam,
+        note_check: measured.note_check,
         picture: measured.picture,
         png: measured.png,
-    })
+    }
+}
+
+/// Render a recipe or a song to a WAV file and analyze the result. Like
+/// [`render_to_file`], for either kind of document. `prefix` is put before
+/// argument names in errors (`--` for the CLI, `arguments.` for MCP).
+pub fn render_document_to_file(
+    doc: &Document,
+    output: &Path,
+    seed: Option<u64>,
+    format: duck_echo_audio::WavFormat,
+    options: &Options,
+    prefix: &str,
+) -> Result<Rendered, ToolError> {
+    if !has_wav_extension(output) {
+        return Err(ToolError::failed(
+            Code::PathRefused,
+            format!(
+                "render output {} must end in .wav; refusing to write audio over another kind of file",
+                output.display()
+            ),
+        ));
+    }
+    let m = measure::measure_document(doc, seed, options, prefix)?;
+    write_wav_file(output, &m.buffer, format)?;
+    let used = seed.unwrap_or(match doc {
+        Document::Recipe(r) => r.loaded.recipe.seed,
+        Document::Song(s) => s.loaded.song.seed,
+    });
+    Ok(rendered(output, used, m.measured))
 }
 
 /// Write a picture's PNG bytes to `path`, which must end in `.png`.

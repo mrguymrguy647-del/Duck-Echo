@@ -1,0 +1,72 @@
+# Piano: six sine layers and a short noise "hammer".
+#
+# A piano string does not make one pure tone. It makes the note plus
+# quieter tones at about 2, 3, 4, 5 and 6 times the note, and the higher
+# ones fade faster. Each layer below is one of those tones. They are tuned
+# a tiny bit sharp of exact multiples, as real strings are.
+#
+# Written at C4 (the first layer). In a song every layer moves with the
+# note, so the six stay in step. It sounds closer to an electric piano or
+# a music box than to a grand piano.
+version = 0
+name = "piano"
+description = "A soft keyboard: six fading sine tones and a hammer click."
+tags = ["instrument", "keys", "piano"]
+
+[master]
+normalize_lufs = -18
+
+[[effects]]
+type = "reverb"
+size = 0.3
+decay = 0.6
+mix = 0.12
+
+[[layers]]
+name = "tone 1"
+source = "sine"
+volume = 0.9
+envelope = { attack = 0.002, decay = 1.8, release = 0.12 }
+pitch = { start = "C4" }
+
+[[layers]]
+name = "tone 2"
+source = "sine"
+volume = 0.45
+envelope = { attack = 0.002, decay = 1.3, release = 0.12 }
+pitch = { start = 523.67 }
+
+[[layers]]
+name = "tone 3"
+source = "sine"
+volume = 0.25
+envelope = { attack = 0.002, decay = 0.95, release = 0.12 }
+pitch = { start = 786.29 }
+
+[[layers]]
+name = "tone 4"
+source = "sine"
+volume = 0.15
+envelope = { attack = 0.002, decay = 0.7, release = 0.1 }
+pitch = { start = 1049.85 }
+
+[[layers]]
+name = "tone 5"
+source = "sine"
+volume = 0.09
+envelope = { attack = 0.002, decay = 0.5, release = 0.1 }
+pitch = { start = 1314.65 }
+
+[[layers]]
+name = "tone 6"
+source = "sine"
+volume = 0.05
+envelope = { attack = 0.002, decay = 0.35, release = 0.1 }
+pitch = { start = 1581.02 }
+
+[[layers]]
+name = "hammer"
+source = "noise"
+volume = 0.2
+envelope = { attack = 0.001, decay = 0.02 }
+filter = { kind = "bandpass", cutoff = 2500, resonance = 1.0 }

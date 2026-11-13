@@ -1,0 +1,21 @@
+# Hi-hat: very short pitched noise with the low part filtered away.
+#
+# Pitched noise (see `noise_mode` in the spec) at a high pitch gives the
+# thin, metallic hiss of an old console's hi-hat.
+#
+# A piece of the built-in `drums` kit.
+version = 0
+name = "hat"
+description = "A short, thin closed hi-hat."
+tags = ["instrument", "drum", "hat"]
+
+[master]
+normalize_lufs = -24
+
+[[layers]]
+source = "noise"
+noise_mode = "pitched"
+volume = 0.6
+envelope = { attack = 0.001, decay = 0.045 }
+pitch = { start = 9000 }
+filter = { kind = "highpass", cutoff = 7000, resonance = 1.0 }

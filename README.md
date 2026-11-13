@@ -1,7 +1,7 @@
 # Duck Echo
 
-An audio studio for AI agents and humans: retro sound effects now, music and
-synthetic voices later, for games and videos. Sibling of the Duck Forge game
+An audio studio for AI agents and humans: retro sound effects and music
+now, synthetic voices later, for games and videos. Sibling of the Duck Forge game
 engine.
 
 Every sound is a text **recipe**. The recipe is the source of truth; audio
@@ -38,6 +38,51 @@ end = "A6"
 curve = "exponential"
 ```
 
+A **song** is music as text: tracks of notes, each played by an
+instrument, and an instrument is a recipe. The same commands take both:
+
+```bash
+./target/release/duck-echo render examples/songs/four_bars.toml -o four_bars.wav
+```
+
+```bash
+./target/release/duck-echo analyze examples/songs/four_bars.toml --per-track
+```
+
+### Music for Duck Craft: day and night
+
+Two looping tracks ship as examples, made for the Duck Craft game:
+
+| File | Mood | Built from |
+|---|---|---|
+| `examples/songs/duck_craft_day.toml` | Calm and bright, C major | piano tune, pad chords, plucked bass, a light beat |
+| `examples/songs/duck_craft_night.toml` | Dark and slow, A minor | low piano tune, pad chords, long bass notes, far-off twinkles, a heartbeat kick, a big reverb |
+
+```bash
+./target/release/duck-echo render examples/songs/duck_craft_day.toml -o day.wav
+```
+
+```bash
+./target/release/duck-echo render examples/songs/duck_craft_night.toml -o night.wav
+```
+
+Each is eight bars at 84 beats per minute, 44.1 kHz stereo, levelled to
+-18 LUFS, and **exactly 1,008,000 samples** (22.86 seconds) long. Play
+either file on repeat: its end joins its start with no click. Because the
+two are the same length and tempo, and A minor uses the same notes as
+C major, a game can start both together and fade from one to the other at
+any moment.
+
+For one instrument alone (a stem, to switch on and off in a game):
+
+```bash
+./target/release/duck-echo render examples/songs/duck_craft_night.toml --solo drums -o night_drums.wav
+```
+
+Duck Forge currently mixes stereo down to mono, so the left and right
+placement of the tracks is lost in a game for now. The loops are tested
+to keep their level in mono.
+
 ## Commands
 
 | Command | What it does |
@@ -48,21 +93,35 @@ curve = "exponential"
 | `duck-echo compare <a> <b> [--compact]` | What changed from A to B (loudness, brightness, length, attack, ...), waveform correlation, and both analyses. WAV files or recipes. |
 | `duck-echo presets list [--tag T] [--json]` | The 30 built-in presets with category, loudness target and description. |
 | `duck-echo presets show <name> [--json]` | A preset's recipe, to copy and edit. |
+| `duck-echo instruments list [--json]` | The built-in instruments a song can play (piano, pad, bass, chip_lead and the kit `drums`), with their useful range. |
+| `duck-echo instruments show <name> [--json]` | An instrument's recipe, to copy and edit. |
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
-| `duck-echo schema` | The JSON Schema for recipes, with descriptions and defaults. |
+| `duck-echo schema [song]` | The JSON Schema for recipes, or for songs, with descriptions and defaults. |
 
-Recipes are TOML on disk and JSON in tool calls; both are the same schema.
+`validate`, `render`, `analyze` and `compare` also take a song (a document
+with `tracks`). For a song, `--per-track` analyzes each track alone and
+`--solo`/`--mute` take track names; `render --solo bass` writes that
+track's stem, which lines up with the full mix in time and level.
+`analyze` on a song also checks it without ears: it listens for every
+written note and reports any that is missing, quiet or at the wrong pitch
+(`note_check`; `--notes` lists every note), and for a loop whether the end
+joins the start cleanly (`loop_seam`).
+
+Recipes and songs are TOML on disk and JSON in tool calls; both are the same schema.
 Anywhere a recipe is expected, `preset:NAME` names a built-in preset, for
-example `duck-echo render preset:coin -o coin.wav`.
+example `duck-echo render preset:coin -o coin.wav`, and `instrument:NAME`
+a built-in instrument.
 
 ## Use it from an agent (MCP)
 
 `duck-echo-mcp` serves the Duck Echo tools over the Model Context Protocol:
-`get_schema`, `list_presets`, `get_preset`, `list_files`, `validate`,
+`get_schema`, `list_presets`, `get_preset`, `list_instruments`,
+`get_instrument`, `list_files`, `validate`,
 `create`, `edit`, `render`, `analyze`, `compare` and `variations`. File
-paths are relative to `--root` and cannot leave it: absolute paths, `..`
-and symbolic links that lead out are refused, and `render` only writes
-`.wav` files. `render` and `analyze` can return a picture of the sound as
+paths are relative to `--root` and cannot leave it: absolute paths, `..`,
+any `:` in a path (a drive letter) and symbolic links that lead out are
+refused, and `render` only writes `.wav` files. A song's instrument files
+are checked the same way. `render` and `analyze` can return a picture of the sound as
 an MCP image (`picture: true`) and analyze layers on their own
 (`per_layer`, `solo`, `mute`).
 
@@ -143,12 +202,15 @@ details: `docs/ARCHITECTURE.md`.
 
 ## Documents
 
-* `docs/RECIPE_SPEC.md`: every field, default and range, plus examples.
+* `docs/RECIPE_SPEC.md`: every field, default and range, plus examples,
+  for recipes and for songs.
+* `docs/phase1-design.md`: why songs work the way they do.
 * `docs/ANALYSIS.md`: every `analyze` and `compare` field and how it is measured.
 * `docs/ARCHITECTURE.md`: crates, data flow, determinism, realtime rules,
   the planned MCP tools and the Duck Ear bridge.
 * `docs/ROADMAP.md`: ordered tasks for the next builder.
-* `schema/recipe.schema.json`: generated schema for agents.
+* `schema/recipe.schema.json`, `schema/song.schema.json`: generated
+  schemas for agents.
 
 ## Layout
 
@@ -161,11 +223,16 @@ crates/duck-echo-tools    operations shared by the CLI and the MCP server
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
 crates/duck-echo-mcp      the duck-echo-mcp binary: MCP server over stdio
 presets                   30 tagged starting points (see presets/README.md)
+instruments               the starter instruments for songs: piano, pad, bass,
+                          chip_lead and a drum kit (see instruments/README.md)
 playtest                  root for the project MCP server (.mcp.json); one
                           committed folder per playtest
+examples/songs            four_bars (two tracks, instruments written inline),
+                          duck_craft_day and duck_craft_night (looping
+                          eight-bar themes on the built-in instruments)
 examples/recipes          coin, jump, laser, explosion, hit, powerup,
                           ricochet (stereo), chime (note names), fanfare
-                          (layers, normalize_lufs)
+                          (layers, normalize_lufs), siren (LFOs)
 ```
 
 ## Development
@@ -186,9 +253,13 @@ cargo test --workspace
 cargo clippy --workspace --all-targets && cargo fmt --all -- --check
 ```
 
-After changing the recipe types, regenerate the checked-in schema (a test
-fails when it is stale):
+After changing the recipe or song types, regenerate the checked-in schemas
+(a test fails when one is stale):
 
 ```bash
 cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
+```
+
+```bash
+cargo run -p duck-echo-cli -- schema song > schema/song.schema.json
 ```

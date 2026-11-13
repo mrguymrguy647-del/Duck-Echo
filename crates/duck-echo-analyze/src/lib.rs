@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod compare;
 pub mod features;
 pub mod fft;
+pub mod notes;
 pub mod picture;
 pub mod png;
 pub mod timeline;

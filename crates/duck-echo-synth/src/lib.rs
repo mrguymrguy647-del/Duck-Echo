@@ -19,12 +19,14 @@ pub mod dsp;
 pub mod effects;
 pub mod loudness;
 pub mod math;
+pub mod song;
 
 use duck_echo_audio::AudioBuffer;
 use duck_echo_core::validate::chain_tail_seconds;
-use duck_echo_core::{Layer, Recipe, Report, Source};
+use duck_echo_core::{Layer, Master, Recipe, Report, Source};
 
-use dsp::{ArpShape, Biquad, EnvShape, Oscillator, PitchCurve, Sweep, VibratoShape};
+use dsp::{ArpShape, Biquad, EnvShape, LfoShaper, Oscillator, PitchCurve, Sweep, VibratoShape};
+use duck_echo_core::{LfoTarget, NoiseMode};
 use effects::EffectState;
 use math::Rng;
 
@@ -70,6 +72,9 @@ struct LayerVoice {
     pitch: PitchCurve,
     osc: Oscillator,
     filter: Option<(Biquad, Sweep)>,
+    /// The layer's LFO, if it has one, and the `duty` it moves around.
+    lfo: Option<LfoShaper>,
+    duty: f32,
     control_counter: usize,
     effects: Vec<EffectState>,
     /// Equal-power left and right gains from `pan`.
@@ -88,8 +93,46 @@ pub fn prepare(recipe: &Recipe) -> Result<Voice, Report> {
 /// Plan and allocate without validating. Only for recipes that already
 /// passed [`duck_echo_core::validate`]; out-of-range values may misbehave.
 pub fn prepare_unchecked(recipe: &Recipe) -> Voice {
-    let sr = recipe.sample_rate as f32;
-    let root = Rng::new(recipe.seed);
+    build(recipe, None)
+}
+
+/// How one note of a song plays an instrument recipe.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NotePlay {
+    /// Every layer's pitch is multiplied by this: `note / home`.
+    pub ratio: f32,
+    /// How long the note is held, in seconds. `None` plays the recipe's
+    /// own envelope from start to end (a drum hit).
+    pub gate: Option<f32>,
+    /// The voice's output gain (velocity times the instrument's level).
+    pub gain: f32,
+    /// Seed for this note's noise and variation.
+    pub seed: u64,
+    /// The song's sample rate, used instead of the recipe's.
+    pub sample_rate: u32,
+    /// The song's channels (1 or 2), used instead of the recipe's.
+    pub channels: usize,
+}
+
+/// Prepare a [`Voice`] for one note of a song. It plays the recipe's
+/// layers only: the recipe's master effects are left out, because in a
+/// song they run once per track on the sum of its notes (see [`song`]).
+///
+/// Layers that would play above 20 kHz at this note are left out; they
+/// could not be heard and would fold back down as a false tone.
+pub fn prepare_note(recipe: &Recipe, play: &NotePlay) -> Voice {
+    build(recipe, Some(play))
+}
+
+/// Highest pitch a layer may start at in a note, Hz.
+const NOTE_MAX_HZ: f32 = 20_000.0;
+
+/// The shared planner behind [`prepare_unchecked`] (`note` is `None`) and
+/// [`prepare_note`].
+fn build(recipe: &Recipe, note: Option<&NotePlay>) -> Voice {
+    let sample_rate = note.map_or(recipe.sample_rate, |n| n.sample_rate);
+    let sr = sample_rate as f32;
+    let root = Rng::new(note.map_or(recipe.seed, |n| n.seed));
     let mut variation_rng = root.fork(STREAM_VARIATION);
 
     let mut layers = Vec::with_capacity(recipe.layers.len());
@@ -99,8 +142,24 @@ pub fn prepare_unchecked(recipe: &Recipe) -> Voice {
         // being non-zero for earlier layers.
         let pitch_jitter = variation_rng.bipolar();
         let time_jitter = variation_rng.bipolar();
-        let pitch_mult = math::semitones_to_ratio(recipe.variation * 3.0 * pitch_jitter);
+        let mut pitch_mult = math::semitones_to_ratio(recipe.variation * 3.0 * pitch_jitter);
         let time_scale = 1.0 + recipe.variation * 0.3 * time_jitter;
+
+        let mut gate = None;
+        if let Some(n) = note {
+            pitch_mult *= n.ratio;
+            if layer.has_pitch() && layer.pitch.start.hz() * pitch_mult > NOTE_MAX_HZ {
+                continue;
+            }
+            if let Some(g) = n.gate {
+                // The note is let go `g` seconds after it starts; a layer
+                // that starts later than that is never played.
+                if g <= layer.offset {
+                    continue;
+                }
+                gate = Some(g - layer.offset);
+            }
+        }
 
         let lv = LayerVoice::new(
             i,
@@ -108,34 +167,38 @@ pub fn prepare_unchecked(recipe: &Recipe) -> Voice {
             sr,
             pitch_mult,
             time_scale,
+            gate,
             root.fork(STREAM_LAYER + i as u64),
         );
         last_end = last_end.max(lv.end_frame);
         layers.push(lv);
     }
 
-    let master_tail = chain_tail_seconds(&recipe.effects);
-    let total_frames = match recipe.duration {
-        Some(d) => ((d * sr).round() as usize).max(1),
-        None => (last_end + (master_tail * sr).round() as usize).max(1),
+    let (channels, gain, effects, total_frames) = match note {
+        Some(n) => (n.channels.clamp(1, 2), n.gain, &[][..], last_end.max(1)),
+        None => {
+            let master_tail = chain_tail_seconds(&recipe.effects);
+            let total = match recipe.duration {
+                Some(d) => ((d * sr).round() as usize).max(1),
+                None => (last_end + (master_tail * sr).round() as usize).max(1),
+            };
+            (
+                recipe.channels.clamp(1, 2) as usize,
+                recipe.master.gain,
+                &recipe.effects[..],
+                total,
+            )
+        }
     };
-
-    let channels = recipe.channels.clamp(1, 2) as usize;
     Voice {
-        sample_rate: recipe.sample_rate,
+        sample_rate,
         channels,
         total_frames,
         position: 0,
-        gain: recipe.master.gain,
+        gain,
         layers,
         master_effects: (0..channels)
-            .map(|_| {
-                recipe
-                    .effects
-                    .iter()
-                    .map(|e| EffectState::new(e, sr))
-                    .collect()
-            })
+            .map(|_| effects.iter().map(|e| EffectState::new(e, sr)).collect())
             .collect(),
         scratch: vec![0.0; RENDER_BLOCK],
         mix: if channels > 1 {
@@ -153,9 +216,13 @@ impl LayerVoice {
         sr: f32,
         pitch_mult: f32,
         time_scale: f32,
+        gate: Option<f32>,
         rng: Rng,
     ) -> Self {
-        let env = EnvShape::new(&layer.envelope, time_scale);
+        let env = match gate {
+            Some(g) => EnvShape::gated(&layer.envelope, time_scale, g),
+            None => EnvShape::new(&layer.envelope, time_scale),
+        };
         let env_len = env.length().min(30.0);
         let tail = chain_tail_seconds(&layer.effects);
         let start_frame = (layer.offset * sr).round() as usize;
@@ -213,9 +280,12 @@ impl LayerVoice {
                 layer.source,
                 layer.duty,
                 layer.aliasing == duck_echo_core::Aliasing::Clean,
+                layer.noise_mode == NoiseMode::Pitched,
                 rng,
             ),
             filter,
+            lfo: layer.lfo.as_ref().map(LfoShaper::new),
+            duty: layer.duty,
             control_counter: 0,
             effects: layer
                 .effects
@@ -278,13 +348,24 @@ impl LayerVoice {
         let n = end - begin;
         let buf = &mut scratch[..n];
 
+        // What the LFO moves, if there is one. Without an LFO the loop
+        // below does exactly what it did before LFOs existed.
+        let target = self.lfo.as_ref().map(LfoShaper::target);
+
         // 1. Oscillator shaped by envelope and volume.
         for s in buf.iter_mut() {
             let local = self.local;
             if local < self.env_frames {
                 let t = local as f32 * self.inv_sample_rate;
                 let hz = self.pitch.at(t);
-                let level = self.env.level(t) * self.volume;
+                let mut level = self.env.level(t) * self.volume;
+                if let Some(lfo) = &self.lfo {
+                    match target {
+                        Some(LfoTarget::Volume) => level *= lfo.gain(t),
+                        Some(LfoTarget::Duty) => self.osc.set_duty(self.duty + lfo.offset(t)),
+                        _ => {}
+                    }
+                }
                 *s = self.osc.next(hz * self.inv_sample_rate) * level;
             } else {
                 *s = 0.0;
@@ -292,7 +373,13 @@ impl LayerVoice {
             // 2. Filter with control-rate cutoff updates.
             if let Some((bq, sweep)) = &mut self.filter {
                 if self.control_counter == 0 {
-                    bq.set_cutoff(sweep.at(local as f32 * self.inv_sample_rate));
+                    let t = local as f32 * self.inv_sample_rate;
+                    let mut cutoff = sweep.at(t);
+                    if let (Some(LfoTarget::Cutoff), Some(lfo)) = (target, &self.lfo) {
+                        // `offset` is in octaves: +1 doubles the cutoff.
+                        cutoff *= math::exp2(lfo.offset(t));
+                    }
+                    bq.set_cutoff(cutoff);
                 }
                 self.control_counter += 1;
                 if self.control_counter == CONTROL_INTERVAL {
@@ -484,7 +571,14 @@ pub fn render(recipe: &Recipe) -> Result<AudioBuffer, Report> {
 pub fn render_mastered(recipe: &Recipe) -> Result<(AudioBuffer, Mastering), Report> {
     let voice = prepare(recipe)?;
     let channels = voice.channels();
-    let (samples, mastering) = master(recipe, mix(voice), channels);
+    let trim = recipe.master.trim_silence && recipe.duration.is_none();
+    let (samples, mastering) = master(
+        &recipe.master,
+        recipe.sample_rate,
+        trim,
+        mix(voice),
+        channels,
+    );
     Ok((
         AudioBuffer {
             sample_rate: recipe.sample_rate,
@@ -522,17 +616,22 @@ pub fn render_layers(
 }
 
 /// The offline master steps on a raw mix: normalize (by peak or loudness),
-/// clip, trim.
-fn master(recipe: &Recipe, mut samples: Vec<f32>, channels: usize) -> (Vec<f32>, Mastering) {
-    let trim = recipe.master.trim_silence && recipe.duration.is_none();
-    if let Some(target) = recipe.master.normalize_lufs {
-        return normalize_loudness(recipe, &samples, channels, target, trim);
+/// clip, trim. `trim` says whether `trim_silence` may cut the end.
+pub(crate) fn master(
+    settings: &Master,
+    sample_rate: u32,
+    trim: bool,
+    mut samples: Vec<f32>,
+    channels: usize,
+) -> (Vec<f32>, Mastering) {
+    if let Some(target) = settings.normalize_lufs {
+        return normalize_loudness(sample_rate, &samples, channels, target, trim);
     }
     let mut gain = 1.0;
-    if recipe.master.normalize {
+    if settings.normalize {
         let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
         if peak > 0.0 {
-            let target = math::db_to_gain(recipe.master.normalize_peak_db);
+            let target = math::db_to_gain(settings.normalize_peak_db);
             gain = target / peak;
             for s in &mut samples {
                 *s *= gain;
@@ -565,7 +664,7 @@ fn clip_and_trim(samples: &mut Vec<f32>, channels: usize, trim: bool) {
 /// so the peak stays at or under [`duck_echo_core::LOUDNESS_CEILING_DBFS`]. Deterministic: the
 /// measurement is [`loudness::mean_square`] and the pass count is fixed.
 fn normalize_loudness(
-    recipe: &Recipe,
+    sr: u32,
     raw: &[f32],
     channels: usize,
     target: f32,
@@ -587,7 +686,6 @@ fn normalize_loudness(
             },
         )
     };
-    let sr = recipe.sample_rate;
     let peak = raw.iter().fold(0.0f32, |m, s| m.max(s.abs()));
     let measured = (peak > 0.0)
         .then(|| loudness::mean_square(raw, channels, sr))

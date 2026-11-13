@@ -1,0 +1,26 @@
+# Bass: a saw wave through a filter that closes quickly (the "pluck"),
+# with a sine on the same note underneath for weight.
+#
+# Written at C2. Useful from about E1 to C4.
+version = 0
+name = "bass"
+description = "A plucked bass with a round low end."
+tags = ["instrument", "bass"]
+
+[master]
+normalize_lufs = -18
+
+[[layers]]
+name = "weight"
+source = "sine"
+volume = 0.6
+envelope = { attack = 0.004, decay = 0.3, sustain = 0.6, sustain_time = 0.4, release = 0.08 }
+pitch = { start = "C2" }
+
+[[layers]]
+name = "pluck"
+source = "saw"
+volume = 0.5
+envelope = { attack = 0.004, decay = 0.3, sustain = 0.5, sustain_time = 0.4, release = 0.08 }
+pitch = { start = "C2" }
+filter = { kind = "lowpass", cutoff = 1100, cutoff_end = 320, sweep_time = 0.18, resonance = 1.4 }
