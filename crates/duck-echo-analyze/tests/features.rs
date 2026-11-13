@@ -162,6 +162,31 @@ fn compare_reports_level_shift_inversion_and_identity() {
     let c = compare(mono(&a), mono(&inverted));
     assert!((c.correlation.unwrap().at_zero_lag + 1.0).abs() < 1e-4);
 
+    // A burst of noise turned upside down: the summary says so, instead
+    // of calling a correlation of -1 "partly similar" (playtest 2).
+    let mut seed = 12345u32;
+    let burst: Vec<f32> = (0..22_050)
+        .map(|i| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let noise = (seed >> 8) as f32 / 8_388_608.0 - 1.0;
+            noise * 0.5 * (-(i as f32) / 4000.0).exp()
+        })
+        .collect();
+    let flipped: Vec<f32> = burst.iter().map(|s| -s).collect();
+    let c = compare(mono(&burst), mono(&flipped));
+    assert!(c.correlation.as_ref().unwrap().peak < -0.99);
+    assert!(
+        c.summary
+            .contains("waveforms closely match, upside down (-1.00)"),
+        "{}",
+        c.summary
+    );
+    let c = compare(
+        mono(&burst),
+        mono(&burst.iter().map(|s| s * 0.8).collect::<Vec<_>>()),
+    );
+    assert!(!c.summary.contains("upside down"), "{}", c.summary);
+
     let mut delayed = vec![0.0f32; 4410];
     delayed.extend(&a);
     let c = compare(mono(&a), mono(&delayed));

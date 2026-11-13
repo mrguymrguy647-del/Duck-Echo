@@ -15,7 +15,8 @@ Never write a sound from nothing, and never change many things at once.
 1. **Start from something that works.** `list_presets` (sounds) or
    `list_instruments` (music), then `get_preset` or `get_instrument`.
 2. **Save a copy.** `create` with a path such as `sfx/coin.toml` and the
-   `recipe` object from step 1.
+   `recipe` object from step 1 (pass the whole object back). Then edit
+   its `name`, `description` and `tags`: they still describe the preset.
 3. **Change one thing.** `edit` with one op, for example
    `{"path": "layers[0].pitch.start", "value": "C6"}`.
 4. **Render.** `render` with an `output` such as `sfx/coin.wav`. The
@@ -24,6 +25,11 @@ Never write a sound from nothing, and never change many things at once.
    your change should have moved.
 6. **Compare.** `compare` with `a` (before) and `b` (after) says what
    changed in plain words, such as "b is 3.0 LU louder, 20% brighter".
+   Its summary covers loudness, brightness, length, attack, clipping and
+   how alike the waveforms are; `delta` has the numbers (peak too). It does not cover notes or pitch: for those,
+   `analyze` both and read `onsets` and `pitch_track`. To keep a "before"
+   to compare with, `render` it to a second file (`sfx/coin_before.wav`)
+   first.
 7. Keep the change or undo it. Go back to step 3.
 
 Every failed call returns `{ok: false, errors: [...]}`. Each error has
@@ -53,7 +59,8 @@ Sounds made to their target sit together in a game.
 
 A preset is levelled by its peak (`master.normalize_peak_db`). Change
 its sound and its loudness drifts. So the first edit to a copy should
-always be to level it by loudness instead:
+always be to level it by loudness instead. These are the `ops` of one
+`edit` call:
 
 ```json
 [
@@ -67,7 +74,8 @@ Use the target of the category. From then on, every render comes out at
 that loudness, whatever you change. If the target cannot be reached
 without the peak going over -1 dBFS, the render says so in `warnings`.
 Then make the sound less spiky (a longer attack, less resonance) or
-accept it quieter.
+accept it quieter. Within 0.5 LU of the target is fine; a game player
+cannot hear that.
 
 Loudness alone matters, not peak. Two sounds with the same peak can be
 13 dB apart in loudness.
@@ -80,21 +88,28 @@ Loudness alone matters, not peak. Two sounds with the same peak can be
 * `k_weighted_ungated` for shorter sounds, shown with `~` in the summary
   (`~-19.0 LUFS`).
 
-Compare short sounds with short sounds. `compare` gives no loudness
-change when the two methods differ.
+Compare short sounds with short sounds. When the two methods differ,
+`compare` gives no loudness change and reports the RMS change instead.
 
 ### Which field to read
 
 | You want to know | Read |
 |---|---|
 | Is it the right length? | `duration_seconds`, `trailing_silence_seconds` |
-| Does it start hard or soft? | `attack_seconds`, summary word ("sharp attack") |
+| Does it start hard or soft? | `attack_seconds`, summary word ("sharp attack"); see below |
 | Is it bright or dark? | `spectral_centroid_hz`, summary word ("bright") |
 | Is it a tone or noise? | `tonality` (near 1 is a tone, near 0 is noise) |
 | Where does the pitch go? | `pitch_track` (up to 8 points) |
 | Where are the notes? | `onsets`: time, `note_hz` and level of each start |
 | How does it fade? | `energy_over_time` (20 slices, dBFS) |
 | Is it broken? | `clipping.clipped`, `dc_offset`, `is_silent` |
+
+`attack_seconds` is the time from the first sound to the **loudest**
+moment. If a sound holds near its peak, or a later layer is a little
+louder, it can read "soft attack" although it starts hard, and
+shortening an envelope's `attack` may not move it. Then read
+`per_layer` (each layer's own attack) and the first `energy_over_time`
+slices instead.
 
 ### When the summary is not enough
 
@@ -114,7 +129,8 @@ old sound chip on purpose.
 
 ### A small example
 
-A coin, one fifth higher, at its target:
+A coin, a fourth higher than the preset (it starts on E6, not B5), at
+its target:
 
 ```toml
 version = 0
@@ -215,6 +231,8 @@ The rules that trip agents up:
 * A **pattern** is a named group of notes. Place it with `play`, at one
   or more `bars`, and move it with `transpose` (semitones).
 * Every track needs a unique `name`. `solo` and `mute` use it.
+* `beats_per_bar` is 4 unless you set it. Songs render in stereo at
+  44.1 kHz unless you set `channels` or `sample_rate`.
 
 ### Choosing instruments
 
@@ -232,23 +250,28 @@ song as `[instruments.NAME]` and edit the copy. A track can also play
 `preset:NAME` or a recipe file next to the song.
 
 Balance with track `volume` (0 to 2, default 1). The instruments are
-already levelled against each other, so start every track at 1. Level
-the whole song with `master.normalize_lufs` (music in a game: -18).
+already levelled against each other, so start every track at 1, then
+check `per_track`: the **melody should be the loudest pitched track**.
+A pad playing three-note chords is often louder than a one-note tune;
+raise the tune's `volume` (1.3 to 1.5) until it leads. Level the whole
+song with `master.normalize_lufs` (music in a game: -18).
 
 ### Loops and stems
 
 * `loop = true` makes the file exactly as long as its bars, with
   whatever still rings at the end folded onto the start. It repeats
-  forever with no click. `loop_seam.clean` in the analysis confirms it,
-  and the summary says "loop joins cleanly".
-* `solo: ["drums"]` (CLI `--solo drums`) renders one track alone, at its
-  level in the mix. These **stems** line up with the full song and add
+  forever with no click. `loop_seam.clean` confirms it (at the top level
+  of the result, next to `summary` in `analyze` and next to `analysis`
+  in `render`), and the summary says "loop joins cleanly".
+* `render` with `solo: ["drums"]` writes one track alone, at its level
+  in the mix (on the command line: `--solo drums`). These **stems** line up with the full song and add
   up to it, so a game can switch parts on and off.
 * **Two themes a game fades between** (day and night, calm and danger)
   need the same `tempo`, `beats_per_bar` and `bars`. Then they are the
   same length to the sample and stay in time. Keys that share notes
-  (C major and A minor) blend best. `examples/songs/duck_craft_day.toml`
-  and `duck_craft_night.toml` are such a pair.
+  (C major and A minor) blend best. In the Duck Echo repository,
+  `examples/songs/duck_craft_day.toml` and `duck_craft_night.toml` are
+  such a pair.
 
 ### Checking a song without ears
 
@@ -264,9 +287,12 @@ problem in `note_check.tracks[].problems` has the note's `path`, `bar`,
 | `wrong_pitch` | another pitch is heard | the instrument's loudest part is not the note; or a typo |
 | `uncertain` | too short to read | usually fine; make it longer if it matters |
 
-`extra_onsets` lists starts of sound where no note was written, with
-their bar and beat. An echo's repeats appear there. They are not
-errors.
+`extra_onsets` lists clear starts of sound where no note was written,
+with their bar and beat (to the nearest eighth of a beat). An echo's
+repeats appear there, and so does a sound that is in the audio but not
+in your notes. Wobbles inside a held note are not listed. Read them as
+information: they are not errors in your song. `note_check` sits at the
+top level of the result, like `loop_seam`.
 
 Then check the balance with `per_track: true`: each track's
 `loudness_lufs` alone. A track 10 LU or more under the others is lost
@@ -284,6 +310,11 @@ Duck Echo cannot tell you whether a tune is *good*. Say so, and ask a
 person to listen.
 
 ## Where to read more
+
+Through the tools: `get_schema` (every recipe field; `kind: "song"` for
+songs), `get_preset`, `get_instrument`, and each tool's own description.
+
+If you can read the Duck Echo repository:
 
 * `docs/RECIPE_SPEC.md`: every recipe and song field, default and range.
 * `docs/ANALYSIS.md`: every analysis field and how it is measured.

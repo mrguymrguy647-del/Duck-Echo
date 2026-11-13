@@ -159,9 +159,10 @@ counts, plus:
   repeats show up here, and so does a note that is in the audio but not
   in the song. They are information, not problems. A start inside a
   note that is still held on the same track is **not** extra when it
-  brings no new pitch (no clear pitch, a reading above 5 kHz, or the held
-  note's own pitch or one of its overtones) and the level does not jump
-  by 6 dB or more. Long low notes wobble as their filter closes and their
+  brings no new pitch (no clear pitch, a reading above 5 kHz, the held
+  note's own pitch or one of its overtones, or a pitch that was already
+  sounding just before, such as a resonant filter sweeping past) and the
+  level does not jump by 6 dB or more. Long low notes wobble as their filter closes and their
   layers beat, and the onset finder sees those wobbles as starts; this
   rule keeps them out. Drum tracks hold no notes, so their extras are
   found by time alone. The onset finder cannot see a pure sine entering
@@ -232,5 +233,5 @@ The thresholds live in `duck_echo_analyze::features::words`.
 | `summary` | What changed from `a` to `b` in words, for example "b is 6.0 LU quieter, 34% brighter, 0.12 s longer, waveforms closely match (0.98)". |
 | `identical` | Same format and exactly the same samples. |
 | `delta` | `b` minus `a` for duration, peak, RMS, loudness (`loudness_lu`, only when both use the same method), centroid (Hz and `b/a` ratio), tonality, attack, decay, crest factor and trailing silence. |
-| `correlation` | Normalized cross-correlation of the channel means over all time shifts: `peak` (-1..1, largest magnitude), `lag_seconds` (positive when `b` is later), `at_zero_lag`. `null` when sample rates differ, either sound is silent, or the two together exceed about 95 s at 44.1 kHz. |
+| `correlation` | Normalized cross-correlation of the channel means over all time shifts: `peak` (-1..1, largest magnitude; negative means the shapes match upside down, which the summary says as "upside down"), `lag_seconds` (positive when `b` is later), `at_zero_lag`. `null` when sample rates differ, either sound is silent, or the two together exceed about 95 s at 44.1 kHz. |
 | `a`, `b` | The full analysis of each. |

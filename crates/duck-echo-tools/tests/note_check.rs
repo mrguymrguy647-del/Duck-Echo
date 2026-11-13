@@ -464,3 +464,32 @@ fn drum_tracks_are_still_checked_by_time() {
     // Played as written: nothing extra.
     assert!(check_against(&written, &written, 0).extra_onsets.is_empty());
 }
+
+/// Playtest 2: in the tune a fresh agent wrote, a short plucked bass
+/// note whose resonant filter sweeps down made the onset finder name a
+/// pitch (247 Hz over a 55 Hz A1) that is neither a note nor an overtone.
+/// It was already sounding before the onset, so it is not extra.
+#[test]
+fn a_filter_sweeping_past_a_pitch_is_not_an_extra_note() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../playtest/playtest-2/music/tune.toml");
+    let doc = load_document(&path, &files_next_to(&path)).unwrap();
+    let options = Options {
+        check_notes: true,
+        ..Options::default()
+    };
+    let check = measure_document(&doc, None, &options, "")
+        .unwrap()
+        .measured
+        .note_check
+        .unwrap();
+    assert_eq!((check.notes_written, check.notes_heard), (155, 155));
+    for track in &check.tracks {
+        assert!(
+            track.extra_onsets.is_empty(),
+            "{}: {:?}",
+            track.name,
+            track.extra_onsets
+        );
+    }
+}

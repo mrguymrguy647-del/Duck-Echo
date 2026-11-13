@@ -1,0 +1,362 @@
+version = 0
+name = "main_level"
+bars = 8
+loop = true
+tempo = 140
+
+[master]
+normalize_lufs = -18
+
+[[patterns.beat.notes]]
+beat = 0
+note = "kick"
+
+[[patterns.beat.notes]]
+beat = 1
+note = "snare"
+
+[[patterns.beat.notes]]
+beat = 2
+note = "kick"
+
+[[patterns.beat.notes]]
+beat = 3
+note = "snare"
+
+[[patterns.beat.notes]]
+beat = 0.5
+note = "hat"
+velocity = 0.5
+
+[[patterns.beat.notes]]
+beat = 1.5
+note = "hat"
+velocity = 0.5
+
+[[patterns.beat.notes]]
+beat = 2.5
+note = "hat"
+velocity = 0.5
+
+[[patterns.beat.notes]]
+beat = 3.5
+note = "hat"
+velocity = 0.5
+
+[[patterns.root.notes]]
+beat = 0
+length = 0.75
+note = "C2"
+
+[[patterns.root.notes]]
+beat = 1
+length = 0.5
+note = "C3"
+
+[[patterns.root.notes]]
+beat = 2
+length = 0.75
+note = "C2"
+
+[[patterns.root.notes]]
+beat = 3
+length = 0.5
+note = "C3"
+
+[[tracks]]
+instrument = "chip_lead"
+name = "lead"
+volume = 1.4
+
+[[tracks.notes]]
+bar = 1
+beat = 0
+length = 0.5
+note = "C5"
+
+[[tracks.notes]]
+bar = 1
+beat = 0.5
+length = 0.5
+note = "E5"
+
+[[tracks.notes]]
+bar = 1
+beat = 1
+length = 1
+note = "G5"
+
+[[tracks.notes]]
+bar = 1
+beat = 2
+length = 0.5
+note = "E5"
+
+[[tracks.notes]]
+bar = 1
+beat = 2.5
+length = 0.5
+note = "G5"
+
+[[tracks.notes]]
+bar = 1
+beat = 3
+length = 1
+note = "C6"
+
+[[tracks.notes]]
+bar = 2
+beat = 0
+length = 1
+note = "B5"
+
+[[tracks.notes]]
+bar = 2
+beat = 1
+length = 0.5
+note = "G5"
+
+[[tracks.notes]]
+bar = 2
+beat = 1.5
+length = 0.5
+note = "D5"
+
+[[tracks.notes]]
+bar = 2
+beat = 2
+length = 2
+note = "G5"
+
+[[tracks.notes]]
+bar = 3
+beat = 0
+length = 0.5
+note = "A5"
+
+[[tracks.notes]]
+bar = 3
+beat = 0.5
+length = 0.5
+note = "C6"
+
+[[tracks.notes]]
+bar = 3
+beat = 1
+length = 1
+note = "E6"
+
+[[tracks.notes]]
+bar = 3
+beat = 2
+length = 1
+note = "C6"
+
+[[tracks.notes]]
+bar = 3
+beat = 3
+length = 1
+note = "A5"
+
+[[tracks.notes]]
+bar = 4
+beat = 0
+length = 1
+note = "F5"
+
+[[tracks.notes]]
+bar = 4
+beat = 1
+length = 1
+note = "A5"
+
+[[tracks.notes]]
+bar = 4
+beat = 2
+length = 2
+note = "C6"
+
+[[tracks.notes]]
+bar = 5
+beat = 0
+length = 1
+note = "E6"
+
+[[tracks.notes]]
+bar = 5
+beat = 1
+length = 0.5
+note = "D6"
+
+[[tracks.notes]]
+bar = 5
+beat = 1.5
+length = 0.5
+note = "C6"
+
+[[tracks.notes]]
+bar = 5
+beat = 2
+length = 1
+note = "G5"
+
+[[tracks.notes]]
+bar = 5
+beat = 3
+length = 1
+note = "E5"
+
+[[tracks.notes]]
+bar = 6
+beat = 0
+length = 0.5
+note = "D5"
+
+[[tracks.notes]]
+bar = 6
+beat = 0.5
+length = 0.5
+note = "G5"
+
+[[tracks.notes]]
+bar = 6
+beat = 1
+length = 1
+note = "B5"
+
+[[tracks.notes]]
+bar = 6
+beat = 2
+length = 2
+note = "D6"
+
+[[tracks.notes]]
+bar = 7
+beat = 0
+length = 1
+note = "C6"
+
+[[tracks.notes]]
+bar = 7
+beat = 1
+length = 1
+note = "A5"
+
+[[tracks.notes]]
+bar = 7
+beat = 2
+length = 0.5
+note = "F5"
+
+[[tracks.notes]]
+bar = 7
+beat = 2.5
+length = 0.5
+note = "A5"
+
+[[tracks.notes]]
+bar = 7
+beat = 3
+length = 1
+note = "C6"
+
+[[tracks.notes]]
+bar = 8
+beat = 0
+length = 1
+note = "B5"
+
+[[tracks.notes]]
+bar = 8
+beat = 1
+length = 1
+note = "D6"
+
+[[tracks.notes]]
+bar = 8
+beat = 2
+length = 2
+note = "G5"
+
+[[tracks]]
+instrument = "pad"
+name = "chords"
+
+[[tracks.notes]]
+bar = 1
+beat = 0
+length = 4
+note = ["C4", "E4", "G4"]
+
+[[tracks.notes]]
+bar = 2
+beat = 0
+length = 4
+note = ["B3", "D4", "G4"]
+
+[[tracks.notes]]
+bar = 3
+beat = 0
+length = 4
+note = ["A3", "C4", "E4"]
+
+[[tracks.notes]]
+bar = 4
+beat = 0
+length = 4
+note = ["A3", "C4", "F4"]
+
+[[tracks.notes]]
+bar = 5
+beat = 0
+length = 4
+note = ["C4", "E4", "G4"]
+
+[[tracks.notes]]
+bar = 6
+beat = 0
+length = 4
+note = ["B3", "D4", "G4"]
+
+[[tracks.notes]]
+bar = 7
+beat = 0
+length = 4
+note = ["A3", "C4", "F4"]
+
+[[tracks.notes]]
+bar = 8
+beat = 0
+length = 4
+note = ["B3", "D4", "G4"]
+
+[[tracks]]
+instrument = "bass"
+name = "bass"
+
+[[tracks.play]]
+bars = [1, 5]
+pattern = "root"
+
+[[tracks.play]]
+bars = [2, 6, 8]
+pattern = "root"
+transpose = 7
+
+[[tracks.play]]
+bars = [3]
+pattern = "root"
+transpose = -3
+
+[[tracks.play]]
+bars = [4, 7]
+pattern = "root"
+transpose = 5
+
+[[tracks]]
+instrument = "drums"
+name = "drums"
+
+[[tracks.play]]
+bars = [1, 2, 3, 4, 5, 6, 7, 8]
+pattern = "beat"

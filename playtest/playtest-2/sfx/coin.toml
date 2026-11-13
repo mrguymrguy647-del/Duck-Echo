@@ -1,0 +1,24 @@
+version = 0
+name = "coin"
+description = "Classic coin pickup."
+tags = ["pickup", "coin", "bright"]
+
+[master]
+normalize_lufs = -19
+trim_silence = true
+
+[[layers]]
+source = "square"
+
+[layers.envelope]
+attack = 0.002
+decay = 0.25
+hold = 0.06
+
+[layers.pitch]
+start = "B5"
+
+[layers.pitch.arpeggio]
+repeat = false
+step_time = 0.05
+steps = [0, 5]

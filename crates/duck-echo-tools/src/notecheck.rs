@@ -7,7 +7,9 @@
 //! every written note this module listens at the place the note should
 //! be, on its track rendered alone, and says what is there.
 
-use duck_echo_analyze::notes::{cents, read_hit, read_pitched, NoteStatus, SAME_NOTE_CENTS};
+use duck_echo_analyze::notes::{
+    cents, read_hit, read_pitched, spectrum, NoteStatus, SAME_NOTE_CENTS,
+};
 use duck_echo_analyze::Onset;
 use duck_echo_audio::AudioBuffer;
 use duck_echo_core::note::note_name;
@@ -357,9 +359,11 @@ pub fn check_track(
 /// are true:
 ///
 /// * it brings no new pitch: it has no clear pitch (none, or one above
-///   5 kHz, where a short reading is hiss), or its pitch is the held
+///   5 kHz, where a short reading is hiss); or its pitch is the held
 ///   note's pitch or one of its overtones (2, 3, ... 8 times it), within
-///   half a semitone; and
+///   half a semitone; or its pitch was already sounding just before (the
+///   spectrum there rises by less than 6 dB: a filter sweeping past, not
+///   a new note); and
 /// * the level does not jump: the 80 ms after it are less than 6 dB
 ///   louder than the 80 ms before it.
 ///
@@ -374,30 +378,52 @@ fn inside_held_note(onset: &Onset, held: &[(f64, f64, f64)], mono: &[f32], sr: f
     if sounding.is_empty() {
         return false;
     }
-    let same_pitch = match onset.note_hz.filter(|hz| (*hz as f64) <= NOTE_PITCH_LIMIT) {
-        None => true,
-        Some(hz) => sounding.iter().any(|(_, _, note)| {
-            (1..=8).any(|n| cents(hz as f64, note * n as f64).abs() < SAME_NOTE_CENTS)
-        }),
-    };
-    if !same_pitch {
-        return false;
-    }
-    // The level before is measured only after the held note started, so
-    // its own attack is never part of the comparison.
+    // "Before" is measured only after the held note started, so its own
+    // attack is never part of the comparison.
     let latest_start = sounding
         .iter()
         .map(|(start, _, _)| *start)
         .fold(f64::MIN, f64::max);
     let before_from = (t - JUMP_WINDOW).max(latest_start + 0.02);
     let frame = |s: f64| ((s * sr).round().max(0.0) as usize).min(mono.len());
+    let part = |from: f64, to: f64| &mono[frame(from)..frame(to).max(frame(from))];
     let rms = |from: f64, to: f64| {
-        let part = &mono[frame(from)..frame(to).max(frame(from))];
+        let part = part(from, to);
         if part.is_empty() {
             return None;
         }
         Some((part.iter().map(|x| (*x as f64).powi(2)).sum::<f64>() / part.len() as f64).sqrt())
     };
+    // How much louder the sound is at `hz` just after the onset than
+    // just before it, dB. `None` when a stretch is too short to read.
+    let rise_at = |hz: f64| {
+        let reach = 2f64.powf(SAME_NOTE_CENTS / 1200.0);
+        let level = |from: f64, to: f64| {
+            spectrum(part(from, to), sr as u32)?
+                .peak(hz / reach, hz * reach)
+                .map(|p| p.amplitude)
+        };
+        let before = level(before_from, t - 0.005)?;
+        let after = level(t, t + JUMP_WINDOW)?;
+        Some(to_db(after) - to_db(before))
+    };
+
+    let same_pitch = match onset.note_hz.filter(|hz| (*hz as f64) <= NOTE_PITCH_LIMIT) {
+        None => true,
+        Some(hz) => {
+            let hz = hz as f64;
+            sounding.iter().any(|(_, _, note)| {
+                (1..=8).any(|n| cents(hz, note * n as f64).abs() < SAME_NOTE_CENTS)
+            })
+            // A pitch that was already sounding just before the onset is
+            // not new either: a filter sweeping past it, or two layers
+            // beating, can make the onset finder name it.
+            || rise_at(hz).is_some_and(|rise| rise < JUMP_DB)
+        }
+    };
+    if !same_pitch {
+        return false;
+    }
     match (rms(before_from, t - 0.005), rms(t, t + JUMP_WINDOW)) {
         (Some(before), Some(after)) => to_db(after) - to_db(before) < JUMP_DB,
         // Too little before the onset to compare: the held note explains
