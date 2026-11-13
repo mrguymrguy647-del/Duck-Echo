@@ -186,7 +186,11 @@ pub fn measure_recipe(
     } else {
         full
     };
-    let analysis = crate::analyze_buffer(&buffer);
+    let mut analysis = crate::analyze_buffer(&buffer);
+    if let Some(note) = layer_note(recipe.layers.len(), heard.len(), extras.per_layer) {
+        analysis.summary.push_str(", ");
+        analysis.summary.push_str(&note);
+    }
     let layers = if extras.per_layer {
         let mut out = Vec::with_capacity(heard.len());
         for &i in &heard {
@@ -212,6 +216,26 @@ pub fn measure_recipe(
             picture,
             png,
         },
+    })
+}
+
+/// What the summary adds about layers, for a recipe with `total` layers
+/// of which `heard` are heard. A single layer needs no note. A mix of
+/// several describes only the whole, so it says how many layers there are
+/// and points at `per_layer`, unless `per_layer` is already on.
+fn layer_note(total: usize, heard: usize, per_layer: bool) -> Option<String> {
+    if total <= 1 {
+        return None;
+    }
+    let count = if heard < total {
+        format!("{heard} of {total} layers heard")
+    } else {
+        format!("{total} layers")
+    };
+    Some(if per_layer || heard <= 1 {
+        count
+    } else {
+        format!("{count}; per_layer describes each")
     })
 }
 

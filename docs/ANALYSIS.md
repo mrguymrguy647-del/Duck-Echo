@@ -120,6 +120,7 @@ above.
 | N onsets | Two or more `onsets`. |
 | CLIPPING (N samples) | Any clipped sample. |
 | silent tail | Trailing silence above 20% of the length. |
+| N layers; per_layer describes each | Only for a recipe with two or more layers (a WAV file has no layers). The rest of the summary describes the whole mix, so this says how many layers made it and that `per_layer` gives each one's own analysis. With `per_layer` on, only "N layers"; with `solo` or `mute`, "K of N layers heard". |
 
 The thresholds live in `duck_echo_analyze::features::words`.
 

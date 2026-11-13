@@ -698,7 +698,14 @@ fn files_pictures_layers_and_loudness_targets() {
     let (solo, err) = s.call("analyze", json!({"recipe": layered, "mute": [0]}));
     assert!(!err);
     assert_eq!(solo["heard_layers"], json!([1]));
-    assert_eq!(solo["summary"], a["layers"][1]["analysis"]["summary"]);
+    // The muted mix reads like layer 1 alone, plus the note on what was heard.
+    assert_eq!(
+        solo["summary"].as_str().unwrap(),
+        format!(
+            "{}, 1 of 2 layers heard",
+            a["layers"][1]["analysis"]["summary"].as_str().unwrap()
+        )
+    );
     let (r, err) = s.call(
         "render",
         json!({"recipe": layered, "output": "bass.wav", "solo": [1], "per_layer": true}),
@@ -960,4 +967,30 @@ fn every_error_has_a_code_a_path_and_no_absolute_path() {
         assert!(desc(name).contains("400 ms"), "{name}");
     }
     assert!(desc("validate").contains("isError"));
+}
+
+/// An unknown tag is an error with the closest real tag, not an empty list;
+/// a layered recipe's summary says how many layers it has.
+#[test]
+fn tag_typos_and_layer_counts_help_the_agent() {
+    let root = fresh_root("mcp_agent_hints");
+    let mut s = started(&root);
+
+    let (e, err) = s.call("list_presets", json!({"tag": "explsion"}));
+    assert!(err, "{e}");
+    assert_eq!(e["errors"][0]["code"], "not_found");
+    assert_eq!(e["errors"][0]["path"], "arguments.tag");
+    assert_eq!(e["errors"][0]["suggestion"], "explosion");
+
+    let (ok, err) = s.call("list_presets", json!({"tag": "explosion"}));
+    assert!(!err);
+    assert!(!ok["presets"].as_array().unwrap().is_empty());
+
+    let (a, err) = s.call("analyze", json!({"path": "preset:powerup"}));
+    assert!(!err, "{a}");
+    let summary = a["summary"].as_str().unwrap();
+    assert!(
+        summary.ends_with("2 layers; per_layer describes each"),
+        "{summary}"
+    );
 }

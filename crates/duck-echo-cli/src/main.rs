@@ -311,23 +311,25 @@ fn render(
 
 fn presets(action: PresetsAction) -> ExitCode {
     match action {
-        PresetsAction::List { tag, json } => match duck_echo_tools::presets::list(tag.as_deref()) {
-            Ok(list) if json => print_json(&list, false),
-            Ok(list) => {
-                for p in list {
-                    let target = p
-                        .target_lufs
-                        .map(|t| format!("{t:.0} LUFS"))
-                        .unwrap_or_default();
-                    println!(
-                        "{:<14} {:<9} {:<9} {}",
-                        p.name, p.category, target, p.description
-                    );
+        PresetsAction::List { tag, json } => {
+            match duck_echo_tools::presets::list(tag.as_deref()).map_err(|e| e.at("--tag")) {
+                Ok(list) if json => print_json(&list, false),
+                Ok(list) => {
+                    for p in list {
+                        let target = p
+                            .target_lufs
+                            .map(|t| format!("{t:.0} LUFS"))
+                            .unwrap_or_default();
+                        println!(
+                            "{:<14} {:<9} {:<9} {}",
+                            p.name, p.category, target, p.description
+                        );
+                    }
+                    ExitCode::SUCCESS
                 }
-                ExitCode::SUCCESS
+                Err(e) => tool_error(e, json),
             }
-            Err(e) => tool_error(e, json),
-        },
+        }
         PresetsAction::Show { name, json } => {
             match duck_echo_tools::presets::get(&name).map_err(|e| e.at("name")) {
                 Ok(p) if json => match duck_echo_tools::presets::load(p) {

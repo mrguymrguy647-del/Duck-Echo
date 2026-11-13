@@ -162,7 +162,7 @@ pub fn definitions() -> Vec<Value> {
             "list_presets",
             "List presets",
             "List built-in presets: name, category (ui, pickup, weapon, impact, movement, alert, ambient), description and tags. Presets are good starting points, each levelled to its category's loudness target (`target_lufs`: impact -16, weapon -17, alert -18, pickup -19, movement -20, ui -22, ambient -24 LUFS). To keep a target through edits, set `master.normalize_lufs` to it.",
-            json!({ "tag": { "type": "string", "description": "Only presets with this tag, for example `ui` or `explosion`." } }),
+            json!({ "tag": { "type": "string", "description": "Only presets with this tag, for example `ui` or `explosion`. A tag no preset has is a `not_found` error that suggests the closest real tag and lists them all in `allowed`." } }),
             &[],
             true,
         ),
@@ -486,7 +486,10 @@ fn run(
     let plain = |v: Value| Ok((v, Vec::new()));
     match name {
         "get_schema" => plain(duck_echo_core::schema::recipe_schema()),
-        "list_presets" => plain(json!({ "presets": presets::list(opt_str(args, "tag")?)? })),
+        "list_presets" => {
+            let list = presets::list(opt_str(args, "tag")?).map_err(|e| e.at("arguments.tag"))?;
+            plain(json!({ "presets": list }))
+        }
         "get_preset" => {
             let p = presets::get(req_str(args, "name")?).map_err(|e| e.at("arguments.name"))?;
             let info = presets::info(p)?;

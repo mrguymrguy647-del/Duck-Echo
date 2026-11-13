@@ -172,6 +172,14 @@ Lessons for later tasks:
   argument that names a file goes through `Root::read`, `Root::write` or
   `Root::folder` with its argument name.
 
+- [x] **P7. Two small agent helps** (after the playtest). The summary of
+  a recipe with several layers ends with "N layers; per_layer describes
+  each", because the rest of the summary describes only the whole mix;
+  with `solo`/`mute` it says "K of N layers heard". `list_presets` with a
+  tag no preset has returns a `not_found` error suggesting the closest
+  real tag, instead of an empty list. Tests: `agent_hints.rs` and
+  `tag_typos_and_layer_counts_help_the_agent`.
+
 Open, from the same review:
 
 * A note-list layer for melodies (task 18, proposed below).
