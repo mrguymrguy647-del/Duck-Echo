@@ -118,7 +118,11 @@ notes = [
 /// Fingerprints of the example songs: (name, WAV bytes, FNV-1a 64 of the
 /// PCM16 WAV). Change one only when the sound is meant to change, and say
 /// so in the commit.
-const SONG_GOLDEN: &[(&str, usize, u64)] = &[("four_bars", 1_553_648, 0x9f83_fe29_2800_2521)];
+const SONG_GOLDEN: &[(&str, usize, u64)] = &[
+    ("duck_craft_day", 4_032_044, 0x6358_3802_2088_7df6),
+    ("duck_craft_night", 4_032_044, 0x9694_28e7_a634_e1e5),
+    ("four_bars", 1_553_648, 0x9f83_fe29_2800_2521),
+];
 
 #[test]
 fn example_songs_are_pinned() {
@@ -679,4 +683,69 @@ fn the_song_length_is_its_bars_plus_what_still_rings() {
     // Without `bars`, the song ends at the bar line after its last note.
     let open = load(&two_tracks().replace("bars = 2\n", ""));
     assert_eq!(open.arrangement.bars, 2);
+}
+
+/// The Duck Craft demo: two loops a game can fade between.
+#[test]
+fn duck_craft_day_and_night_are_matching_loops() {
+    let options = Options {
+        check_notes: true,
+        ..Options::default()
+    };
+    let measure = |name: &str| {
+        let path = songs_dir().join(format!("{name}.toml"));
+        let doc = load_document(&path, &files_next_to(&path)).unwrap();
+        measure_document(&doc, None, &options, "").unwrap()
+    };
+    let (day, night) = (measure("duck_craft_day"), measure("duck_craft_night"));
+
+    for (name, m) in [("day", &day), ("night", &night)] {
+        // 44.1 kHz stereo, and exactly eight bars: 32 beats at 84 BPM.
+        assert_eq!(
+            (m.buffer.sample_rate, m.buffer.channels),
+            (44_100, 2),
+            "{name}"
+        );
+        assert_eq!(m.buffer.samples.len(), 1_008_000 * 2, "{name}");
+        let facts = m.measured.song.as_ref().unwrap();
+        assert!(facts.loop_, "{name}");
+        assert_eq!(
+            (facts.bars, facts.tempo, facts.song_frames),
+            (8, 84.0, 1_008_000)
+        );
+        // It joins itself with no click, sits at its loudness target, does
+        // not clip, and every written note can be heard.
+        assert!(m.measured.loop_seam.unwrap().clean, "{name}");
+        let a = &m.measured.analysis;
+        assert!((a.loudness_lufs.unwrap() + 18.0).abs() < 0.1, "{name}");
+        assert!(!a.clipping.clipped, "{name}");
+        let check = m.measured.note_check.as_ref().unwrap();
+        assert_eq!(check.notes_heard, check.notes_written, "{name}: {check:?}");
+        assert!(m.measured.warnings.is_empty(), "{name}");
+        // The game engine mixes stereo down to mono for now. The loops
+        // must survive that: the two sides may not cancel each other.
+        let rms = |x: &[f32]| (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt();
+        let mono = m.buffer.to_mono();
+        assert!(
+            rms(&mono) > 0.85 * rms(&m.buffer.samples),
+            "{name} loses level in mono"
+        );
+    }
+    // Day is calm and bright, night is dark.
+    let brightness = |m: &duck_echo_tools::measure::RecipeMeasurement| {
+        m.measured.analysis.spectral_centroid_hz.unwrap()
+    };
+    assert!(brightness(&night) < brightness(&day) * 0.8);
+    assert!(night.measured.analysis.summary.contains("dark"));
+
+    // The same length to the sample, so a game can start both together
+    // and fade between them. Half way through a fade nothing clips.
+    assert_eq!(day.buffer.samples.len(), night.buffer.samples.len());
+    let worst = day
+        .buffer
+        .samples
+        .iter()
+        .zip(&night.buffer.samples)
+        .fold(0.0f32, |m, (d, n)| m.max((0.5 * d + 0.5 * n).abs()));
+    assert!(worst < 0.9, "{worst}");
 }

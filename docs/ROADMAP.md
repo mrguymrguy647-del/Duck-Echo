@@ -21,7 +21,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 | Phase | What | Status |
 |---|---|---|
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
-| 1 | **Music**: songs, starter instruments, seamless loops | next |
+| 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops | built; only the agent guide (task 10) is left |
 | 2 | Duck Echo Studio: an app for people, with no terminal | |
 | 3 | Link with Duck Forge, the game engine | |
 | 4 | Duck Ear: listening models | |
@@ -68,7 +68,8 @@ Goals for the whole phase:
 * A small set of starter instruments, so an agent can write a tune
   without designing every sound first.
 
-Order: 16, then 4, then 19, then 20, then 21, then 10.
+Order: 16, then 4, then 19, then 20, then 21, then 10. All but 10 are
+done; 10 (the agent guide) is next.
 
 ### 16. Song document and scheduler [done]
 
@@ -273,6 +274,38 @@ Lessons for the next builder:
 * The checked audio is the stem at its level in the mix, so "audible"
   means above -60 dBFS in the finished song.
 
+### Duck Craft demo: day and night loops [done]
+
+- [x] `examples/songs/duck_craft_day.toml` (calm, C major) and
+  `examples/songs/duck_craft_night.toml` (dark, A minor): eight bars each
+  at 84 BPM, looping, 44.1 kHz stereo, on the built-in instruments.
+- [x] Both are exactly 1,008,000 samples, join cleanly, sit at -18 LUFS,
+  do not clip, and every written note is heard (113 and 92 notes). Both
+  are pinned, and CI renders them on Linux and Windows.
+- [x] Tested as a pair: the same length to the sample, night darker than
+  day, a half-way fade between them does not clip, and each keeps its
+  level when mixed down to mono (Duck Forge plays mono for now).
+
+Lessons for the next builder:
+
+* **The tools were enough to write music blind.** Both tracks were
+  written as text and checked only with `analyze`: per-track loudness to
+  balance them, the note check to see nothing was lost, the summary word
+  ("mid" for day, "dark" for night) for the mood. Nobody has listened to
+  them yet. A human should, before they go into the game.
+* **Balance came from one pass.** The first drafts had the drums 10 LU
+  under the tune and the night's twinkles 20 LU under. `per_track`
+  showed it at once. A hint in the summary when one track is far under
+  the rest would save that step.
+* **Speed.** An eight-bar, five-track loop renders in about 2 s and
+  analyzes (with the note check) in about 10 s in a release build. Most
+  of that is the pad: three saw layers with a filter and an LFO each,
+  held for four beats, three notes per chord.
+* **Same tempo and bars means same length.** That is the whole trick for
+  fading between two themes. Keep it for every pair of themes a game
+  fades between.
+* **Phase 1 is done except task 10** (the agent guide), which is next.
+
 ### 10. Agent workflow guide (moved here from Phase 0, last in Phase 1)
 
 * `docs/AGENT_GUIDE.md`: how to design a sound or a tune without hearing
@@ -359,6 +392,12 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
 ## Phase 3: link with Duck Forge
 
 ### 13. Save into a game, with live reload
+
+* **Known gap, found in Phase 1:** Duck Forge reads 44.1 kHz WAV but
+  mixes stereo down to mono, so a track's `pan` is lost in a game. The
+  songs are true stereo and need no change once the engine plays both
+  channels. Until then the Duck Craft loops are tested to keep their
+  level in mono. Fixing the engine side belongs to this phase.
 
 * **Ask the Duck Forge owner for the details before writing code**: the
   sounds folder layout, any manifest or asset IDs, and how the engine

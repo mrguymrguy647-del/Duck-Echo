@@ -420,7 +420,13 @@ play = [
 notes = [{ bar = 4, beat = 3.5, note = "G2", length = 0.5 }]
 ```
 
-`examples/songs/four_bars.toml` is a complete two-track song.
+Example songs, all pinned by fingerprint tests:
+
+| File | What it shows |
+|---|---|
+| `examples/songs/four_bars.toml` | two tracks, a pattern with `transpose`, instruments written inside the song |
+| `examples/songs/duck_craft_day.toml` | an eight-bar loop on the built-in instruments: chords on `pad`, patterns for `bass` and `drums`, a `piano` tune, a song reverb |
+| `examples/songs/duck_craft_night.toml` | its dark partner: the same tempo and length, so the two can be faded into each other |
 
 ### Song top level
 

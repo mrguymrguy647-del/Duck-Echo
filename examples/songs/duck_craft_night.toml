@@ -1,0 +1,124 @@
+# Duck Craft, night: a dark, slow-moving loop for the night.
+#
+# Eight bars in A minor, 84 beats per minute, and it loops with no seam.
+# A minor uses the same notes as C major, and the tempo and length are
+# the same as duck_craft_day.toml (1,008,000 samples), so a game can fade
+# between day and night at any moment and the two stay in time and in
+# tune.
+#
+#   duck-echo render examples/songs/duck_craft_night.toml -o night.wav
+#   duck-echo analyze examples/songs/duck_craft_night.toml
+version = 0
+name = "duck_craft_night"
+description = "A dark night loop: low keys, a deep bass and far-off twinkles in a big space."
+tags = ["music", "loop", "dark", "night"]
+tempo = 84
+bars = 8
+loop = true
+
+[master]
+normalize_lufs = -18
+
+# A big, dark space around everything.
+[[effects]]
+type = "reverb"
+size = 0.85
+decay = 2.8
+damping = 0.7
+mix = 0.28
+
+# One bar of a slow heartbeat.
+[patterns.heartbeat]
+notes = [
+  { beat = 0, note = "kick", velocity = 0.9 },
+  { beat = 0.75, note = "kick", velocity = 0.45 },
+  { beat = 3, note = "hat", velocity = 0.3 },
+]
+
+# Two far-off twinkles, written for A minor and moved with `transpose`.
+[patterns.twinkle]
+notes = [
+  { beat = 1.5, note = "E6", length = 0.5, velocity = 0.5 },
+  { beat = 2, note = "A6", length = 1, velocity = 0.35 },
+]
+
+# The chords, one per bar: Am, F, Dm, E, twice.
+[[tracks]]
+name = "pad"
+instrument = "pad"
+volume = 0.9
+notes = [
+  { bar = 1, beat = 0, note = ["A3", "C4", "E4"], length = 4 },
+  { bar = 2, beat = 0, note = ["F3", "A3", "C4"], length = 4 },
+  { bar = 3, beat = 0, note = ["D3", "F3", "A3"], length = 4 },
+  { bar = 4, beat = 0, note = ["E3", "G#3", "B3"], length = 4 },
+  { bar = 5, beat = 0, note = ["A3", "C4", "E4"], length = 4 },
+  { bar = 6, beat = 0, note = ["F3", "A3", "C4"], length = 4 },
+  { bar = 7, beat = 0, note = ["D3", "F3", "A3"], length = 4 },
+  { bar = 8, beat = 0, note = ["E3", "G#3", "B3"], length = 4 },
+]
+
+# Long, low notes under the chords.
+[[tracks]]
+name = "bass"
+instrument = "bass"
+notes = [
+  { bar = 1, beat = 0, note = "A1", length = 3.5 },
+  { bar = 2, beat = 0, note = "F1", length = 3.5 },
+  { bar = 3, beat = 0, note = "D2", length = 3.5 },
+  { bar = 4, beat = 0, note = "E2", length = 2.5 },
+  { bar = 4, beat = 3, note = "E1", length = 1 },
+  { bar = 5, beat = 0, note = "A1", length = 3.5 },
+  { bar = 6, beat = 0, note = "F1", length = 3.5 },
+  { bar = 7, beat = 0, note = "D2", length = 3.5 },
+  { bar = 8, beat = 0, note = "E2", length = 2.5 },
+  { bar = 8, beat = 3, note = "G#1", length = 1 },
+]
+
+# The tune, low and slow.
+[[tracks]]
+name = "keys"
+instrument = "piano"
+pan = -0.15
+notes = [
+  { bar = 1, beat = 0, note = "A3" },
+  { bar = 1, beat = 1, note = "C4" },
+  { bar = 1, beat = 2, note = "E4", length = 2 },
+  { bar = 2, beat = 0, note = "F4", length = 2 },
+  { bar = 2, beat = 2, note = "E4" },
+  { bar = 2, beat = 3, note = "C4" },
+  { bar = 3, beat = 0, note = "D4" },
+  { bar = 3, beat = 1, note = "F4" },
+  { bar = 3, beat = 2, note = "A4", length = 2 },
+  { bar = 4, beat = 0, note = "G#4", length = 3 },
+  { bar = 4, beat = 3, note = "E4" },
+  { bar = 5, beat = 0, note = "A4", length = 2 },
+  { bar = 5, beat = 2, note = "E4", length = 2 },
+  { bar = 6, beat = 0, note = "F4" },
+  { bar = 6, beat = 1, note = "A4" },
+  { bar = 6, beat = 2, note = "C5", length = 2 },
+  { bar = 7, beat = 0, note = "D5", length = 1.5 },
+  { bar = 7, beat = 1.5, note = "A4", length = 0.5 },
+  { bar = 7, beat = 2, note = "F4", length = 2 },
+  { bar = 8, beat = 0, note = "E4", length = 2 },
+  { bar = 8, beat = 2, note = "G#3" },
+  { bar = 8, beat = 3, note = "B3" },
+]
+
+# Far-off twinkles, quiet and to one side.
+[[tracks]]
+name = "stars"
+instrument = "chip_lead"
+volume = 0.7
+pan = 0.4
+play = [
+  { pattern = "twinkle", bars = [1, 5] },
+  { pattern = "twinkle", bars = [2, 6], transpose = -4 },   # C6, F6
+  { pattern = "twinkle", bars = [3, 7], transpose = -7 },   # A5, D6
+]
+
+[[tracks]]
+name = "drums"
+instrument = "drums"
+volume = 1.1
+play = [{ pattern = "heartbeat", bars = [1, 2, 3, 4, 5, 6, 7, 8] }]

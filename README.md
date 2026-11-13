@@ -49,6 +49,40 @@ instrument, and an instrument is a recipe. The same commands take both:
 ./target/release/duck-echo analyze examples/songs/four_bars.toml --per-track
 ```
 
+### Music for Duck Craft: day and night
+
+Two looping tracks ship as examples, made for the Duck Craft game:
+
+| File | Mood | Built from |
+|---|---|---|
+| `examples/songs/duck_craft_day.toml` | Calm and bright, C major | piano tune, pad chords, plucked bass, a light beat |
+| `examples/songs/duck_craft_night.toml` | Dark and slow, A minor | low piano tune, pad chords, long bass notes, far-off twinkles, a heartbeat kick, a big reverb |
+
+```bash
+./target/release/duck-echo render examples/songs/duck_craft_day.toml -o day.wav
+```
+
+```bash
+./target/release/duck-echo render examples/songs/duck_craft_night.toml -o night.wav
+```
+
+Each is eight bars at 84 beats per minute, 44.1 kHz stereo, levelled to
+-18 LUFS, and **exactly 1,008,000 samples** (22.86 seconds) long. Play
+either file on repeat: its end joins its start with no click. Because the
+two are the same length and tempo, and A minor uses the same notes as
+C major, a game can start both together and fade from one to the other at
+any moment.
+
+For one instrument alone (a stem, to switch on and off in a game):
+
+```bash
+./target/release/duck-echo render examples/songs/duck_craft_night.toml --solo drums -o night_drums.wav
+```
+
+Duck Forge currently mixes stereo down to mono, so the left and right
+placement of the tracks is lost in a game for now. The loops are tested
+to keep their level in mono.
+
 ## Commands
 
 | Command | What it does |
@@ -192,7 +226,9 @@ instruments               the starter instruments for songs: piano, pad, bass,
                           chip_lead and a drum kit (see instruments/README.md)
 playtest                  root for the project MCP server (.mcp.json); one
                           committed folder per playtest
-examples/songs            four_bars (two tracks, instruments written inline)
+examples/songs            four_bars (two tracks, instruments written inline),
+                          duck_craft_day and duck_craft_night (looping
+                          eight-bar themes on the built-in instruments)
 examples/recipes          coin, jump, laser, explosion, hit, powerup,
                           ricochet (stereo), chime (note names), fanfare
                           (layers, normalize_lufs), siren (LFOs)
