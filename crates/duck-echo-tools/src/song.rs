@@ -246,8 +246,12 @@ pub struct SongFacts {
     pub beats_per_bar: u32,
     /// Length in bars.
     pub bars: u32,
-    /// Frames in those bars, exactly. The file is longer when sound rings
-    /// on after the last bar.
+    /// True when the song is a seamless loop (`loop = true`).
+    #[serde(rename = "loop")]
+    pub loop_: bool,
+    /// Frames in those bars, exactly. A loop's file is exactly this long;
+    /// another song's file is longer when sound rings on after the last
+    /// bar.
     pub song_frames: usize,
     /// Seconds in one bar.
     pub seconds_per_bar: f64,
@@ -266,6 +270,7 @@ impl SongFacts {
             tempo: song.tempo,
             beats_per_bar: song.beats_per_bar,
             bars,
+            loop_: song.loop_,
             song_frames: song.frame_at(bars as f64 * song.beats_per_bar as f64),
             seconds_per_bar: song.beats_per_bar as f64 * song.seconds_per_beat(),
             tracks: song.tracks.len(),
@@ -277,9 +282,10 @@ impl SongFacts {
     /// `4 bars at 110 BPM, 2 tracks`.
     pub fn summary(&self) -> String {
         format!(
-            "{} bar{} at {} BPM, {} track{}",
+            "{} bar{}{} at {} BPM, {} track{}",
             self.bars,
             if self.bars == 1 { "" } else { "s" },
+            if self.loop_ { " looping" } else { "" },
             self.tempo,
             self.tracks,
             if self.tracks == 1 { "" } else { "s" },

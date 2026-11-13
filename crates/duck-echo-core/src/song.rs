@@ -82,6 +82,13 @@ pub struct Song {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bars: Option<u32>,
 
+    /// Make the song a seamless loop. The render is then exactly `bars`
+    /// long, to the sample, and whatever still rings after the last bar
+    /// (releases, echo, reverb) is added onto the start, so the file can
+    /// repeat forever with no click and no gap. Default `false`.
+    #[serde(default, rename = "loop")]
+    pub loop_: bool,
+
     /// Output sample rate in Hz. Range 8000..=192000. Default `44100`.
     #[serde(default = "default_sample_rate")]
     pub sample_rate: u32,
@@ -484,6 +491,17 @@ impl Arranger<'_> {
             song.sample_rate,
         );
         self.report.extend(shared);
+        if song.loop_ && song.master.trim_silence {
+            self.error(
+                Issue::error(
+                    Code::Invalid,
+                    "master.trim_silence",
+                    "a loop must keep its exact length, so `trim_silence` cannot be used with `loop = true`; remove one of them",
+                )
+                .got(true)
+                .suggest("false"),
+            );
+        }
 
         self.own_instruments();
 

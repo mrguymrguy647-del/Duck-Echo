@@ -251,7 +251,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "render",
             "Render to WAV",
-            &format!("Render a recipe to a WAV file and return the analysis of the result (including a one-line `summary`, `energy_over_time` and note `onsets`) and any render warnings. {LOUDNESS_NOTE} To hit a loudness target in one render, set `master.normalize_lufs`; it measures the same way. {EXTRAS_NOTE} With solo or mute the WAV holds only the heard layers or tracks. A song's result also has `song` (tempo, bars, and `song_frames`, the exact length of its bars in samples). {RECIPE_SOURCE} {SONG_NOTE}"),
+            &format!("Render a recipe to a WAV file and return the analysis of the result (including a one-line `summary`, `energy_over_time` and note `onsets`) and any render warnings. {LOUDNESS_NOTE} To hit a loudness target in one render, set `master.normalize_lufs`; it measures the same way. {EXTRAS_NOTE} With solo or mute the WAV holds only the heard layers or tracks. A song's result also has `song` (tempo, bars, and `song_frames`, the exact length of its bars in samples); a song with `loop: true` renders to exactly that length with its tail folded onto its start, and `loop_seam.clean` says the end joins the start without a click. {RECIPE_SOURCE} {SONG_NOTE}"),
             with(with(recipe_props(), json!({
                 "output": { "type": "string", "description": "WAV file to write, relative to the server root." },
                 "seed": { "type": "integer", "minimum": 0, "description": "Override the recipe seed." },

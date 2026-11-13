@@ -431,6 +431,7 @@ notes = [{ bar = 4, beat = 3.5, note = "G2", length = 0.5 }]
 | `tempo` | number | required | beats per minute, 20..=400 |
 | `beats_per_bar` | integer | `4` | 1..=16 |
 | `bars` | integer | computed | length in bars, 1 or more; when omitted the song ends at the bar line after its last note |
+| `loop` | boolean | `false` | make a seamless loop, exactly `bars` long; see "Loops" |
 | `seed` | integer | `0` | see "Song seeds" |
 | `sample_rate` | integer | `44100` | 8000..=192000 Hz |
 | `channels` | integer | `2` | `1` or `2`. Songs are stereo by default (recipes are mono) |
@@ -559,9 +560,46 @@ in pitch order). So:
 * a track rendered alone is exactly that track in the mix;
 * renaming a track changes that track's random parts only.
 
+### Loops
+
+`loop = true` makes a song that can repeat forever with no click and no
+gap:
+
+* The file is **exactly** as long as its bars, to the sample
+  (`song.song_frames`). Eight bars of four beats at 84 BPM and 44.1 kHz
+  are exactly 1,008,000 samples.
+* Whatever still rings after the last bar (a release, an echo, a reverb,
+  a note held across the end) is cut off the end and **added onto the
+  start**. Think of the loop playing for the tenth time: the end of the
+  ninth time is still ringing under its start. The file is one turn of a
+  song that has been playing forever.
+* The fold happens after the song `effects` and before the song `master`,
+  so loudness is measured on the finished loop.
+* A tail longer than the whole loop wraps round more than once.
+* The first time a game plays the file, its start already carries the
+  ring of a turn that never happened. That is normal for loop files.
+* `master.trim_silence = true` with `loop = true` is an error, because
+  trimming would change the length.
+* The fold is exact for echo and reverb. With distortion or bitcrush on a
+  whole track or on the whole song, the join is still smooth, but the
+  file is no longer sample for sample what an endless performance would
+  give.
+
+Two songs with the same `tempo`, `beats_per_bar` and `bars` are the same
+length to the sample, so a game can start both together and fade from one
+to the other at any moment.
+
+`analyze` and `render --json` report the join of a loop as `loop_seam`:
+`seam_step` (the jump from the last sample back to the first),
+`largest_step` (the biggest jump between two neighbouring samples inside
+the file) and `clean` (true when the first is no bigger than the second,
+so the join cannot click). The summary line ends with "loop joins
+cleanly".
+
 ### Song length, stems and checking
 
-The file is the song's bars plus whatever still rings after the last bar.
+Without `loop`, the file is the song's bars plus whatever still rings
+after the last bar.
 The exact length of the bars in samples is `song.song_frames` in the
 result of `render --json` and `analyze`, with `tempo`, `bars`,
 `beats_per_bar` and `seconds_per_bar`.
@@ -610,8 +648,8 @@ error until implemented. See `ROADMAP.md` for the order.
 * Per-parameter random ranges (`volume = { min = 0.6, max = 0.9 }`).
 * Sample layers.
 * Formant voice sources (Phase 5).
-* In songs: seamless loops (`loop`, roadmap task 20), tempo changes
-  inside a song, swing, volume or filter changes
+* In songs: a separate "first time" file for a loop (one without the
+  folded tail), tempo changes inside a song, swing, volume or filter changes
   over time (automation), sample tracks, filters that follow the note, and
   velocity changing the tone.
 

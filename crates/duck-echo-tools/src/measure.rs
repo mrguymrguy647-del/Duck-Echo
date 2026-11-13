@@ -144,6 +144,9 @@ pub struct Measured {
     /// For a song with `per_track`: each heard track analyzed on its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracks: Option<Vec<TrackAnalysis>>,
+    /// For a looping song: how the end of the file joins its start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_seam: Option<LoopSeam>,
     /// With `picture`: what the picture shows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<PictureInfo>,
@@ -175,6 +178,7 @@ pub fn measure_audio(buffer: &AudioBuffer, extras: &Extras) -> Result<Measured, 
         song: None,
         heard_tracks: None,
         tracks: None,
+        loop_seam: None,
         picture,
         png,
     })
@@ -232,6 +236,7 @@ pub fn measure_recipe(
             song: None,
             heard_tracks: None,
             tracks: None,
+            loop_seam: None,
             picture,
             png,
         },
@@ -509,6 +514,14 @@ pub fn measure_song(
         head.push_str(&format!(" ({} heard)", extras.heard.len()));
     }
     analysis.summary = format!("{head}; {}", analysis.summary);
+    let loop_seam = song.loop_.then(|| loop_seam(&buffer));
+    if let Some(seam) = &loop_seam {
+        analysis.summary.push_str(if seam.clean {
+            ", loop joins cleanly"
+        } else {
+            ", LOOP CLICKS AT THE JOIN"
+        });
+    }
     if facts.tracks > 1 && !extras.per_track && extras.heard.len() > 1 {
         analysis.summary.push_str("; per_track describes each");
     }
@@ -552,10 +565,52 @@ pub fn measure_song(
                     .collect()
             }),
             tracks,
+            loop_seam,
             picture,
             png,
         },
     })
+}
+
+/// How the end of a looping file joins its start, so an agent can check a
+/// loop without hearing it.
+///
+/// A click is a sudden jump between two samples. `seam_step` is the jump
+/// from the last sample back to the first (the place the loop repeats);
+/// `largest_step` is the biggest jump between two neighbouring samples
+/// anywhere inside the file. When the jump at the join is no bigger than
+/// the music's own, the join cannot click.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct LoopSeam {
+    /// The jump from the last sample to the first, largest of the
+    /// channels, linear (1.0 is half of full scale to full scale).
+    pub seam_step: f32,
+    /// The largest jump between neighbouring samples inside the file.
+    pub largest_step: f32,
+    /// True when `seam_step` is no larger than `largest_step`.
+    pub clean: bool,
+}
+
+/// Measure the join of a looping buffer.
+pub fn loop_seam(buffer: &AudioBuffer) -> LoopSeam {
+    let ch = buffer.channels.max(1) as usize;
+    let frames = buffer.samples.len() / ch;
+    let mut seam_step = 0.0f32;
+    let mut largest_step = 0.0f32;
+    if frames >= 2 {
+        for c in 0..ch {
+            let at = |frame: usize| buffer.samples[frame * ch + c];
+            seam_step = seam_step.max((at(0) - at(frames - 1)).abs());
+            for f in 1..frames {
+                largest_step = largest_step.max((at(f) - at(f - 1)).abs());
+            }
+        }
+    }
+    LoopSeam {
+        seam_step,
+        largest_step,
+        clean: seam_step <= largest_step,
+    }
 }
 
 /// Render a recipe or a song and analyze it, with `seed` replacing the

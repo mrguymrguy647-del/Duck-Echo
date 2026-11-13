@@ -444,17 +444,58 @@ fn mix(mut player: SongPlayer) -> Vec<f32> {
     samples
 }
 
+/// Fold a render onto its first `frames` frames: everything after them
+/// is added back in from the start, round and round if it is longer than
+/// one turn.
+///
+/// This is how a loop is made seamless. Picture the loop playing for the
+/// tenth time: at its start, the end of the ninth time (a reverb, a long
+/// release) is still ringing under it. Adding the tail onto the start
+/// gives exactly that sound, so the file is one turn of a song that has
+/// been playing forever, and its last sample leads into its first.
+fn wrap_loop(samples: Vec<f32>, channels: usize, frames: usize) -> Vec<f32> {
+    let len = frames * channels;
+    if samples.len() <= len {
+        let mut out = samples;
+        out.resize(len, 0.0);
+        return out;
+    }
+    let mut out = samples[..len].to_vec();
+    for (i, s) in samples[len..].iter().enumerate() {
+        out[i % len] += *s;
+    }
+    out
+}
+
+/// The unmastered mix of a song: the player run to the end and, for a
+/// loop, folded to its exact length.
+fn raw_mix(song: &Song, player: SongPlayer) -> Vec<f32> {
+    let channels = player.channels();
+    let song_frames = player.song_frames();
+    let samples = mix(player);
+    if song.loop_ {
+        wrap_loop(samples, channels, song_frames)
+    } else {
+        samples
+    }
+}
+
 /// Render a checked song offline: mix, then the song's `master` steps
 /// (normalize, clip, trim). Also returns what the master steps did, for
 /// [`render_song_tracks`].
+///
+/// A song with `loop = true` comes out exactly as long as its bars, with
+/// its tail folded onto its start (see `wrap_loop` in this file). The
+/// fold happens after the song effects and before the master, so
+/// loudness is measured on the finished loop.
 pub fn render_song(song: &Song, arrangement: &Arrangement) -> (AudioBuffer, Mastering) {
     let player = prepare_song(song, arrangement);
     let channels = player.channels();
     let (samples, mastering) = master(
         &song.master,
         song.sample_rate,
-        song.master.trim_silence,
-        mix(player),
+        song.master.trim_silence && !song.loop_,
+        raw_mix(song, player),
         channels,
     );
     (
@@ -475,7 +516,7 @@ pub fn render_song(song: &Song, arrangement: &Arrangement) -> (AudioBuffer, Mast
 /// with it in time and level. The stems of all tracks added together give
 /// the full mix (to within float rounding), as long as nothing clips and
 /// the song's own effects are linear (echo and reverb are; distortion and
-/// bitcrush are not).
+/// bitcrush are not). A loop's stems are loops too.
 pub fn render_song_tracks(
     song: &Song,
     arrangement: &Arrangement,
@@ -485,7 +526,7 @@ pub fn render_song_tracks(
     let mut player = prepare_song(song, arrangement);
     player.keep_tracks(heard);
     let channels = player.channels();
-    let mut samples = mix(player);
+    let mut samples = raw_mix(song, player);
     for s in &mut samples {
         *s = (*s * mastering.gain).clamp(-1.0, 1.0);
     }

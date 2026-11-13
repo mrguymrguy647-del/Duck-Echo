@@ -262,6 +262,10 @@ reference; `docs/phase1-design.md` explains the choices. In short:
   the front end's file resolver). `instrument:NAME` names one wherever a
   recipe path is accepted; in the MCP server `Root::read` checks it like
   `preset:NAME` (a known name, read-only, never a path).
+* **Loops.** For `loop = true`, `synth::song` runs the player to the end
+  and folds everything after the song's last bar back onto the start
+  (`wrap_loop`), then masters. This is an offline step; the player itself
+  does not loop.
 * **Stems.** `synth::song::render_song_tracks` renders some tracks with
   the full mix's master gain and length (the `render_layers` rule), so
   stems add up to the mix.
@@ -313,7 +317,7 @@ a song works too: the tools tell the two apart by looking inside.
 | `validate` | recipe | The `Report`. An invalid recipe is a normal answer here, not a tool error. |
 | `create` | `path`, `recipe`, optional `overwrite` | `{ok, path, kind, warnings}` (`kind` is `recipe` or `song`). Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. |
 | `edit` | recipe, `ops`, optional `write` | `{ok, recipe, warnings, written, path}`. Each op is `{path, value}` or `{path, remove: true}`, with paths as in error messages; an index equal to the length appends. Edits apply to the document as written (defaults stay implicit), and a file is rewritten only when the result is valid. Comments are not kept. |
-| `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. A song adds `song` (`tempo`, `beats_per_bar`, `bars`, `song_frames`, `seconds_per_bar`, `tracks`, `notes`), and `heard_tracks` and `tracks` when asked. |
+| `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. A song adds `song` (`tempo`, `beats_per_bar`, `bars`, `loop`, `song_frames`, `seconds_per_bar`, `tracks`, `notes`), `heard_tracks` and `tracks` when asked, and for a loop `loop_seam` (`seam_step`, `largest_step`, `clean`). |
 | `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. |
 | `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
 | `variations` | recipe (not a song), optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |

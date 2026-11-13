@@ -1126,3 +1126,38 @@ fn cli_renders_validates_and_analyzes_songs() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["title"], "Duck Echo song v0");
 }
+
+/// Roadmap task 20 through the binary: a looping song renders to exactly
+/// its bars and reports its join.
+#[test]
+fn cli_renders_a_loop_to_its_exact_length() {
+    let exe = env!("CARGO_BIN_EXE_duck-echo");
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli_loops");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("loop.toml"),
+        "version = 0\ntempo = 120\nbars = 2\nloop = true\n[[tracks]]\nname = \"pad\"\ninstrument = \"pad\"\nnotes = [{ beat = 0, note = [\"C4\", \"E4\", \"G4\"], length = 8 }]\n",
+    )
+    .unwrap();
+    let out = std::process::Command::new(exe)
+        .args(["render", "loop.toml", "--json"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["song"]["loop"], true);
+    assert_eq!(v["song"]["song_frames"], 176_400);
+    assert_eq!(v["loop_seam"]["clean"], true);
+    let wav = duck_echo_audio::read_wav(&dir.join("loop.wav")).unwrap();
+    assert_eq!(wav.samples.len(), 176_400 * 2);
+    // The pad's long release and reverb would run past the end; in the
+    // loop they are at the start instead, so the file does not begin
+    // from silence.
+    assert!(wav.samples[..4410].iter().any(|s| s.abs() > 0.001));
+}

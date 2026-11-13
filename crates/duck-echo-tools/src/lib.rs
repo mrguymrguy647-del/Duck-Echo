@@ -237,6 +237,9 @@ pub struct Rendered {
     /// For a song with `per_track`: each heard track analyzed on its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracks: Option<Vec<TrackAnalysis>>,
+    /// For a looping song: how the end of the file joins its start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_seam: Option<measure::LoopSeam>,
     /// With `picture`: what the picture shows. The PNG is in `png`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<duck_echo_analyze::PictureInfo>,
@@ -285,6 +288,7 @@ fn rendered(output: &Path, seed: u64, measured: Measured) -> Rendered {
         song: measured.song,
         heard_tracks: measured.heard_tracks,
         tracks: measured.tracks,
+        loop_seam: measured.loop_seam,
         picture: measured.picture,
         png: measured.png,
     }

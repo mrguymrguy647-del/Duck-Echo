@@ -200,15 +200,39 @@ Lessons for the next builder:
   curved decay), so long notes sound a little flat and electric; all
   notes of an instrument have the same tone whatever their `velocity`.
 
-### 20. Loops with no seam
+### 20. Loops with no seam [done]
 
-* A song can say `loop = true` (and a length in bars). The render is then
-  exactly that length, and anything still ringing at the end (reverb,
-  echo, long releases) is wrapped round and added to the start, so the
-  file can repeat forever with no click and no gap.
-* Accept: the last and first samples join smoothly (no step larger than
-  the music's own); `analyze` of the loop played twice finds no onset at
-  the join; the length is exact to the sample.
+- [x] `loop = true` on a song. The render is exactly the song's bars, to
+  the sample, and everything that still rings after the last bar is
+  folded onto the start (`synth::song`, `wrap_loop`).
+- [x] `analyze` and `render --json` report the join as `loop_seam`
+  (`seam_step`, `largest_step`, `clean`), and the summary says "loop joins
+  cleanly".
+- [x] Tests, from simple to strict: the length is exact at several tempos;
+  the join has no jump (and a hard cut of the same song does); played
+  twice, no onset is found at the join; and the loop equals the second
+  pass of the same song written out twice and rendered without looping.
+- [x] A tail longer than the loop wraps round more than once. Stems of a
+  loop are loops and add up to it. `trim_silence` with `loop` is an error.
+
+Lessons for the next builder:
+
+* **The strict test is the one to trust.** "No jump at the join" only
+  proves the join is smooth. "Equals the second pass of the song played
+  twice" proves the folded tail is the true tail. It passes to within the
+  reverb's own -60 dB tail.
+* **That test needs sounds without noise.** A note's random stream comes
+  from the sample it starts on, so the same note in bar 1 and in bar 3
+  has different noise. The test instrument is a sine.
+* **The fold is offline.** The player does not loop by itself. Live
+  looping in the Studio (Phase 2) should start the next turn's notes
+  while the last turn's voices and effects keep running, which gives the
+  same result without a fold.
+* **The first sample of a loop file is an onset** for the analyzer,
+  because the file starts mid-ring. That is the start of the file, not a
+  click at the join.
+* A loop file starts with the ring of a turn that never happened. A
+  separate "first time" file is listed under Deferred.
 
 ### 21. Checking music without ears
 

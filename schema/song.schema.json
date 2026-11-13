@@ -1059,6 +1059,11 @@
       "description": "The song's own drum kits, by name. A kit maps piece names (such as\n`kick`) to instruments: a name from `instruments`, a built-in\ninstrument, `preset:NAME`, or a recipe file.",
       "type": "object"
     },
+    "loop": {
+      "default": false,
+      "description": "Make the song a seamless loop. The render is then exactly `bars`\nlong, to the sample, and whatever still rings after the last bar\n(releases, echo, reverb) is added onto the start, so the file can\nrepeat forever with no click and no gap. Default `false`.",
+      "type": "boolean"
+    },
     "master": {
       "$ref": "#/$defs/Master",
       "default": {
