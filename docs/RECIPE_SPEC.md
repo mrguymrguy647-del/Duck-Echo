@@ -89,10 +89,12 @@ stack of layers must not clip.
 | `offset` | number | `0` | 0..30 | Start time of the layer. |
 | `duty` | number | `0.5` | 0.01..0.99 | Pulse width for `square`. Other sources ignore it (warning). |
 | `aliasing` | string | `"clean"` | `clean`, `retro` | How `square` and `saw` handle high notes (see below). Other sources sound the same either way (`retro` on them gives a warning). |
+| `noise_mode` | string | `"white"` | `white`, `pitched` | What kind of noise `noise` makes (see below). Other sources ignore it (warning). |
 | `pan` | number | `0` | -1..1 | Stereo position, left to right. Mono recipes ignore it (warning). |
 | `envelope` | table | defaults | | Volume envelope. |
 | `pitch` | table | defaults | | Pitch over time. |
 | `filter` | table | none | | Optional filter. |
+| `lfo` | table | none | | Optional slow wave that moves the volume, the cutoff or the duty. |
 | `effects` | array | `[]` | | Per-layer effect chain. |
 
 Source details:
@@ -103,8 +105,13 @@ Source details:
   +1/-0.333. Narrow pulses therefore sound thinner and quieter, as on real
   chips.
 * `saw` rises from -1 to +1 each cycle. `triangle` is symmetric.
-* `noise` is white noise from the seed. It ignores `pitch` (pitched noise is
-  on the roadmap).
+* `noise` is noise from the seed. With `noise_mode = "white"` (default)
+  it is plain hiss, a new random value every sample, and it ignores
+  `pitch`. With `noise_mode = "pitched"` it picks a new random value
+  `pitch` times per second and holds it in between, like the noise channel
+  of old game consoles. A low pitch gives a rough, crunchy sound and a
+  high pitch gives hiss; it follows pitch sweeps, and in a song it follows
+  the note. Good for chip-style drums and hi-hats.
 * `aliasing` chooses how `square` and `saw` treat high notes. A raw square
   or saw jumps from one level to another in a single sample, and that jump
   has energy above half the sample rate, which folds back down as harsh
@@ -189,6 +196,42 @@ clamped below 45% of the sample rate.
 Cutoff is clamped to 45% of the sample rate. Coefficients update every 16
 samples, which is inaudible for sweeps but means the filter is not sample
 accurate.
+
+### `layers[].lfo`
+
+An LFO ("low-frequency oscillator") is a slow wave that moves one setting
+while the sound plays. One per layer. It starts when the layer starts, so
+in a song it starts again with each note.
+
+| Field | Type | Default | Range | Meaning |
+|---|---|---|---|---|
+| `target` | string | `"volume"` | `volume`, `cutoff`, `duty` | What the wave moves. `cutoff` needs a `filter` on the layer and `duty` needs `source = "square"` (errors otherwise). |
+| `rate` | number | `5` | 0.01..50 | Cycles per second. |
+| `depth` | number | `0.5` | by target | How far it moves; see below. |
+| `shape` | string | `"sine"` | `sine`, `triangle`, `square` | The wave. `square` jumps between the two ends. |
+| `delay` | number | `0` | 0..30 | Seconds before the wave starts. |
+
+What `depth` means:
+
+* `volume` (0..1): the level swings between full and `1 - depth` of full.
+  It starts at full, so nothing jumps when the wave begins. `depth = 1`
+  goes all the way to silence. This is a tremolo.
+* `cutoff` (0..4): octaves up and down from the filter's cutoff (after its
+  own sweep). `depth = 1` moves between half and double the cutoff. It
+  starts at the cutoff and goes up first. Updated every 16 samples, like
+  the filter.
+* `duty` (0..0.5): added to and taken from `duty`; the result is kept
+  inside 0.01..0.99. It starts at `duty` and goes up first. This is
+  pulse-width movement, which makes a square wave sound thicker.
+
+```toml
+[[layers]]
+source = "saw"
+filter = { cutoff = 800, resonance = 2.0 }
+lfo = { target = "cutoff", rate = 1.0, depth = 2.0 }   # a slow "wah"
+```
+
+Pitch has its own wave already: `pitch.vibrato`.
 
 ### Stereo
 
@@ -545,14 +588,15 @@ exactly as it was first pinned (the presets use the `clean` default):
 | `ricochet.toml` | `channels = 2`, two layers panned left and right, master reverb |
 | `chime.toml` | note-name pitches, sustain and release, vibrato with delay |
 | `fanfare.toml` | four layers (arpeggio lead, two-note chord, bass), `normalize_lufs`, master reverb; reads note by note in `onsets` and layer by layer with `--per-layer` |
+| `siren.toml` | an LFO on the filter `cutoff` in time with a wide vibrato, and an LFO on `duty` (uses the `clean` default) |
 
 ## Deferred (not in v0, never silently ignored)
 
 These are not accepted by the schema yet; using them is an `unknown_field`
 error until implemented. See `ROADMAP.md` for the order.
 
-* Pitched noise (sample-and-hold noise at the layer pitch, NES style).
-* LFOs on volume, filter cutoff and duty.
+* More than one LFO per layer, LFO rates in beats, and an LFO that runs
+  on across the notes of a song (it restarts with each note).
 * Per-parameter random ranges (`volume = { min = 0.6, max = 0.9 }`).
 * Sample layers.
 * Formant voice sources (Phase 5).

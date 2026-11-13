@@ -1,0 +1,33 @@
+# A siren: a saw wave that wails up and down, with a filter that opens
+# and closes in time with it.
+#
+# The wail is `vibrato` (it moves the pitch). The brightness is the new
+# part: `[layers.lfo]` with target "cutoff" moves the filter two octaves
+# up and down, once per wail, so the siren is brightest at its highest
+# point. The second layer is a quiet pulse wave whose width is moved by
+# its own LFO, which makes the sound thicker.
+version = 0
+name = "siren"
+description = "A wailing siren with a filter moved by an LFO."
+tags = ["alert", "siren", "lfo"]
+
+[master]
+normalize_lufs = -18
+
+[[layers]]
+name = "wail"
+source = "saw"
+volume = 0.6
+envelope = { attack = 0.05, sustain = 1.0, sustain_time = 2.4, release = 0.15 }
+pitch = { start = "A4", vibrato = { rate = 1.25, depth = 5.0 } }
+filter = { kind = "lowpass", cutoff = 1400, resonance = 2.0 }
+lfo = { target = "cutoff", rate = 1.25, depth = 2.0, shape = "sine" }
+
+[[layers]]
+name = "pulse"
+source = "square"
+volume = 0.25
+duty = 0.3
+envelope = { attack = 0.05, sustain = 1.0, sustain_time = 2.4, release = 0.15 }
+pitch = { start = "A3", vibrato = { rate = 1.25, depth = 5.0 } }
+lfo = { target = "duty", rate = 3.0, depth = 0.2, shape = "triangle" }

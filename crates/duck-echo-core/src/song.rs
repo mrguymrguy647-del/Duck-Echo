@@ -17,7 +17,7 @@
 
 use crate::load::did_you_mean;
 use crate::note;
-use crate::recipe::{Effect, Master, Recipe, Source, CURRENT_VERSION, DEFAULT_SAMPLE_RATE};
+use crate::recipe::{Effect, Master, Recipe, CURRENT_VERSION, DEFAULT_SAMPLE_RATE};
 use crate::report::{Code, Issue, Report};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -373,14 +373,15 @@ impl Arrangement {
 }
 
 /// The pitch an instrument recipe plays as written: the `pitch.start` of
-/// its first layer that has a pitch (plain noise has none). Notes move every
+/// its first layer that has a pitch (plain white noise has none; pitched
+/// noise does). Notes move every
 /// layer by `note / home`. `None` when no layer has a pitch; such an
 /// instrument sounds the same for every note.
 pub fn home_hz(recipe: &Recipe) -> Option<f32> {
     recipe
         .layers
         .iter()
-        .find(|l| l.source != Source::Noise)
+        .find(|l| l.has_pitch())
         .map(|l| l.pitch.start.hz())
 }
 

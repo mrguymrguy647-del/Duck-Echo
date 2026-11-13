@@ -484,6 +484,7 @@ const GOLDEN: &[(&str, usize, u64)] = &[
     ("chime", 127494, 0xb5a1_c5f4_8c03_8d1f),
     ("ricochet", 152100, 0xce1b_45c1_7590_5b49),
     ("fanfare", 138870, 0x3059_bbd5_3975_1723),
+    ("siren", 247004, 0x9503_ea9b_e0ba_de68),
 ];
 
 #[test]

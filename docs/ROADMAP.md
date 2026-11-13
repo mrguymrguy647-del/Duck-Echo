@@ -125,16 +125,36 @@ Lessons for the next builder:
   the song are fine; distortion or bitcrush on the whole song means the
   stems no longer add up (the same limit as `per_layer`).
 
-### 4. Pitched noise and LFOs (moved here from Phase 0)
+### 4. Pitched noise and LFOs [done]
 
-* `noise` gains a sample-and-hold mode when `pitch` is set: add
-  `noise_mode = "white" | "pitched"` on the layer (default `white`). This
-  gives chip-style drums and hi-hats.
-* `[layers.lfo]` with `target` (`volume`, `cutoff`, `duty`), `rate`,
-  `depth`, `shape` (`sine`, `triangle`, `square`), `delay`, for tremolo,
-  filter movement and pulse-width movement in pads and leads.
-* Accept: unit tests on rate and depth; spec and schema updated; new
-  example `siren.toml` using an LFO on cutoff; existing renders unchanged.
+- [x] `noise_mode = "white" | "pitched"` on a layer (default `white`).
+  Pitched noise holds each random value for one cycle of the layer's
+  pitch, and follows the note in a song.
+- [x] `[layers.lfo]`: `target` (`volume`, `cutoff`, `duty`), `rate`,
+  `depth`, `shape` (`sine`, `triangle`, `square`), `delay`. One per layer.
+- [x] Unit tests on rate and depth; tests that hear the tremolo, the
+  moving filter and the moving pulse; validation with paths and
+  suggestions; spec and both schemas updated.
+- [x] `examples/recipes/siren.toml`, pinned. Every older fingerprint is
+  unchanged.
+
+Lessons for the next builder:
+
+* **Defaults must fit every choice.** The first depth range for `duty`
+  was 0..0.45, but the default depth is 0.5, so `lfo = { target = "duty" }`
+  alone was an error. The range is now 0..0.5 (the duty is clamped
+  anyway). When a range depends on another field, check the default
+  against each case.
+* **New optional things must not touch the old path.** White noise draws
+  nothing extra when the oscillator is made, and the layer loop only does
+  LFO work when there is an LFO. That is why no old fingerprint moved.
+* **The LFO has no state.** Its wave is worked out from the time, so it
+  does not matter how a render is cut into blocks.
+* **Held noise is never dark.** Even at 200 Hz it keeps a lot of hiss,
+  because each step is a sharp edge. For a deep drum, put a low-pass
+  filter after it or use a sine.
+* An LFO restarts with each note. A slow filter sweep across a whole
+  phrase is not possible yet (listed under Deferred).
 
 ### 19. Starter instruments
 

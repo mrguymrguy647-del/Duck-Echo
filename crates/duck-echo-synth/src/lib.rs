@@ -25,7 +25,8 @@ use duck_echo_audio::AudioBuffer;
 use duck_echo_core::validate::chain_tail_seconds;
 use duck_echo_core::{Layer, Master, Recipe, Report, Source};
 
-use dsp::{ArpShape, Biquad, EnvShape, Oscillator, PitchCurve, Sweep, VibratoShape};
+use dsp::{ArpShape, Biquad, EnvShape, LfoShaper, Oscillator, PitchCurve, Sweep, VibratoShape};
+use duck_echo_core::{LfoTarget, NoiseMode};
 use effects::EffectState;
 use math::Rng;
 
@@ -71,6 +72,9 @@ struct LayerVoice {
     pitch: PitchCurve,
     osc: Oscillator,
     filter: Option<(Biquad, Sweep)>,
+    /// The layer's LFO, if it has one, and the `duty` it moves around.
+    lfo: Option<LfoShaper>,
+    duty: f32,
     control_counter: usize,
     effects: Vec<EffectState>,
     /// Equal-power left and right gains from `pan`.
@@ -144,7 +148,7 @@ fn build(recipe: &Recipe, note: Option<&NotePlay>) -> Voice {
         let mut gate = None;
         if let Some(n) = note {
             pitch_mult *= n.ratio;
-            if layer.source != Source::Noise && layer.pitch.start.hz() * pitch_mult > NOTE_MAX_HZ {
+            if layer.has_pitch() && layer.pitch.start.hz() * pitch_mult > NOTE_MAX_HZ {
                 continue;
             }
             if let Some(g) = n.gate {
@@ -276,9 +280,12 @@ impl LayerVoice {
                 layer.source,
                 layer.duty,
                 layer.aliasing == duck_echo_core::Aliasing::Clean,
+                layer.noise_mode == NoiseMode::Pitched,
                 rng,
             ),
             filter,
+            lfo: layer.lfo.as_ref().map(LfoShaper::new),
+            duty: layer.duty,
             control_counter: 0,
             effects: layer
                 .effects
@@ -341,13 +348,24 @@ impl LayerVoice {
         let n = end - begin;
         let buf = &mut scratch[..n];
 
+        // What the LFO moves, if there is one. Without an LFO the loop
+        // below does exactly what it did before LFOs existed.
+        let target = self.lfo.as_ref().map(LfoShaper::target);
+
         // 1. Oscillator shaped by envelope and volume.
         for s in buf.iter_mut() {
             let local = self.local;
             if local < self.env_frames {
                 let t = local as f32 * self.inv_sample_rate;
                 let hz = self.pitch.at(t);
-                let level = self.env.level(t) * self.volume;
+                let mut level = self.env.level(t) * self.volume;
+                if let Some(lfo) = &self.lfo {
+                    match target {
+                        Some(LfoTarget::Volume) => level *= lfo.gain(t),
+                        Some(LfoTarget::Duty) => self.osc.set_duty(self.duty + lfo.offset(t)),
+                        _ => {}
+                    }
+                }
                 *s = self.osc.next(hz * self.inv_sample_rate) * level;
             } else {
                 *s = 0.0;
@@ -355,7 +373,13 @@ impl LayerVoice {
             // 2. Filter with control-rate cutoff updates.
             if let Some((bq, sweep)) = &mut self.filter {
                 if self.control_counter == 0 {
-                    bq.set_cutoff(sweep.at(local as f32 * self.inv_sample_rate));
+                    let t = local as f32 * self.inv_sample_rate;
+                    let mut cutoff = sweep.at(t);
+                    if let (Some(LfoTarget::Cutoff), Some(lfo)) = (target, &self.lfo) {
+                        // `offset` is in octaves: +1 doubles the cutoff.
+                        cutoff *= math::exp2(lfo.offset(t));
+                    }
+                    bq.set_cutoff(cutoff);
                 }
                 self.control_counter += 1;
                 if self.control_counter == CONTROL_INTERVAL {

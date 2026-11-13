@@ -403,12 +403,28 @@
           ],
           "description": "Optional filter."
         },
+        "lfo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Lfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A slow wave that moves the volume, the filter cutoff or the pulse\nwidth while the sound plays (tremolo, a moving filter, a changing\npulse). Omit for none."
+        },
         "name": {
           "description": "Optional name for humans and agents.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "noise_mode": {
+          "$ref": "#/$defs/NoiseMode",
+          "default": "white",
+          "description": "What kind of noise a `noise` layer makes. `white` (default) is\nplain hiss and ignores `pitch`. `pitched` picks a new random value\n`pitch` times per second and holds it in between, like the noise\nchannel of old game consoles: a low pitch rumbles, a high pitch\nhisses, and it follows the note in a song."
         },
         "offset": {
           "default": 0.0,
@@ -443,6 +459,81 @@
         }
       },
       "type": "object"
+    },
+    "Lfo": {
+      "additionalProperties": false,
+      "description": "A low-frequency oscillator: a slow wave that moves one setting of the\nlayer. It starts when the layer starts (so in a song, with each note).",
+      "properties": {
+        "delay": {
+          "default": 0.0,
+          "description": "Seconds before the wave starts, range 0..=30. Default `0`.",
+          "format": "float",
+          "type": "number"
+        },
+        "depth": {
+          "default": 0.5,
+          "description": "How far it moves. `volume`: 0..=1, the level swings between full\nand `1 - depth` of full. `cutoff`: 0..=4 octaves up and down from\nthe filter's cutoff. `duty`: 0..=0.5 added to and taken from\n`duty` (the result is kept inside 0.01..=0.99). Default `0.5`.",
+          "format": "float",
+          "type": "number"
+        },
+        "rate": {
+          "default": 5.0,
+          "description": "Cycles per second, range 0.01..=50. Default `5`.",
+          "format": "float",
+          "type": "number"
+        },
+        "shape": {
+          "$ref": "#/$defs/LfoShape",
+          "default": "sine",
+          "description": "The wave: `sine` (default), `triangle` or `square`."
+        },
+        "target": {
+          "$ref": "#/$defs/LfoTarget",
+          "default": "volume",
+          "description": "What the wave moves: `volume` (default), `cutoff` (needs a\n`filter`) or `duty` (needs `source = \"square\"`)."
+        }
+      },
+      "type": "object"
+    },
+    "LfoShape": {
+      "description": "The wave of an [`Lfo`].",
+      "oneOf": [
+        {
+          "const": "sine",
+          "description": "A smooth wave.",
+          "type": "string"
+        },
+        {
+          "const": "triangle",
+          "description": "Straight lines up and down.",
+          "type": "string"
+        },
+        {
+          "const": "square",
+          "description": "Jumps between the two ends.",
+          "type": "string"
+        }
+      ]
+    },
+    "LfoTarget": {
+      "description": "The setting an [`Lfo`] moves.",
+      "oneOf": [
+        {
+          "const": "volume",
+          "description": "The layer's volume (tremolo).",
+          "type": "string"
+        },
+        {
+          "const": "cutoff",
+          "description": "The filter's cutoff.",
+          "type": "string"
+        },
+        {
+          "const": "duty",
+          "description": "The pulse width of a square wave.",
+          "type": "string"
+        }
+      ]
     },
     "Master": {
       "additionalProperties": false,
@@ -480,6 +571,21 @@
         }
       },
       "type": "object"
+    },
+    "NoiseMode": {
+      "description": "What kind of noise a `noise` layer makes.",
+      "oneOf": [
+        {
+          "const": "white",
+          "description": "A new random value every sample: plain hiss. `pitch` is not used.",
+          "type": "string"
+        },
+        {
+          "const": "pitched",
+          "description": "A new random value `pitch` times per second, held in between.",
+          "type": "string"
+        }
+      ]
     },
     "Note": {
       "additionalProperties": false,

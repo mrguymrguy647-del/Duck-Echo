@@ -185,7 +185,7 @@ playtest                  root for the project MCP server (.mcp.json); one
 examples/songs            four_bars (two tracks, instruments written inline)
 examples/recipes          coin, jump, laser, explosion, hit, powerup,
                           ricochet (stereo), chime (note names), fanfare
-                          (layers, normalize_lufs)
+                          (layers, normalize_lufs), siren (LFOs)
 ```
 
 ## Development

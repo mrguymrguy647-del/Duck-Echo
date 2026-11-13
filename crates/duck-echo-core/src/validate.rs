@@ -196,6 +196,64 @@ impl Validator {
             );
         }
 
+        if l.noise_mode == NoiseMode::Pitched && l.source != Source::Noise {
+            self.warn(
+                Code::Unused,
+                &format!("{p}.noise_mode"),
+                format!(
+                    "noise_mode only affects `noise`; this layer is `{}`",
+                    source_name(l.source)
+                ),
+            );
+        }
+        if let Some(lfo) = &l.lfo {
+            let lp = format!("{p}.lfo");
+            self.range(&format!("{lp}.rate"), lfo.rate, 0.01, 50.0);
+            self.range(&format!("{lp}.delay"), lfo.delay, 0.0, 30.0);
+            let (max, unit) = match lfo.target {
+                LfoTarget::Volume => (1.0, "a part of the volume"),
+                LfoTarget::Cutoff => (4.0, "octaves"),
+                LfoTarget::Duty => (0.5, "an amount of duty"),
+            };
+            if lfo.depth.is_nan() || lfo.depth < 0.0 || lfo.depth > max {
+                self.report.push(
+                    Issue::error(
+                        Code::OutOfRange,
+                        format!("{lp}.depth"),
+                        format!(
+                            "value {} is outside the allowed range 0..={max} for target `{}` (depth is {unit} there)",
+                            lfo.depth,
+                            lfo_target_name(lfo.target)
+                        ),
+                    )
+                    .got(f64_clean(lfo.depth))
+                    .range(0.0, f64_clean(max)),
+                );
+            }
+            match lfo.target {
+                LfoTarget::Cutoff if l.filter.is_none() => self.report.push(
+                    Issue::error(
+                        Code::Invalid,
+                        format!("{lp}.target"),
+                        "an LFO on `cutoff` needs a filter on this layer; add `filter = { cutoff = 1000 }`, or use target `volume`",
+                    )
+                    .got("cutoff"),
+                ),
+                LfoTarget::Duty if l.source != Source::Square => self.report.push(
+                    Issue::error(
+                        Code::Invalid,
+                        format!("{lp}.target"),
+                        format!(
+                            "an LFO on `duty` needs `source = \"square\"`; this layer is `{}`",
+                            source_name(l.source)
+                        ),
+                    )
+                    .got("duty"),
+                ),
+                _ => {}
+            }
+        }
+
         // Envelope
         let e = &l.envelope;
         let ep = format!("{p}.envelope");
@@ -339,6 +397,14 @@ impl Validator {
                 }
             }
         }
+    }
+}
+
+fn lfo_target_name(t: LfoTarget) -> &'static str {
+    match t {
+        LfoTarget::Volume => "volume",
+        LfoTarget::Cutoff => "cutoff",
+        LfoTarget::Duty => "duty",
     }
 }
 
