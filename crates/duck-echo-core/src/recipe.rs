@@ -226,6 +226,14 @@ pub struct Layer {
     #[serde(default = "default_duty")]
     pub duty: f32,
 
+    /// How `square` and `saw` handle high notes. `clean` (default) smooths
+    /// each jump in the wave, so high notes do not fold back into harsh
+    /// extra tones ("aliasing"). `retro` keeps the raw wave of old sound
+    /// chips, as Duck Echo made it before this option. Sine, triangle and
+    /// noise sound the same either way.
+    #[serde(default)]
+    pub aliasing: Aliasing,
+
     /// Stereo position, -1 (left) ..= 1 (right), equal-power. Only used
     /// when the recipe has `channels = 2`. Default `0` (centre).
     #[serde(default)]
@@ -256,6 +264,7 @@ impl Default for Layer {
             volume: default_volume(),
             offset: 0.0,
             duty: default_duty(),
+            aliasing: Aliasing::default(),
             pan: 0.0,
             envelope: Envelope::default(),
             pitch: Pitch::default(),
@@ -280,6 +289,19 @@ pub enum Source {
     Triangle,
     /// White noise driven by `seed`.
     Noise,
+}
+
+/// How square and saw waves handle high notes (`layers[].aliasing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Aliasing {
+    /// Smooth each jump in the wave (band-limited), so high notes stay
+    /// clean. The very top of the sound gets a little softer.
+    #[default]
+    Clean,
+    /// The raw wave, as on old sound chips: bright, with extra tones on
+    /// high notes.
+    Retro,
 }
 
 /// Volume envelope, all times in seconds (each 0..=30).

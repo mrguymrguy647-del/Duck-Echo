@@ -25,7 +25,7 @@ to the last sample above that level.
 | `crest_factor_db` | Peak over RMS of the active span. Sine 3 dB, square 0 dB; percussive sounds are higher. |
 | `attack_seconds` | From the first non-silent sample until the short-term peak level first reaches 90% of the sound's peak. The short-term level is the largest sample in the previous 20 ms (1 ms steps), which stays steady for content down to 50 Hz. It measures the time to the *loudest* moment: when a later note or layer is slightly louder than the first (two-note chimes, a layer entering later), this reads long even though the sound starts sharply. Check `pitch_track` levels in that case. |
 | `decay_seconds` | From the last sample at 90% of the peak until the moment after which no sample in the next 20 ms reaches 10% of the peak (-20 dB). A held note does not count as decay. `null` if it never falls that far. |
-| `spectral_centroid_hz` | Magnitude-weighted mean frequency over the active span. Higher is brighter. Naive square and saw waves read very bright because of their many harmonics. |
+| `spectral_centroid_hz` | Magnitude-weighted mean frequency over the active span. Higher is brighter. Square and saw waves read bright because of their many harmonics, and `retro` ones (raw waves with folded extra tones) brighter still. |
 | `tonality` | Share of A-weighted power in spectral peaks at least 10 dB above their neighbourhood (median of ±16 FFT bins). Peaks are found on the raw spectrum; the power is weighted with the A curve (IEC 61672, 0 dB at 1 kHz) so each frequency counts roughly as loud as it sounds, and a sub-bass thump under a noise blast does not make the blast tonal. Measured with 46 ms and 186 ms frames and the higher value kept: short frames follow sweeps, long ones resolve the close harmonics of low tones. Tones near 1, broadband noise near 0. Noise confined to a band narrower than about 700 Hz can still read tonal. |
 | `pitch_track` | Up to 8 evenly spaced 46 ms windows inside the active span, each with `time_seconds`, `dominant_hz` (strongest raw frequency, usually the fundamental of chip waveforms), `level_dbfs` and `tonality` (same method as above, with a 186 ms frame around the same centre). `dominant_hz` and `tonality` are `null` in windows below -60 dBFS RMS; `dominant_hz` means little when the window's tonality is low. |
 | `energy_over_time` | `slice_seconds` and `rms_dbfs`: the RMS level of all channels in 20 equal slices over the whole file, rounded to 0.1 dB, `null` for digital silence. A coarse level-over-time picture in numbers: a fade, a gap, a second hit or a tail. |
@@ -100,8 +100,9 @@ axis from 0 to the end of the file:
   (the loudest frame per column when a column spans several), log
   frequency from 40 Hz to 20 kHz (or half the sample rate), colour from
   black at -90 dB to pale yellow at 0 dB (a full-scale sine). Harmonics are
-  evenly spaced lines that rise and fall together; aliases of naive
-  oscillators are lines that do not fit that pattern; noise is a smear.
+  evenly spaced lines that rise and fall together; aliases of `retro`
+  square and saw layers are lines that do not fit that pattern (with the
+  `clean` default they are 40 dB or more lower); noise is a smear.
 
 The picture shows texture the numbers miss (grit, a noisy tail, aliasing),
 but its colours are not measurements: check numbers with the fields

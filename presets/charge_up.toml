@@ -6,7 +6,7 @@ tags = ["weapon", "charge", "rising", "long"]
 
 [master]
 normalize = true
-normalize_peak_db = -9.1
+normalize_peak_db = -9.2
 trim_silence = true
 
 [[layers]]

@@ -19,9 +19,11 @@ tags = ["pickup", "jingle", "win"]
 normalize_lufs = -19
 trim_silence = true
 
+# "retro" keeps the raw Phase 0 wave, so this pinned example renders unchanged.
 [[layers]]
 name = "lead"
 source = "square"
+aliasing = "retro"
 duty = 0.25
 volume = 0.6
 envelope = { attack = 0.003, hold = 0.33, decay = 0.08 }
@@ -38,6 +40,7 @@ pitch = { start = "E6" }
 [[layers]]
 name = "chord low"
 source = "square"
+aliasing = "retro"
 offset = 0.4
 volume = 0.3
 envelope = { attack = 0.004, hold = 0.12, decay = 0.45 }

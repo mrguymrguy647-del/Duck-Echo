@@ -262,6 +262,23 @@ fn warnings_do_not_block() {
     assert_eq!(loaded.report.warnings.len(), 1);
     assert_eq!(loaded.report.warnings[0].code, Code::Unused);
     assert_eq!(loaded.report.warnings[0].path, "layers[0].duty");
+
+    // `aliasing = "retro"` changes nothing on a sine, so it is flagged too.
+    let loaded = load_str(
+        "version = 0\n[[layers]]\nsource = \"sine\"\naliasing = \"retro\"\n",
+        Format::Toml,
+    )
+    .expect("warnings only");
+    assert_eq!(loaded.report.warnings[0].code, Code::Unused);
+    assert_eq!(loaded.report.warnings[0].path, "layers[0].aliasing");
+    // A typo in the value is caught with a suggestion.
+    let report = load_str(
+        "version = 0\n[[layers]]\naliasing = \"retor\"\n",
+        Format::Toml,
+    )
+    .unwrap_err();
+    assert_eq!(report.errors[0].path, "layers[0].aliasing");
+    assert_eq!(report.errors[0].suggestion.as_deref(), Some("retro"));
 }
 
 #[test]
@@ -564,6 +581,8 @@ decay = 0
 start = 440
 [[layers]]
 source = "saw"
+# Retro: the raw saw peaks exactly at its volume, which the test checks.
+aliasing = "retro"
 volume = 0.3
 pan = 1
 [layers.envelope]

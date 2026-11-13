@@ -158,6 +158,16 @@ impl Validator {
         self.range(&format!("{p}.offset"), l.offset, 0.0, 30.0);
         self.range(&format!("{p}.duty"), l.duty, 0.01, 0.99);
         self.range(&format!("{p}.pan"), l.pan, -1.0, 1.0);
+        if l.aliasing == Aliasing::Retro && !matches!(l.source, Source::Square | Source::Saw) {
+            self.warn(
+                Code::Unused,
+                &format!("{p}.aliasing"),
+                format!(
+                    "aliasing only changes `square` and `saw`; this layer is `{}`",
+                    source_name(l.source)
+                ),
+            );
+        }
         if l.source != Source::Square && l.duty != 0.5 {
             self.warn(
                 Code::Unused,

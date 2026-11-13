@@ -8,9 +8,11 @@ trim_silence = true   # drop the silent end of the effect tail
 normalize = true
 normalize_peak_db = -1
 
+# "retro" keeps the raw Phase 0 wave, so this pinned example renders unchanged.
 [[layers]]
 name = "arp"
 source = "square"
+aliasing = "retro"
 duty = 0.25
 volume = 0.7
 

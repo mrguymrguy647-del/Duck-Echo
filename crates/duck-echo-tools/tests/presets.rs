@@ -111,36 +111,39 @@ fn every_preset_follows_the_conventions_and_renders_clean() {
 /// build (this test runs unoptimized, so it also checks that the
 /// optimization level does not change the bytes). All were re-pinned when
 /// presets moved from -3 dBFS peak to per-category loudness targets
-/// (R10); before that each was pinned at its first render. Update a value
-/// only when the preset is changed on purpose, and say so in the commit.
+/// (R10); before that each was pinned at its first render. The 14 presets
+/// with a square or saw layer were re-pinned again when `aliasing = "clean"`
+/// became the default (roadmap task 3); the other 16 did not change. Update
+/// a value only when the preset is changed on purpose, and say so in the
+/// commit.
 const PRESET_GOLDEN: &[(&str, usize, u64)] = &[
-    ("alarm", 93066, 0x8e7d_fd7d_83d2_635e),
+    ("alarm", 93066, 0x0ca6_1495_8708_b1fa),
     ("big_explosion", 189320, 0xc190_f382_0999_f029),
-    ("blaster", 12360, 0x135b_d162_6095_a4e5),
-    ("charge_up", 74992, 0xc662_f351_9906_9362),
-    ("coin", 27410, 0x00ea_28a8_611a_35df),
-    ("engine_hum", 220326, 0xcaa3_989f_57bb_7b83),
+    ("blaster", 12360, 0x06ae_a6b5_039d_4de5),
+    ("charge_up", 74990, 0x1517_8f35_3980_306a),
+    ("coin", 27420, 0xf25b_53ed_b3ae_17ec),
+    ("engine_hum", 220326, 0xfa5c_e8a5_b63c_2604),
     ("explosion", 98486, 0xab7d_2062_4f63_4afd),
-    ("extra_life", 53024, 0x6b96_a508_fe7a_6d78),
+    ("extra_life", 53024, 0x2d4d_6eb4_bec9_4d0b),
     ("footstep", 4940, 0x917d_12c3_80e0_c738),
     ("gem", 50998, 0x7819_da53_7e4f_1e41),
-    ("hit", 10564, 0xf5f3_6801_82ce_69af),
-    ("jump", 24238, 0x5aee_742e_2fa0_7068),
+    ("hit", 10564, 0xac5f_0a18_1ee9_7af1),
+    ("jump", 24238, 0x4ace_8edb_fdeb_c392),
     ("key_pickup", 56158, 0xea77_66b7_9245_c852),
     ("land", 7156, 0x6ad6_bef9_f9ff_b352),
-    ("laser", 57968, 0xa449_9bae_9ef0_7470),
+    ("laser", 57972, 0xc2db_dd4c_9152_94ba),
     ("low_health", 29442, 0x3f90_88db_4603_f3a4),
     ("menu_open", 13232, 0xa19f_55e3_01a3_b1db),
     ("metal_clang", 105586, 0xaa10_b2f1_b330_698e),
-    ("missile", 61692, 0x28af_d954_4e7a_56b3),
-    ("powerup", 91470, 0x2107_e9f4_87d6_9c52),
+    ("missile", 61692, 0xa1c5_97a8_cb77_1b17),
+    ("powerup", 91470, 0x58b1_aa7e_7f3e_ca82),
     ("punch", 10630, 0xcffa_739a_3ff8_c656),
     ("shotgun", 39360, 0xf399_2caa_cc94_e9c8),
     ("thud", 17790, 0xa484_4080_8f8d_20b0),
-    ("ui_cancel", 20340, 0x7a05_e514_f740_4531),
-    ("ui_click", 3198, 0x15e1_a957_20cf_0cb9),
+    ("ui_cancel", 20340, 0x66b4_0e13_6628_2b15),
+    ("ui_click", 3198, 0x6c24_b85f_d24e_1de9),
     ("ui_confirm", 30682, 0x903a_f3ba_c1c9_ddd5),
-    ("ui_error", 33696, 0x1d21_377b_6b75_e0cc),
+    ("ui_error", 33696, 0x2313_3fcb_ab75_d57e),
     ("ui_hover", 5734, 0xe4f9_fd7d_bfcb_009b),
     ("warning_beep", 42634, 0xee89_b207_bd72_582d),
     ("wind", 560624, 0xcc48_19ca_0fd4_7b14),

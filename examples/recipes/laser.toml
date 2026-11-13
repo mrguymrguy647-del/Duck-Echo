@@ -5,8 +5,10 @@ name = "laser"
 [master]
 trim_silence = true   # drop the silent end of the effect tail
 
+# "retro" keeps the raw Phase 0 wave, so this pinned example renders unchanged.
 [[layers]]
 source = "saw"
+aliasing = "retro"
 volume = 0.6
 
 [layers.envelope]

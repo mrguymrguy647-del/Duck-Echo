@@ -176,6 +176,8 @@ impl PitchCurve {
 #[derive(Debug, Clone)]
 pub struct Oscillator {
     source: Source,
+    /// Smooth the jumps in square and saw waves (`aliasing = "clean"`).
+    clean: bool,
     duty: f32,
     /// Level of the high part of the pulse.
     pulse_high: f32,
@@ -186,14 +188,16 @@ pub struct Oscillator {
 }
 
 impl Oscillator {
-    /// New oscillator at phase 0.
-    pub fn new(source: Source, duty: f32, rng: Rng) -> Self {
+    /// New oscillator at phase 0. `clean` turns on the smoothing of the
+    /// jumps in square and saw waves (see [`blep_near`]).
+    pub fn new(source: Source, duty: f32, clean: bool, rng: Rng) -> Self {
         // Pulse levels chosen so the wave has no DC offset and a peak of 1:
         // a 50% duty gives +1/-1, a 25% duty gives +1/-0.333.
         let duty = duty.clamp(0.01, 0.99);
         let widest = duty.max(1.0 - duty);
         Self {
             source,
+            clean,
             duty,
             pulse_high: (1.0 - duty) / widest,
             pulse_low: -duty / widest,
@@ -206,7 +210,7 @@ impl Oscillator {
     #[inline]
     pub fn next(&mut self, increment: f32) -> f32 {
         let p = self.phase;
-        let out = match self.source {
+        let mut out = match self.source {
             Source::Sine => math::sin_turns(p),
             Source::Square => {
                 if p < self.duty {
@@ -219,6 +223,22 @@ impl Oscillator {
             Source::Triangle => 1.0 - 4.0 * (p - 0.5).abs(),
             Source::Noise => self.rng.bipolar(),
         };
+        // Clean mode: add a small correction next to each jump in the wave.
+        // The raw wave above is untouched, so retro mode gives exactly the
+        // same numbers as before this option existed.
+        if self.clean && increment > 0.0 {
+            match self.source {
+                // The saw drops by 2 (from +1 to -1) where its phase wraps.
+                Source::Saw => out -= 2.0 * blep_near(p, 0.0, increment),
+                // The pulse jumps up where the phase wraps and down at `duty`.
+                Source::Square => {
+                    let jump = self.pulse_high - self.pulse_low;
+                    out +=
+                        jump * (blep_near(p, 0.0, increment) - blep_near(p, self.duty, increment));
+                }
+                _ => {}
+            }
+        }
         let mut np = p + increment;
         if np >= 1.0 {
             np -= np.floor();
@@ -226,6 +246,64 @@ impl Oscillator {
         self.phase = np;
         out
     }
+}
+
+/// The correction that turns a sudden jump of height 1 into a smooth one
+/// ("BLEP residual"), for a sample `u` samples after the jump (negative
+/// `u`: the jump is still ahead).
+///
+/// A raw jump has energy at every frequency, and everything above half the
+/// sample rate folds back down as harsh extra tones (aliasing). Here the
+/// jump is smoothed by a cubic B-spline curve, which spreads it over 2
+/// samples on each side; its spectrum falls off fast enough that a 2 kHz
+/// saw's folded tones are more than 40 dB under its fundamental (tested in
+/// `duck-echo-tools/tests/clean_oscillators.rs`). The price is a gentler
+/// top end: about -3 dB at 10 kHz and -7 dB at 15 kHz at 44.1 kHz.
+///
+/// The value is "smooth step minus raw step", so it is zero more than 2
+/// samples from the jump, and only `+ - * /` are used, for determinism.
+#[inline]
+pub fn blep_residual(u: f32) -> f32 {
+    if !(-2.0..2.0).contains(&u) {
+        0.0
+    } else if u < -1.0 {
+        let v = u + 2.0;
+        let v2 = v * v;
+        v2 * v2 * (1.0 / 24.0)
+    } else if u < 0.0 {
+        let u2 = u * u;
+        0.5 + (4.0 * u - 2.0 * u2 * u - 0.75 * u2 * u2) * (1.0 / 6.0)
+    } else if u < 1.0 {
+        let u2 = u * u;
+        -0.5 + (4.0 * u - 2.0 * u2 * u + 0.75 * u2 * u2) * (1.0 / 6.0)
+    } else {
+        let v = 2.0 - u;
+        let v2 = v * v;
+        -(v2 * v2) * (1.0 / 24.0)
+    }
+}
+
+/// The total correction at phase `p` (0..1) for a wave that jumps up by 1
+/// each time its phase passes `edge`, when the phase moves `dt` per sample.
+///
+/// The phase distance to the jump is turned into samples by dividing by
+/// `dt`. On very high notes the 4-sample reach covers more than half a
+/// cycle, so the jumps one cycle before and after can be in reach too;
+/// all of them are added.
+#[inline]
+pub fn blep_near(p: f32, edge: f32, dt: f32) -> f32 {
+    // Distance from the nearest copy of the edge, in -0.5..0.5 turns.
+    let mut d = p - edge;
+    d -= (d + 0.5).floor();
+    let reach = 2.0 * dt;
+    let mut sum = 0.0;
+    for k in [-1.0f32, 0.0, 1.0] {
+        let dk = d + k;
+        if dk > -reach && dk < reach {
+            sum += blep_residual(dk / dt);
+        }
+    }
+    sum
 }
 
 /// Audio EQ Cookbook biquad, transposed direct form II.
@@ -296,6 +374,69 @@ impl Biquad {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blep_residual_is_a_smooth_step_minus_a_raw_step() {
+        // Zero outside 2 samples on each side.
+        for u in [-3.0, -2.0, 2.0, 2.5] {
+            assert_eq!(blep_residual(u), 0.0, "u = {u}");
+        }
+        // It cancels the raw jump: +0.5 just before, -0.5 just after.
+        assert!((blep_residual(-1e-6) - 0.5).abs() < 1e-5);
+        assert!((blep_residual(0.0) + 0.5).abs() < 1e-6);
+        // The four curve pieces meet without gaps.
+        for u in [-1.0f32, 1.0] {
+            let below = blep_residual(u - 1e-4);
+            let above = blep_residual(u + 1e-4);
+            assert!(
+                (below - above).abs() < 1e-3,
+                "gap at {u}: {below} vs {above}"
+            );
+        }
+        assert!((blep_residual(-1.0) - 1.0 / 24.0).abs() < 1e-6);
+        assert!((blep_residual(1.0) + 1.0 / 24.0).abs() < 1e-6);
+        // Odd symmetry around the jump.
+        for u in [0.3f32, 0.9, 1.4, 1.9] {
+            assert!(
+                (blep_residual(u) + blep_residual(-u)).abs() < 1e-6,
+                "u = {u}"
+            );
+        }
+    }
+
+    #[test]
+    fn clean_saw_has_no_jump_and_stays_in_range() {
+        // A 2 kHz saw at 44.1 kHz: the raw wave jumps by 2 in one sample
+        // each cycle. The clean one spreads that drop over 4 samples; the
+        // biggest single step is about 60% of it (1.2, depending on where
+        // the jump falls between samples) plus the ramp's own slope.
+        let mut raw = Oscillator::new(Source::Saw, 0.5, false, Rng::new(0));
+        let mut clean = Oscillator::new(Source::Saw, 0.5, true, Rng::new(0));
+        let dt = 2000.0 / 44_100.0;
+        let (mut prev_raw, mut prev_clean) = (raw.next(dt), clean.next(dt));
+        let (mut big_raw, mut big_clean, mut peak) = (0.0f32, 0.0f32, 0.0f32);
+        for _ in 0..4410 {
+            let (r, c) = (raw.next(dt), clean.next(dt));
+            big_raw = big_raw.max((r - prev_raw).abs());
+            big_clean = big_clean.max((c - prev_clean).abs());
+            peak = peak.max(c.abs());
+            (prev_raw, prev_clean) = (r, c);
+        }
+        assert!(big_raw > 1.8, "raw saw should jump, largest step {big_raw}");
+        assert!(big_clean < 1.3, "clean saw still jumps by {big_clean}");
+        assert!(peak <= 1.0, "clean saw peak {peak}");
+    }
+
+    #[test]
+    fn retro_and_clean_only_differ_on_square_and_saw() {
+        for source in [Source::Sine, Source::Triangle, Source::Noise] {
+            let mut a = Oscillator::new(source, 0.5, false, Rng::new(7));
+            let mut b = Oscillator::new(source, 0.5, true, Rng::new(7));
+            for _ in 0..1000 {
+                assert_eq!(a.next(0.05), b.next(0.05), "{source:?}");
+            }
+        }
+    }
 
     #[test]
     fn envelope_shape() {

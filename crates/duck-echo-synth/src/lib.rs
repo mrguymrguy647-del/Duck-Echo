@@ -209,7 +209,12 @@ impl LayerVoice {
             inv_sample_rate: 1.0 / sr,
             env,
             pitch,
-            osc: Oscillator::new(layer.source, layer.duty, rng),
+            osc: Oscillator::new(
+                layer.source,
+                layer.duty,
+                layer.aliasing == duck_echo_core::Aliasing::Clean,
+                rng,
+            ),
             filter,
             control_counter: 0,
             effects: layer

@@ -6,7 +6,7 @@ tags = ["weapon", "blaster", "gritty"]
 
 [master]
 normalize = true
-normalize_peak_db = -7.5
+normalize_peak_db = -7.1
 trim_silence = true
 
 [[layers]]

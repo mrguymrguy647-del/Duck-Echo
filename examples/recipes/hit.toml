@@ -3,6 +3,7 @@ version = 0
 name = "hit"
 seed = 3
 
+# "retro" keeps the raw Phase 0 wave, so this pinned example renders unchanged.
 [[layers]]
 name = "crunch"
 source = "noise"
@@ -21,6 +22,7 @@ resonance = 1.5
 [[layers]]
 name = "body"
 source = "square"
+aliasing = "retro"
 volume = 0.5
 
 [layers.envelope]

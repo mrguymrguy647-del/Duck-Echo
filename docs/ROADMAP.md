@@ -16,7 +16,7 @@ from playtest 1; place it before 16, which it prepares.
 | 4 | 7. Presets and `variations` | done |
 | 5 | 9. MCP server | done |
 | 5b | Playtest 1 fixes (P1 to P6) and 17. Loudness normalization | done |
-| 6 | 3. Band-limited oscillators | |
+| 6 | 3. Band-limited oscillators | done |
 | 7 | 4. Pitched noise and LFOs | |
 | 8 | 5. Per-parameter random ranges | |
 | 9 | 8. Cross-platform determinism in CI | |
@@ -322,7 +322,33 @@ the agent loop; keep it in step with the guide. Original task text follows.
 
 These were planned before the agent interface and moved after task 9.
 
-### 3. Band-limited oscillators
+### 3. Band-limited oscillators [done]
+
+Done: `layers[].aliasing`, `clean` by default. Choices and numbers:
+
+* **A 4-point B-spline BLEP, not the usual 2-point PolyBLEP.** Measured on
+  a 2 kHz saw at 44.1 kHz, the worst folded tone (at 20.1 kHz, from the
+  24 kHz harmonic) is -21.6 dB raw, -31.0 dB with 2-point PolyBLEP and
+  -40.4 dB with the cubic B-spline correction, so only the wider one meets
+  the 40 dB goal. A 2 kHz square measures -44.9 dB. The price is a softer
+  top end (-3 dB at 10 kHz, -7 dB at 15 kHz). Getting both flat highs and
+  40 dB would need oversampling or a long filter with delay; not worth it
+  for a light, realtime-ready oscillator.
+* **No memory and no delay.** The correction is worked out from the phase
+  and pitch step alone (`dsp::blep_near`), so `Voice::process` stays
+  allocation-free and nothing is delayed against the envelope.
+* **Triangle stays raw:** it has no jumps, so it aliases far less.
+* **Examples stay retro, presets go clean.** Every square and saw layer in
+  `examples/recipes/` says `aliasing = "retro"`, so the examples still
+  match their first renders and pin the retro path. The 14 presets with a
+  square or saw layer changed sound and were re-pinned; 8 of them also
+  needed a new `normalize_peak_db` to stay within 0.1 LU of their target
+  (coin moved most, 0.48 LU, because clean high notes lose the folded
+  tones' energy). The other 16 presets did not change.
+* Tests: `clean_oscillators.rs` (spectrum, saw and square, and that the
+  same measurement catches retro), plus unit tests in `dsp.rs`.
+
+Original task text follows.
 
 * PolyBLEP for square and saw (triangle via integrated square or leave
   naive). Add `aliasing = "retro" | "clean"` on the layer, default `clean`,

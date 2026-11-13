@@ -7,9 +7,11 @@ channels = 2
 [master]
 trim_silence = true
 
+# "retro" keeps the raw Phase 0 wave, so this pinned example renders unchanged.
 [[layers]]
 name = "hit"
 source = "square"
+aliasing = "retro"
 duty = 0.2
 volume = 0.6
 pan = -0.7

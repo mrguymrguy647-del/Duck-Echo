@@ -118,7 +118,9 @@ server and a future UI reuse the libraries rather than shelling out.
 Per layer, the signal path inside `Voice::process` is:
 
 ```
-oscillator (pitch curve: sweep + arpeggio + vibrato)
+oscillator (pitch curve: sweep + arpeggio + vibrato;
+            square and saw add a BLEP correction at each jump unless
+            the layer says aliasing = "retro")
   × envelope × volume
   → filter (biquad, cutoff sweep updated every 16 samples)
   → layer effects (in order), still mono

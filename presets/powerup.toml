@@ -6,7 +6,7 @@ tags = ["pickup", "powerup", "rising"]
 
 [master]
 normalize = true
-normalize_peak_db = -9.2
+normalize_peak_db = -9
 trim_silence = true
 
 [[layers]]
