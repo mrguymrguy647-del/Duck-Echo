@@ -170,6 +170,14 @@ examples/recipes          coin, jump, laser, explosion, hit, powerup,
 
 ## Development
 
+CI runs the tests on Linux and Windows and checks that both render every
+example and preset to identical bytes (see "What is guaranteed to match"
+in `docs/ARCHITECTURE.md`). To fingerprint the renders on your machine:
+
+```bash
+cargo build --release -p duck-echo-cli && scripts/render-fingerprints.sh
+```
+
 ```bash
 cargo test --workspace
 ```

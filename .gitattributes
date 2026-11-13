@@ -1,0 +1,6 @@
+# Keep text files (recipes, presets, docs, code) with LF line endings on
+# every platform, so a Windows checkout reads exactly the same bytes as a
+# Linux one. Audio and pictures are binary and never converted.
+* text=auto eol=lf
+*.wav binary
+*.png binary

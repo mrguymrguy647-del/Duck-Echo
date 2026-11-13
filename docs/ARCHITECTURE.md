@@ -162,11 +162,33 @@ with multiplication only so every platform agrees on the frame count.
   contract `a * b + c` into a fused multiply-add without explicit opt-in, so
   results match across x86 and ARM.
 * No threads in the renderer, no iteration over hash maps, no time.
-* Tests assert byte-identical WAVs from repeated renders on one platform.
-  Cross-platform identity is a design goal, verified in CI on the roadmap.
+* The golden tests pin a fingerprint of every example's and preset's WAV,
+  made by a release build; the tests run unoptimized, so they also check
+  that the optimization level does not change a single byte.
 
 The analysis crate uses `f64` and platform libm freely: it measures, it does
 not produce audio, and differences at the fifth decimal do not matter there.
+
+### What is guaranteed to match
+
+CI (`.github/workflows/ci.yml`) runs every test on Linux and on Windows,
+then renders every example and every preset on both with
+`scripts/render-fingerprints.sh` and checks that the SHA-256 of every WAV
+is the same on both. In plain words:
+
+* **Same recipe, same file.** With the same Duck Echo version, a recipe
+  (with its seed) renders to the same WAV bytes on Linux and Windows
+  (x86-64), in a release or a debug build. This is checked for every
+  example and preset on each push, and it holds for any recipe by design:
+  the render path uses only operations that IEEE-754 defines exactly.
+* **A sound only changes on purpose.** Every example and preset is pinned;
+  a commit that changes one says so.
+* **Not promised to match:** analysis numbers (`analyze`, `compare`) may
+  differ in the last decimals between platforms, because they use the
+  platform's math library; pictures are drawn from those numbers. macOS
+  and ARM machines are not in CI yet; nothing in the design should differ
+  there, but it is not checked. A different Duck Echo version may change a
+  sound, and its commit will say which.
 
 ## Realtime constraints (for later phases)
 

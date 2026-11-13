@@ -199,22 +199,37 @@ impl Root {
         })
     }
 
-    /// A path as shown to the agent: relative to the root when inside it.
+    /// A path as shown to the agent: relative to the root when inside it,
+    /// with `/` between the parts on every platform (Windows too), so an
+    /// agent sees the same paths wherever the server runs.
     pub fn show(&self, path: &Path) -> String {
         if path == self.dir {
             return ".".into();
         }
-        path.strip_prefix(&self.dir)
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| path.display().to_string())
+        match path.strip_prefix(&self.dir) {
+            Ok(rel) => rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/"),
+            Err(_) => path.display().to_string(),
+        }
     }
 
     /// `text` with the root's absolute location replaced by paths relative
     /// to it, so messages never reveal where the server runs.
+    ///
+    /// On Windows the remaining `\` separators also become `/`, to match
+    /// [`Root::show`].
     pub fn scrub(&self, text: &str) -> String {
         let dir = self.dir.display().to_string();
         let sep = std::path::MAIN_SEPARATOR;
-        text.replace(&format!("{dir}{sep}"), "").replace(&dir, ".")
+        let out = text.replace(&format!("{dir}{sep}"), "").replace(&dir, ".");
+        if sep == '\\' {
+            out.replace('\\', "/")
+        } else {
+            out
+        }
     }
 }
 

@@ -4,3 +4,5 @@
 # Playtest results are committed: each playtest keeps its recipes, renders
 # and REVIEW.md in its own folder under playtest/ (the project MCP root).
 !/playtest/**/*.wav
+# Output of scripts/render-fingerprints.sh
+/renders
