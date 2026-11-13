@@ -87,6 +87,8 @@ const RECIPE_SOURCE: &str = "Give the recipe (or song) either inline as `recipe`
 
 const SONG_NOTE: &str = "A song works the same way as a recipe here: a document with `tracks` is a song (get_schema with kind \"song\" documents it), one with `layers` is a recipe.";
 
+const NOTE_CHECK_NOTE: &str = "For a song, `note_check` compares the notes written with the notes heard: each track is rendered alone and every written note is listened for at its place. `notes_heard` of `notes_written` is in the summary; `tracks[].problems` lists each note that is `missing`, `quiet`, at a `wrong_pitch` (with the written and heard pitch and `cents_off`) or `uncertain` (too short to read), with its `path`, `bar` and `beat`.";
+
 const LOUDNESS_NOTE: &str = "Loudness (`loudness_lufs`) is BS.1770 gated for sounds of 400 ms or more and an ungated K-weighted approximation for shorter ones (`loudness_method`, and `~` in the summary); compare short sounds with short sounds.";
 
 const EXTRAS_NOTE: &str = "Options: `picture: true` adds a PNG (level over time above a spectrogram) as an image block; `per_layer: true` (recipes) adds `layers`, each layer analyzed alone as heard in the mix; `per_track: true` (songs) adds `tracks`, each track analyzed alone the same way; `solo`/`mute` hear only some layers (by number) or tracks (by name).";
@@ -109,6 +111,7 @@ fn extras_props() -> Value {
         "picture": { "type": "boolean", "description": "Add a PNG picture of the sound as an image block: level over time (peak and RMS, onset ticks) above a log-frequency spectrogram. `picture` in the result describes its axes. Default false." },
         "per_layer": { "type": "boolean", "description": "Also analyze each heard layer on its own, at the gain, timing and length it has in the mix, in `layers`. Recipes only. Default false." },
         "per_track": { "type": "boolean", "description": "Also analyze each heard track on its own, at the gain, timing and length it has in the mix, in `tracks`. Songs only. Default false." },
+        "notes": { "type": "boolean", "description": "List every written note of a song with what was heard for it, in `note_check.tracks[].notes`, not only the problems. Songs only. Default false." },
         "solo": { "type": "array", "items": { "type": ["integer", "string"] }, "description": "Hear only these, at their level in the full mix: layer numbers (indices into `layers`) for a recipe, track names for a song." },
         "mute": { "type": "array", "items": { "type": ["integer", "string"] }, "description": "Silence these: layer numbers for a recipe, track names for a song." }
     })
@@ -251,7 +254,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "render",
             "Render to WAV",
-            &format!("Render a recipe to a WAV file and return the analysis of the result (including a one-line `summary`, `energy_over_time` and note `onsets`) and any render warnings. {LOUDNESS_NOTE} To hit a loudness target in one render, set `master.normalize_lufs`; it measures the same way. {EXTRAS_NOTE} With solo or mute the WAV holds only the heard layers or tracks. A song's result also has `song` (tempo, bars, and `song_frames`, the exact length of its bars in samples); a song with `loop: true` renders to exactly that length with its tail folded onto its start, and `loop_seam.clean` says the end joins the start without a click. {RECIPE_SOURCE} {SONG_NOTE}"),
+            &format!("Render a recipe to a WAV file and return the analysis of the result (including a one-line `summary`, `energy_over_time` and note `onsets`) and any render warnings. {LOUDNESS_NOTE} To hit a loudness target in one render, set `master.normalize_lufs`; it measures the same way. {EXTRAS_NOTE} With solo or mute the WAV holds only the heard layers or tracks. A song's result also has `song` (tempo, bars, and `song_frames`, the exact length of its bars in samples); a song with `loop: true` renders to exactly that length with its tail folded onto its start, and `loop_seam.clean` says the end joins the start without a click. With `per_track` or `notes`, render also returns `note_check` as analyze does. {RECIPE_SOURCE} {SONG_NOTE}"),
             with(with(recipe_props(), json!({
                 "output": { "type": "string", "description": "WAV file to write, relative to the server root." },
                 "seed": { "type": "integer", "minimum": 0, "description": "Override the recipe seed." },
@@ -263,7 +266,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "analyze",
             "Analyze a sound",
-            &format!("Measure a sound without listening: a one-line `summary`, duration, peak, loudness, clipping, silence, attack, decay, crest factor, spectral centroid (brightness), tonality, a pitch track, `energy_over_time` (RMS in 20 slices) and note `onsets` (time and pitch of each new note or burst). {LOUDNESS_NOTE} Give `path` (a WAV file, recipe or song file, or preset:NAME) or an inline `recipe`, which is rendered in memory. {EXTRAS_NOTE} {SONG_NOTE}"),
+            &format!("Measure a sound without listening: a one-line `summary`, duration, peak, loudness, clipping, silence, attack, decay, crest factor, spectral centroid (brightness), tonality, a pitch track, `energy_over_time` (RMS in 20 slices) and note `onsets` (time and pitch of each new note or burst). {LOUDNESS_NOTE} Give `path` (a WAV file, recipe or song file, or preset:NAME) or an inline `recipe`, which is rendered in memory. {EXTRAS_NOTE} {SONG_NOTE} {NOTE_CHECK_NOTE}"),
             with(with(recipe_props(), json!({
                 "path": { "type": "string", "description": "A WAV file, recipe or song file, or preset:NAME, relative to the server root. list_files shows the files." }
             })), extras_props()),
@@ -400,13 +403,19 @@ fn opt_selectors(args: &Map<String, Value>, key: &str) -> Result<Vec<String>, To
     }
 }
 
-fn options_of(args: &Map<String, Value>) -> Result<Options, ToolError> {
+/// The measuring options of a call. `always_check` is true for `analyze`,
+/// which listens for every written note of a song; `render` does so only
+/// with `per_track`, because the check renders every track once more.
+fn options_of(args: &Map<String, Value>, always_check: bool) -> Result<Options, ToolError> {
+    let per_track = opt_bool(args, "per_track")?.unwrap_or(false);
     Ok(Options {
         per_layer: opt_bool(args, "per_layer")?.unwrap_or(false),
-        per_track: opt_bool(args, "per_track")?.unwrap_or(false),
+        per_track,
         solo: opt_selectors(args, "solo")?,
         mute: opt_selectors(args, "mute")?,
         picture: opt_bool(args, "picture")?.unwrap_or(false),
+        check_notes: always_check || per_track,
+        list_notes: opt_bool(args, "notes")?.unwrap_or(false),
     })
 }
 
@@ -773,7 +782,7 @@ fn run(
                     ))
                 }
             };
-            let options = options_of(args)?;
+            let options = options_of(args, false)?;
             let done = duck_echo_tools::render_document_to_file(
                 &doc,
                 &out,
@@ -789,7 +798,7 @@ fn run(
             Ok((v, images))
         }
         "analyze" => {
-            let options = options_of(args)?;
+            let options = options_of(args, true)?;
             let measure_doc = |src: Source| -> Result<measure::Measured, ToolError> {
                 let doc = load_doc(root, &src)?;
                 Ok(

@@ -234,13 +234,44 @@ Lessons for the next builder:
 * A loop file starts with the ring of a turn that never happened. A
   separate "first time" file is listed under Deferred.
 
-### 21. Checking music without ears
+### 21. Checking music without ears [done]
 
-* `analyze` on a song reports per track: the notes heard (time, pitch,
-  level) next to the notes written, and any that are missing or wrong;
-  plus tempo and bar lines in the picture.
-* Accept: a test song with one deliberately wrong note is reported with
-  that note's track, beat and both pitches.
+- [x] `analyze` on a song reports `note_check`: per track, the notes
+  written, the notes heard, and every note that is `missing`, `quiet`, at
+  a `wrong_pitch` or `uncertain`, with its path, bar, beat, both pitches,
+  the cents between them and its level. `notes: true` / `--notes` lists
+  every note. The summary line says "N of M notes heard".
+- [x] Each note is read from the held part of the note on its own track
+  (`analyze::notes`), to a fraction of a cent for a steady tone. In the
+  demo every note, the low bass included, reads within 10 cents.
+- [x] Starts of sound with no written note (an echo's repeats) are listed
+  as `extra_onsets`.
+- [x] The picture of a song has a line at each bar, and `bar_lines` gives
+  their times. A recipe's picture is unchanged.
+- [x] Test: a song with one wrong note is reported with its track, bar,
+  beat and both pitches (F5 heard where G5 is written, 200 cents flat).
+  Also tested: a silent note, a quiet note, a note too short to read, an
+  instrument that sounds a fifth higher than written, chords, drum hits,
+  and a note held across a loop's join.
+
+Lessons for the next builder:
+
+* **Ask "is my note there?", not "what is the loudest thing?".** The
+  check looks for a peak near the written pitch first. Only when there is
+  none does it look at the strongest pitch. This is why a chord note
+  under louder notes, or a pad note under the tail of the last chord, is
+  still heard.
+* **Read where the sound is.** A piano note fades, so the middle of a
+  long note can be silent. The check reads from just after the start,
+  for at most 0.8 s.
+* **It costs a render per track.** `analyze` always pays that; `render`
+  only with `per_track` or `notes`. If this gets slow on long songs, the
+  stems could be made in one pass by keeping each track's bus.
+* **What it cannot do:** tell apart two overlapping notes of the same
+  pitch; say whether a note is buried under another track (it listens to
+  the track alone); read very short low notes (they are `uncertain`).
+* The checked audio is the stem at its level in the mix, so "audible"
+  means above -60 dBFS in the finished song.
 
 ### 10. Agent workflow guide (moved here from Phase 0, last in Phase 1)
 

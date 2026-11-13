@@ -611,6 +611,12 @@ the same rule as `per_layer`. The stems of all tracks add up to the mix (to
 within float rounding), unless the mix clips or the song's own `effects`
 include distortion or bitcrush.
 
+`analyze` on a song also listens for every written note on its own track
+and reports `note_check`: how many notes were heard, and each one that is
+`missing`, `quiet`, at a `wrong_pitch` or too short to read, with its
+track, bar, beat and both pitches. `docs/ANALYSIS.md` ("Songs") defines
+it. This is how to check a tune without hearing it.
+
 Validation reports every problem at once, with paths such as
 `tracks[1].notes[3].note`, `tracks[0].play[1].pattern` and
 `instruments.lead.layers[0].volume`.

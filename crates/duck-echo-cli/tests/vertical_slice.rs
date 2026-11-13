@@ -1060,6 +1060,21 @@ fn cli_renders_validates_and_analyzes_songs() {
     let wav = duck_echo_audio::read_wav(&dir.join("four.wav")).unwrap();
     assert_eq!((wav.sample_rate, wav.channels), (44_100, 2));
 
+    // render checked the notes because per-track detail was asked for.
+    assert_eq!(v["note_check"]["notes_heard"], 29);
+    // analyze always does, and `--notes` lists each one.
+    let out = run(&["analyze", song_arg, "--compact", "--notes"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["note_check"]["notes_written"], 29);
+    let notes = v["note_check"]["tracks"][1]["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 13);
+    assert_eq!(notes[0]["written"], "E5");
+    assert!(v["summary"]
+        .as_str()
+        .unwrap()
+        .contains("29 of 29 notes heard"));
+
     // A stem: the WAV holds only the bass, at its level in the mix.
     let out = run(&[
         "render", song_arg, "-o", "bass.wav", "--json", "--solo", "bass",

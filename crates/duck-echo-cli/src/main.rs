@@ -142,20 +142,31 @@ struct ExtrasArgs {
     /// names for a song.
     #[arg(long, value_delimiter = ',')]
     mute: Vec<String>,
+    /// List every written note of a song with what was heard for it
+    /// (`note_check.tracks[].notes` in the JSON), not only the problems.
+    /// Songs only.
+    #[arg(long)]
+    notes: bool,
     /// Draw a picture of the sound (level over time and a spectrogram) to
-    /// this PNG file.
+    /// this PNG file. A song's picture has a line at each bar.
     #[arg(long, value_name = "FILE.png")]
     picture: Option<PathBuf>,
 }
 
 impl ExtrasArgs {
-    fn options(&self) -> Options {
+    /// The options as the tools take them. `check_notes` says whether a
+    /// song's written notes are listened for: `analyze` always does,
+    /// `render` only when asked for per-track detail, because the check
+    /// renders every track once more.
+    fn options(&self, check_notes: bool) -> Options {
         Options {
             per_layer: self.per_layer,
             per_track: self.per_track,
             solo: self.solo.clone(),
             mute: self.mute.clone(),
             picture: self.picture.is_some(),
+            check_notes,
+            list_notes: self.notes,
         }
     }
 }
@@ -291,7 +302,7 @@ fn validate(reference: &Path, json: bool) -> ExitCode {
 }
 
 fn analyze(input: &Path, compact: bool, args: &ExtrasArgs) -> ExitCode {
-    let options = args.options();
+    let options = args.options(true);
     let measured = if duck_echo_tools::is_recipe_ref(input) {
         duck_echo_tools::load_document(input, &files_next_to(input))
             .map_err(|e| e.at("input"))
@@ -341,7 +352,7 @@ fn render(
         &output,
         seed,
         format,
-        &args.options(),
+        &args.options(args.per_track),
         "--",
     ) {
         Ok(d) => d,

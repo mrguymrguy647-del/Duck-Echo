@@ -669,6 +669,13 @@ The roadmap test ("a song with one wrong note is reported with its track,
 beat and both pitches") is done by checking one song's audio against a
 copy of the song with one note changed.
 
+**As built:** the report is its own block, `note_check`, next to
+`tracks`, so it is there without asking for the full per-track analysis.
+`analyze` always includes it; `render` includes it with `per_track` or
+`notes`. Extra onsets are listed separately as `extra_onsets` and are
+information, not problems. `docs/ANALYSIS.md` ("Songs") is the
+reference.
+
 ---
 
 ## 7. Fitting the future: Studio and Duck Forge

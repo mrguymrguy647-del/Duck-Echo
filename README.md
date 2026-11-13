@@ -68,6 +68,10 @@ instrument, and an instrument is a recipe. The same commands take both:
 with `tracks`). For a song, `--per-track` analyzes each track alone and
 `--solo`/`--mute` take track names; `render --solo bass` writes that
 track's stem, which lines up with the full mix in time and level.
+`analyze` on a song also checks it without ears: it listens for every
+written note and reports any that is missing, quiet or at the wrong pitch
+(`note_check`; `--notes` lists every note), and for a loop whether the end
+joins the start cleanly (`loop_seam`).
 
 Recipes and songs are TOML on disk and JSON in tool calls; both are the same schema.
 Anywhere a recipe is expected, `preset:NAME` names a built-in preset, for

@@ -1099,6 +1099,33 @@ fn songs_work_through_every_tool() {
         .starts_with("2 bars at 120 BPM, 2 tracks (1 heard); "));
     assert!(heard["onsets"].as_array().unwrap().len() >= 6, "{heard}");
 
+    // analyze listens for every written note; render does with per_track.
+    assert_eq!(heard["note_check"]["notes_written"], 8);
+    assert_eq!(heard["note_check"]["notes_heard"], 8);
+    assert_eq!(heard["note_check"]["tracks"][0]["name"], "bass");
+    assert!(heard["summary"]
+        .as_str()
+        .unwrap()
+        .contains("8 of 8 notes heard"));
+    assert_eq!(done["note_check"]["notes_written"], 11);
+    let (listed, err) = s.call(
+        "analyze",
+        json!({"path": "songs/tune.toml", "notes": true, "picture": true}),
+    );
+    assert!(!err, "{listed}");
+    let notes = listed["note_check"]["tracks"][0]["notes"]
+        .as_array()
+        .unwrap();
+    assert_eq!(notes.len(), 3);
+    assert_eq!(notes[1]["written"], "C5");
+    assert_eq!(notes[1]["status"], "heard");
+    assert_eq!(listed["picture"]["bar_lines"].as_array().unwrap().len(), 2);
+    let (plain, _) = s.call(
+        "render",
+        json!({"path": "songs/tune.toml", "output": "out/plain.wav"}),
+    );
+    assert!(plain.get("note_check").is_none());
+
     // An inline song, and comparing a song with a WAV of itself.
     let (inline, err) = s.call("analyze", json!({"recipe": song_json("tone")}));
     assert!(!err, "{inline}");
@@ -1151,6 +1178,16 @@ fn songs_work_through_every_tool() {
             "analyze",
             json!({"path": "out/tune.wav", "per_track": true}),
             "arguments.per_track",
+        ),
+        (
+            "analyze",
+            json!({"path": "preset:coin", "notes": true}),
+            "arguments.notes",
+        ),
+        (
+            "analyze",
+            json!({"path": "out/tune.wav", "notes": true}),
+            "arguments.notes",
         ),
         (
             "variations",

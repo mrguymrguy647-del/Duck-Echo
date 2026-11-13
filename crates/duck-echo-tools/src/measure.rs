@@ -6,6 +6,7 @@
 //! ([`duck_echo_synth::render_layers`]), so a layer analyzed alone reads at
 //! the level and times it has in the mix.
 
+use crate::notecheck::{check_track, NoteCheck};
 use crate::song::{Document, SongFacts};
 use crate::ToolError;
 use duck_echo_analyze::{Analysis, PictureInfo};
@@ -147,6 +148,10 @@ pub struct Measured {
     /// For a looping song: how the end of the file joins its start.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loop_seam: Option<LoopSeam>,
+    /// For a song, when its notes were checked: the notes written next to
+    /// the notes heard, per track.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_check: Option<NoteCheck>,
     /// With `picture`: what the picture shows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<PictureInfo>,
@@ -179,6 +184,7 @@ pub fn measure_audio(buffer: &AudioBuffer, extras: &Extras) -> Result<Measured, 
         heard_tracks: None,
         tracks: None,
         loop_seam: None,
+        note_check: None,
         picture,
         png,
     })
@@ -237,6 +243,7 @@ pub fn measure_recipe(
             heard_tracks: None,
             tracks: None,
             loop_seam: None,
+            note_check: None,
             picture,
             png,
         },
@@ -318,6 +325,13 @@ pub struct Options {
     pub mute: Vec<String>,
     /// Draw a picture of the sound.
     pub picture: bool,
+    /// For a song: listen for every written note (`note_check` in the
+    /// result). `analyze` turns this on; it costs one extra render per
+    /// track. Does nothing for a recipe or a WAV file.
+    pub check_notes: bool,
+    /// For a song: list every note in `note_check`, not only the
+    /// problems. Turns the note check on.
+    pub list_notes: bool,
 }
 
 impl Options {
@@ -336,6 +350,13 @@ impl Options {
                 prefix,
                 "per_track",
                 "`per_track` needs a song; a recipe has layers, so use `per_layer`",
+            ));
+        }
+        if self.list_notes {
+            return Err(Self::wrong_kind(
+                prefix,
+                "notes",
+                "`notes` needs a song; a recipe has no written notes to list (its `onsets` show what is heard)",
             ));
         }
         let numbers = |arg: &str, list: &[String]| -> Result<Vec<usize>, ToolError> {
@@ -372,6 +393,7 @@ impl Options {
             ("per_track", self.per_track),
             ("solo", !self.solo.is_empty()),
             ("mute", !self.mute.is_empty()),
+            ("notes", self.list_notes),
         ] {
             if on {
                 return Err(Self::wrong_kind(
@@ -448,6 +470,8 @@ impl Options {
             isolates: !self.solo.is_empty() || !self.mute.is_empty(),
             heard,
             picture: self.picture,
+            check_notes: self.check_notes || self.list_notes,
+            list_notes: self.list_notes,
         })
     }
 }
@@ -463,6 +487,10 @@ pub struct SongExtras {
     pub heard: Vec<usize>,
     /// Draw a picture of the sound.
     pub picture: bool,
+    /// Listen for every written note.
+    pub check_notes: bool,
+    /// List every note, not only the problems.
+    pub list_notes: bool,
 }
 
 /// One track analyzed on its own, as heard in the mix.
@@ -522,33 +550,61 @@ pub fn measure_song(
             ", LOOP CLICKS AT THE JOIN"
         });
     }
-    if facts.tracks > 1 && !extras.per_track && extras.heard.len() > 1 {
-        analysis.summary.push_str("; per_track describes each");
-    }
-    let tracks = extras.per_track.then(|| {
-        extras
-            .heard
-            .iter()
-            .map(|&i| {
-                let alone = render_song_tracks(song, arrangement, &[i], &mastering);
-                TrackAnalysis {
+    // Each heard track alone, when something needs it. One render per
+    // track serves both the per-track analysis and the note check.
+    let mut tracks = extras.per_track.then(Vec::new);
+    let mut checks = extras.check_notes.then(Vec::new);
+    if extras.per_track || extras.check_notes {
+        for &i in &extras.heard {
+            let alone = render_song_tracks(song, arrangement, &[i], &mastering);
+            let track_analysis = crate::analyze_buffer(&alone);
+            if let Some(checks) = &mut checks {
+                checks.push(check_track(
+                    song,
+                    &arrangement.tracks[i],
+                    &song.tracks[i].instrument,
+                    &alone,
+                    &track_analysis.onsets,
+                    extras.list_notes,
+                ));
+            }
+            if let Some(tracks) = &mut tracks {
+                tracks.push(TrackAnalysis {
                     index: i,
                     name: song.tracks[i].name.clone(),
                     instrument: song.tracks[i].instrument.clone(),
                     notes: arrangement.tracks[i].events.len(),
-                    analysis: crate::analyze_buffer(&alone),
-                }
-            })
-            .collect()
-    });
-    let (picture, png) = picture_of(
-        &buffer,
-        &analysis,
-        &Extras {
-            picture: extras.picture,
-            ..Extras::default()
-        },
-    );
+                    analysis: track_analysis,
+                });
+            }
+        }
+    }
+    let note_check = checks.map(NoteCheck::of);
+    if let Some(check) = &note_check {
+        analysis.summary.push_str(", ");
+        analysis.summary.push_str(&check.summary());
+    }
+    if facts.tracks > 1 && !extras.per_track && extras.heard.len() > 1 {
+        analysis.summary.push_str("; per_track describes each");
+    }
+
+    // The picture of a song has a line at the start of each bar.
+    let (picture, png) = if extras.picture {
+        let onsets: Vec<f64> = analysis.onsets.iter().map(|o| o.time_seconds).collect();
+        let bar_lines: Vec<f64> = (0..facts.bars)
+            .map(|bar| bar as f64 * facts.seconds_per_bar)
+            .collect();
+        let pic = duck_echo_analyze::picture::draw_with_bars(
+            &buffer.samples,
+            buffer.sample_rate,
+            buffer.channels,
+            &onsets,
+            &bar_lines,
+        );
+        (Some(pic.info), Some(pic.png))
+    } else {
+        (None, None)
+    };
     Ok(RecipeMeasurement {
         buffer,
         measured: Measured {
@@ -566,6 +622,7 @@ pub fn measure_song(
             }),
             tracks,
             loop_seam,
+            note_check,
             picture,
             png,
         },

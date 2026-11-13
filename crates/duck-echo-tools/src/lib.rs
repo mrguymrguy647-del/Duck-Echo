@@ -11,6 +11,7 @@ use std::path::Path;
 pub mod files;
 pub mod instruments;
 pub mod measure;
+pub mod notecheck;
 pub mod song;
 
 pub use measure::{Extras, LayerAnalysis, Measured, Options, TrackAnalysis};
@@ -240,6 +241,10 @@ pub struct Rendered {
     /// For a looping song: how the end of the file joins its start.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loop_seam: Option<measure::LoopSeam>,
+    /// For a song, when its notes were checked: the notes written next to
+    /// the notes heard, per track.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_check: Option<notecheck::NoteCheck>,
     /// With `picture`: what the picture shows. The PNG is in `png`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub picture: Option<duck_echo_analyze::PictureInfo>,
@@ -289,6 +294,7 @@ fn rendered(output: &Path, seed: u64, measured: Measured) -> Rendered {
         heard_tracks: measured.heard_tracks,
         tracks: measured.tracks,
         loop_seam: measured.loop_seam,
+        note_check: measured.note_check,
         picture: measured.picture,
         png: measured.png,
     }

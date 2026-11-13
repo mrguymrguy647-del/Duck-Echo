@@ -142,6 +142,133 @@ impl Spectrum {
     }
 }
 
+/// A sine quieter than this (-60 dBFS, the analyzer's silence threshold)
+/// does not count as heard.
+pub const AUDIBLE: f64 = 0.001;
+
+/// How far from the written pitch a note may read and still be that note,
+/// in cents: half a semitone.
+pub const SAME_NOTE_CENTS: f64 = 50.0;
+
+/// What listening for one written note found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteStatus {
+    /// The note is there, at its pitch.
+    Heard,
+    /// Nothing is there (or only other notes of the same track).
+    Missing,
+    /// Something is there, but at another pitch.
+    WrongPitch,
+    /// The stretch is too short to read a pitch from.
+    Uncertain,
+}
+
+/// The result of listening for one written note.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NoteReading {
+    /// What was found.
+    pub status: NoteStatus,
+    /// The pitch heard, Hz: the note itself when it is there, otherwise
+    /// the strongest pitch in the stretch.
+    pub heard_hz: Option<f64>,
+    /// Level of what was heard, as the amplitude of a sine (1.0 is full
+    /// scale).
+    pub level: Option<f64>,
+}
+
+/// Listen for a note of `written_hz` in `window`, the mono samples of the
+/// held part of the note.
+///
+/// First it looks for a peak within half a semitone of the written pitch.
+/// If there is one, the note is heard, whatever else is sounding. If not,
+/// it looks at the strongest pitch in the stretch: when that belongs to
+/// another note known to be sounding (`others`, in Hz; their overtones
+/// count too) the note is missing, otherwise it is a wrong pitch.
+pub fn read_pitched(
+    window: &[f32],
+    sample_rate: u32,
+    written_hz: f64,
+    others: &[f64],
+) -> NoteReading {
+    let uncertain = NoteReading {
+        status: NoteStatus::Uncertain,
+        heard_hz: None,
+        level: None,
+    };
+    let Some(spec) = spectrum(window, sample_rate) else {
+        return uncertain;
+    };
+    // A little wider than half a semitone, so a peak right at the limit
+    // is still seen as a bump inside the range.
+    let reach = 2f64.powf(65.0 / 1200.0);
+    let (lo, hi) = (written_hz / reach, written_hz * reach);
+    let near = spec
+        .peak(lo, hi)
+        .filter(|p| spec.is_inside(p, lo, hi) && p.amplitude >= AUDIBLE);
+    if let Some(p) = near {
+        if cents(p.hz, written_hz).abs() <= SAME_NOTE_CENTS {
+            return NoteReading {
+                status: NoteStatus::Heard,
+                heard_hz: Some(p.hz),
+                level: Some(p.amplitude),
+            };
+        }
+    }
+    // Under about 8 cycles, neighbouring notes blur into each other.
+    let short = (window.len() as f64 / sample_rate as f64) < 8.0 / written_hz;
+    let top = spec
+        .peak(spec.lowest_hz().max(20.0), sample_rate as f64 * 0.45)
+        .filter(|p| p.amplitude >= AUDIBLE);
+    match top {
+        None if short => uncertain,
+        None => NoteReading {
+            status: NoteStatus::Missing,
+            heard_hz: None,
+            level: None,
+        },
+        Some(t) if short => NoteReading {
+            status: NoteStatus::Uncertain,
+            heard_hz: Some(t.hz),
+            level: Some(t.amplitude),
+        },
+        Some(t) => {
+            let is_other = others
+                .iter()
+                .any(|o| (1..=8).any(|n| cents(t.hz, o * n as f64).abs() < SAME_NOTE_CENTS));
+            NoteReading {
+                status: if is_other {
+                    NoteStatus::Missing
+                } else {
+                    NoteStatus::WrongPitch
+                },
+                heard_hz: Some(t.hz),
+                level: Some(t.amplitude),
+            }
+        }
+    }
+}
+
+/// Listen for a drum hit in `window`, the mono samples just after the
+/// hit was written. A drum has no pitch to check: it is heard when the
+/// stretch is not silent.
+pub fn read_hit(window: &[f32]) -> NoteReading {
+    let peak = window.iter().fold(0.0f32, |m, s| m.max(s.abs())) as f64;
+    if peak >= AUDIBLE {
+        NoteReading {
+            status: NoteStatus::Heard,
+            heard_hz: None,
+            level: Some(peak),
+        }
+    } else {
+        NoteReading {
+            status: NoteStatus::Missing,
+            heard_hz: None,
+            level: None,
+        }
+    }
+}
+
 /// How far `heard` is from `written`, in cents (100 cents is a semitone).
 pub fn cents(heard: f64, written: f64) -> f64 {
     1200.0 * (heard / written).log2()
@@ -187,5 +314,60 @@ mod tests {
         assert!(spectrum_peak(&vec![0.0; 4410], 44_100, 100.0, 2000.0).is_none());
         // Too short for a low note: 20 ms holds one cycle of 50 Hz.
         assert!(spectrum_peak(&sine(50.0, 0.5, 0.02), 44_100, 45.0, 55.0).is_none());
+    }
+
+    #[test]
+    fn tells_heard_from_missing_wrong_and_too_short() {
+        let a4 = sine(440.0, 0.3, 0.4);
+        let heard = read_pitched(&a4, 44_100, 440.0, &[]);
+        assert_eq!(heard.status, NoteStatus::Heard);
+        assert!(cents(heard.heard_hz.unwrap(), 440.0).abs() < 1.0);
+        assert!((heard.level.unwrap() - 0.3).abs() < 0.01);
+
+        // 30 cents sharp is still the note; a semitone up is not.
+        let sharp = sine(440.0 * 2f64.powf(30.0 / 1200.0), 0.3, 0.4);
+        assert_eq!(
+            read_pitched(&sharp, 44_100, 440.0, &[]).status,
+            NoteStatus::Heard
+        );
+        let wrong = read_pitched(&a4, 44_100, 415.3, &[]);
+        assert_eq!(wrong.status, NoteStatus::WrongPitch);
+        assert!(cents(wrong.heard_hz.unwrap(), 440.0).abs() < 1.0);
+
+        // What is there is another note of the track: the note is missing.
+        assert_eq!(
+            read_pitched(&a4, 44_100, 523.25, &[440.0]).status,
+            NoteStatus::Missing
+        );
+        // An overtone of another note counts as that note.
+        let a5 = sine(880.0, 0.3, 0.4);
+        assert_eq!(
+            read_pitched(&a5, 44_100, 523.25, &[440.0]).status,
+            NoteStatus::Missing
+        );
+        // Silence.
+        assert_eq!(
+            read_pitched(&vec![0.0; 17_640], 44_100, 440.0, &[]).status,
+            NoteStatus::Missing
+        );
+        // A note under a louder one is still heard.
+        let mut both = sine(440.0, 0.05, 0.4);
+        for (x, y) in both.iter_mut().zip(sine(660.0, 0.5, 0.4)) {
+            *x += y;
+        }
+        assert_eq!(
+            read_pitched(&both, 44_100, 440.0, &[660.0]).status,
+            NoteStatus::Heard
+        );
+
+        // 30 ms of 100 Hz is three cycles: too short to call it wrong.
+        let short = sine(100.0, 0.3, 0.03);
+        assert_eq!(
+            read_pitched(&short, 44_100, 110.0, &[]).status,
+            NoteStatus::Uncertain
+        );
+
+        assert_eq!(read_hit(&sine(200.0, 0.3, 0.05)).status, NoteStatus::Heard);
+        assert_eq!(read_hit(&[0.0; 2205]).status, NoteStatus::Missing);
     }
 }
