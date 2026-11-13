@@ -217,7 +217,7 @@ features are added as new optional fields or new enum variants. Existing
 recipes keep rendering identically. The `version` number only increments when
 the meaning of an existing field changes.
 
-### Phase 2: music
+### Music (roadmap Phase 1)
 
 A song is a second document type that references sound recipes rather than a
 change to the recipe itself:
@@ -243,7 +243,7 @@ by hand, the music phase sets them from the timeline. The renderer gains a
 scheduler that creates one `Voice` per note at the right frame, which is the
 same `prepare` and `process` API used today.
 
-### Phase 3: voice
+### Voice (roadmap Phase 5)
 
 Formant synthesis adds a `formant` source and an optional
 `[layers.formant]` table:

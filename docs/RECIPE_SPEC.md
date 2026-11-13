@@ -360,7 +360,7 @@ error until implemented. See `ROADMAP.md` for the order.
 * LFOs on volume, filter cutoff and duty.
 * Per-parameter random ranges (`volume = { min = 0.6, max = 0.9 }`).
 * Sample layers.
-* Music timeline documents and formant voice sources (phases 2 and 3).
+* Song documents (roadmap Phase 1) and formant voice sources (Phase 5).
 
 ## Versioning
 
