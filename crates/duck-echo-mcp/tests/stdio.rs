@@ -123,6 +123,8 @@ fn create_edit_render_analyze_loop() {
             "get_schema",
             "list_presets",
             "get_preset",
+            "list_instruments",
+            "get_instrument",
             "list_files",
             "validate",
             "create",
@@ -1234,4 +1236,128 @@ fn song_instrument_files_cannot_leave_the_root() {
     assert_eq!(report["errors"][0]["code"], "not_found");
     let (report, _) = s.call("validate", json!({"recipe": song_json("shared/lead.toml")}));
     assert_eq!(report["ok"], true, "{report}");
+}
+
+/// Roadmap task 19: built-in instruments through the tools, and
+/// `instrument:NAME` held to the same rules as `preset:NAME`: read-only,
+/// a known name only, never a path.
+#[test]
+fn built_in_instruments_are_listed_played_and_read_only() {
+    let (root, _outside) = sandbox("mcp_instruments");
+    let mut s = started(&root);
+
+    let (list, err) = s.call("list_instruments", json!({}));
+    assert!(!err, "{list}");
+    let names: Vec<&str> = list["instruments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "bass",
+            "chip_lead",
+            "clap",
+            "hat",
+            "kick",
+            "pad",
+            "piano",
+            "snare",
+            "drums"
+        ]
+    );
+    assert_eq!(list["instruments"][6]["range"], json!(["C2", "C7"]));
+    assert_eq!(
+        list["instruments"][8]["pieces"],
+        json!(["clap", "hat", "kick", "snare"])
+    );
+
+    let (piano, err) = s.call("get_instrument", json!({"name": "piano"}));
+    assert!(!err, "{piano}");
+    assert_eq!(piano["home"], "C4");
+    assert_eq!(piano["recipe"]["layers"].as_array().unwrap().len(), 7);
+    assert!(piano["toml"].as_str().unwrap().contains("hammer"));
+    let (report, err) = s.call("get_instrument", json!({"name": "pianoo"}));
+    assert!(err);
+    assert_eq!(report["errors"][0]["path"], "arguments.name");
+    assert_eq!(report["errors"][0]["suggestion"], "piano");
+
+    // An instrument can be heard alone, like a preset.
+    let (a, err) = s.call("analyze", json!({"path": "instrument:piano"}));
+    assert!(!err, "{a}");
+    assert!((a["loudness_lufs"].as_f64().unwrap() + 18.0).abs() < 0.1);
+    let (done, err) = s.call(
+        "render",
+        json!({"path": "instrument:kick", "output": "kick.wav"}),
+    );
+    assert!(!err, "{done}");
+    assert!(root.join("kick.wav").exists());
+    // Editing one gives a changed copy and writes nothing.
+    let (edited, err) = s.call(
+        "edit",
+        json!({"path": "instrument:bass", "ops": [{"path": "layers[0].volume", "value": 0.3}]}),
+    );
+    assert!(!err, "{edited}");
+    assert_eq!(edited["written"], false);
+
+    // A song names instruments plainly; a whole tune needs no other file.
+    let song = json!({
+        "version": 0, "tempo": 120, "bars": 1,
+        "tracks": [
+            {"name": "keys", "instrument": "piano", "notes": [{"beat": 0, "note": ["C4", "E4", "G4"], "length": 2}]},
+            {"name": "beat", "instrument": "drums", "notes": [{"beat": 0, "note": "kick"}, {"beat": 1, "note": "snare"}]}
+        ]
+    });
+    let (a, err) = s.call("analyze", json!({"recipe": song, "per_track": true}));
+    assert!(!err, "{a}");
+    assert_eq!(a["tracks"][1]["instrument"], "drums");
+
+    // Only known names, only for reading, never a path.
+    let before = files_under(&root);
+    for (path, why) in [
+        ("instrument:../piano", "instrument name"),
+        ("instrument:/etc/passwd", "instrument name"),
+        ("instrument:Piano", "instrument name"),
+        ("instrument:piano.toml", "instrument name"),
+        ("instrument:nope", "no built-in instrument named"),
+        ("instrument:drums", "is a kit"),
+    ] {
+        assert_refused(&mut s, "validate", json!({"path": path}), why);
+        assert_refused(&mut s, "analyze", json!({"path": path}), why);
+        assert_refused(
+            &mut s,
+            "compare",
+            json!({"a": path, "b": "preset:coin"}),
+            why,
+        );
+    }
+    for (tool, args) in [
+        (
+            "render",
+            json!({"path": "preset:coin", "output": "instrument:piano"}),
+        ),
+        (
+            "render",
+            json!({"path": "preset:coin", "output": "instrument:../x.wav"}),
+        ),
+        (
+            "create",
+            json!({"path": "instrument:piano", "recipe": {"version": 0, "layers": [{}]}}),
+        ),
+        (
+            "variations",
+            json!({"path": "preset:coin", "output_dir": "instrument:piano"}),
+        ),
+    ] {
+        assert_refused(&mut s, tool, args, "instruments are built in and read-only");
+    }
+    assert_refused(
+        &mut s,
+        "list_files",
+        json!({"path": "instrument:piano"}),
+        "instruments are built in, not files",
+    );
+    assert_eq!(files_under(&root), before, "a refused call wrote something");
 }

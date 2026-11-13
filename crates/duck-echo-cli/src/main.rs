@@ -1,7 +1,8 @@
 //! `duck-echo`: validate, render, analyze and compare sound recipes from the
 //! shell, browse presets and render variations.
 //!
-//! Anywhere a recipe is expected, `preset:NAME` names a built-in preset.
+//! Anywhere a recipe is expected, `preset:NAME` names a built-in preset
+//! and `instrument:NAME` a built-in instrument.
 //! `validate`, `render`, `analyze` and `compare` also take a song (a
 //! document with `tracks`); they tell the two apart by looking inside.
 //!
@@ -88,6 +89,11 @@ enum Command {
     Presets {
         #[command(subcommand)]
         action: PresetsAction,
+    },
+    /// Browse the built-in instruments a song can use.
+    Instruments {
+        #[command(subcommand)]
+        action: InstrumentsAction,
     },
     /// Render seeds 1..N of a recipe and analyze each, to pick a variant by
     /// its numbers.
@@ -184,6 +190,25 @@ enum PresetsAction {
     },
 }
 
+#[derive(Subcommand)]
+enum InstrumentsAction {
+    /// List the built-in instruments and kits with their range and
+    /// description.
+    List {
+        /// Print JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print an instrument's recipe (TOML with comments, or JSON).
+    Show {
+        /// Instrument name.
+        name: String,
+        /// Print the recipe as JSON instead of TOML.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 #[derive(Clone, Copy, ValueEnum)]
 enum Bits {
     /// 16-bit PCM.
@@ -230,6 +255,7 @@ fn main() -> ExitCode {
             }
         }
         Command::Presets { action } => presets(action),
+        Command::Instruments { action } => instruments(action),
         Command::Variations {
             recipe,
             count,
@@ -369,6 +395,43 @@ fn presets(action: PresetsAction) -> ExitCode {
                 },
                 Ok(p) => {
                     print!("{}", p.source);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => tool_error(e, json),
+            }
+        }
+    }
+}
+
+fn instruments(action: InstrumentsAction) -> ExitCode {
+    use duck_echo_tools::instruments;
+    match action {
+        InstrumentsAction::List { json } => match instruments::list() {
+            Ok(list) if json => print_json(&list, false),
+            Ok(list) => {
+                for i in list {
+                    let range = match (&i.range, i.pieces.is_empty()) {
+                        (Some([lo, hi]), _) => format!("{lo}..{hi}"),
+                        (None, false) => i.pieces.join(","),
+                        (None, true) => "drum".into(),
+                    };
+                    println!("{:<10} {:<20} {}", i.name, range, i.description);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => tool_error(e, json),
+        },
+        InstrumentsAction::Show { name, json } => {
+            match instruments::get(&name).map_err(|e| e.at("name")) {
+                Ok(i) if json => match instruments::load(i) {
+                    Ok(l) => {
+                        println!("{}", duck_echo_core::to_json(&l.recipe));
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => tool_error(e, true),
+                },
+                Ok(i) => {
+                    print!("{}", i.source);
                     ExitCode::SUCCESS
                 }
                 Err(e) => tool_error(e, json),

@@ -49,6 +49,8 @@ examples/recipes/          the example recipes (TOML, plus coin.json)
 examples/songs/            the example songs
 presets/                   tagged starting-point recipes, compiled into the
                            tools crate with include_str!
+instruments/               the starter instruments for songs, compiled in the
+                           same way (see instruments/README.md)
 schema/recipe.schema.json  generated from the Rust types; a test fails when stale
 schema/song.schema.json    the same, for songs
 ```
@@ -253,6 +255,13 @@ reference; `docs/phase1-design.md` explains the choices. In short:
   the track **name**; note stream = track stream forked by the note's
   **start sample**, then by its place among notes starting together, then
   by the instrument's own seed. Nothing depends on position in the file.
+* **Built-in instruments** (`tools::instruments`) are recipes in
+  `instruments/`, compiled in like the presets. `tools::song::Library` is
+  the `InstrumentSource` both front ends use: it finds built-in
+  instruments and kits by name, `preset:NAME`, and recipe files (through
+  the front end's file resolver). `instrument:NAME` names one wherever a
+  recipe path is accepted; in the MCP server `Root::read` checks it like
+  `preset:NAME` (a known name, read-only, never a path).
 * **Stems.** `synth::song::render_song_tracks` renders some tracks with
   the full mix's master gain and length (the `render_layers` rule), so
   stems add up to the mix.
@@ -298,6 +307,8 @@ a song works too: the tools tell the two apart by looking inside.
 | `get_schema` | optional `kind` (`recipe` or `song`) | The recipe JSON Schema, same as `duck-echo schema`, or the song schema (`duck-echo schema song`). |
 | `list_presets` | optional `tag` | `{presets: [{name, category, target_lufs, description, tags}]}`. Presets are levelled to per-category loudness targets (see `presets/README.md`). A tag no preset has is a `not_found` error at `arguments.tag` with the closest real tag as `suggestion` and every tag in `allowed`, so a typo is never an empty list. |
 | `get_preset` | `name` | `{name, category, description, tags, recipe, toml}`: the recipe as a JSON object and its TOML source with comments. |
+| `list_instruments` | none | `{instruments: [{name, kind, description, tags, home, range, target_lufs, pieces}]}`: the built-in instruments and the kit `drums`. |
+| `get_instrument` | `name` | The listing entry plus `recipe` (a JSON object) and `toml` (its source with comments). A kit is an error that names its pieces. |
 | `list_files` | optional `path` (a folder), `recursive` (default true) | `{folder, entries: [{path, kind, bytes, seconds}], truncated}`. Kinds: `folder`, `recipe`, `audio`, `image`, `link`, `other`; `seconds` for WAV files. Hidden files are skipped, links are not followed, at most 500 entries. |
 | `validate` | recipe | The `Report`. An invalid recipe is a normal answer here, not a tool error. |
 | `create` | `path`, `recipe`, optional `overwrite` | `{ok, path, kind, warnings}` (`kind` is `recipe` or `song`). Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. |

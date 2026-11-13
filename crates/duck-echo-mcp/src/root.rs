@@ -14,6 +14,8 @@
 //! * `preset:NAME` is accepted only by [`Root::read`], only for a known
 //!   preset whose name is letters, digits and underscores. [`Root::write`]
 //!   refuses it, since presets are built in and cannot be written.
+//! * `instrument:NAME` (a built-in instrument) follows exactly the same
+//!   rules: read-only, a known name only, never treated as a path.
 //! * Errors name the argument (`arguments.path`) and show paths as the
 //!   agent wrote them, never the root's absolute location.
 //!
@@ -23,6 +25,7 @@
 //! root.
 
 use duck_echo_core::{load::did_you_mean, Code, Issue};
+use duck_echo_tools::instruments::{self, INSTRUMENT_PREFIX};
 use duck_echo_tools::{presets, ToolError, PRESET_PREFIX};
 use std::path::{Component, Path, PathBuf};
 
@@ -82,6 +85,17 @@ impl Root {
             presets::get(name).map_err(|e| e.at(key))?;
             return Ok(PathBuf::from(format!("{PRESET_PREFIX}{name}")));
         }
+        if let Some(name) = arg.strip_prefix(INSTRUMENT_PREFIX) {
+            if !is_preset_name(name) {
+                return Err(refuse(
+                    key,
+                    arg,
+                    "`instrument:` must be followed by an instrument name of lower-case letters, digits and underscores, such as instrument:piano",
+                ));
+            }
+            instruments::get(name).map_err(|e| e.at(key))?;
+            return Ok(PathBuf::from(format!("{INSTRUMENT_PREFIX}{name}")));
+        }
         let path = self.inside(key, arg)?;
         if std::fs::symlink_metadata(&path).is_err() {
             return Err(self.missing(key, arg, &path));
@@ -99,6 +113,13 @@ impl Root {
                 "presets are built in and read-only; write to a file inside the root, such as out/coin.wav",
             ));
         }
+        if arg.starts_with(INSTRUMENT_PREFIX) {
+            return Err(refuse(
+                key,
+                arg,
+                "instruments are built in and read-only; write to a file inside the root, such as out/piano.wav",
+            ));
+        }
         self.inside(key, arg)
     }
 
@@ -111,6 +132,11 @@ impl Root {
                 key,
                 a,
                 "presets are built in, not files; list_presets lists them",
+            )),
+            Some(a) if a.starts_with(INSTRUMENT_PREFIX) => Err(refuse(
+                key,
+                a,
+                "instruments are built in, not files; list_instruments lists them",
             )),
             Some(a) => {
                 let path = self.inside(key, a)?;

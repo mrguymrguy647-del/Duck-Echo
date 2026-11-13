@@ -14,7 +14,7 @@ use crate::root::Root;
 use duck_echo_audio::WavFormat;
 use duck_echo_core::{load::did_you_mean, Code, Issue, Report};
 use duck_echo_tools::edit::{self, EditOp};
-use duck_echo_tools::{measure, presets, Document, Options, RecipeRef, ToolError};
+use duck_echo_tools::{instruments, measure, presets, Document, Options, RecipeRef, ToolError};
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 
@@ -83,7 +83,7 @@ fn arg_error(name: &str, code: Code, msg: impl Into<String>) -> ToolError {
     ToolError::issue(Issue::error(code, format!("arguments.{name}"), msg))
 }
 
-const RECIPE_SOURCE: &str = "Give the recipe (or song) either inline as `recipe` (a JSON object) or as `path` (a .toml/.json file relative to the server root, or preset:NAME).";
+const RECIPE_SOURCE: &str = "Give the recipe (or song) either inline as `recipe` (a JSON object) or as `path` (a .toml/.json file relative to the server root, preset:NAME or instrument:NAME).";
 
 const SONG_NOTE: &str = "A song works the same way as a recipe here: a document with `tracks` is a song (get_schema with kind \"song\" documents it), one with `layers` is a recipe.";
 
@@ -174,6 +174,22 @@ pub fn definitions() -> Vec<Value> {
             "Get a preset",
             "A preset's recipe as a JSON object (ready to pass to create, edit or render) and as its TOML source with comments.",
             json!({ "name": { "type": "string", "description": "Preset name from list_presets." } }),
+            &["name"],
+            true,
+        ),
+        tool(
+            "list_instruments",
+            "List instruments",
+            "List the built-in instruments a song's track can name as `instrument`: piano, pad, bass, chip_lead, and the drum kit `drums` (whose notes are `kick`, `snare`, `hat`, `clap`; each piece is also an instrument of its own). Each entry has its description, `home` (the note its recipe is written at), `range` (the lowest and highest notes it sounds right at) and `target_lufs` (how loud it is alone). Anywhere a recipe path is accepted, `instrument:NAME` names one, so analyze or render can hear it alone.",
+            json!({}),
+            &[],
+            true,
+        ),
+        tool(
+            "get_instrument",
+            "Get an instrument",
+            "A built-in instrument's recipe as a JSON object (ready to copy into a song's `instruments` table and change) and as its TOML source with comments, plus its home note, range and loudness target.",
+            json!({ "name": { "type": "string", "description": "Instrument name from list_instruments. A kit is not one recipe; ask for its pieces." } }),
             &["name"],
             true,
         ),
@@ -501,6 +517,19 @@ fn audio_of(root: &Root, v: &Value, key: &str) -> Result<duck_echo_audio::AudioB
     }
 }
 
+/// The TOML source of `preset:NAME` or `instrument:NAME`. `None` for
+/// anything else (a real file).
+fn built_in_source(path: &std::path::Path) -> Option<Result<&'static str, ToolError>> {
+    let text = path.to_string_lossy();
+    if let Some(name) = text.strip_prefix(duck_echo_tools::PRESET_PREFIX) {
+        return Some(presets::get(name).map(|p| p.source));
+    }
+    if let Some(name) = text.strip_prefix(instruments::INSTRUMENT_PREFIX) {
+        return Some(instruments::get(name).map(|i| i.source));
+    }
+    None
+}
+
 /// Serialize through text so `f32` fields keep their short form (`0.99`,
 /// not `0.9900000095367432`), exactly as the CLI prints them.
 fn to_value<T: serde::Serialize>(v: &T) -> Value {
@@ -568,6 +597,19 @@ fn run(
                 "recipe": doc,
                 "toml": p.source
             }))
+        }
+        "list_instruments" => plain(json!({ "instruments": instruments::list()? })),
+        "get_instrument" => {
+            let i = instruments::get(req_str(args, "name")?).map_err(|e| e.at("arguments.name"))?;
+            let info = instruments::info(i)?;
+            let doc = duck_echo_core::tree::parse_toml(i.source)
+                .ok()
+                .and_then(|t| t.to_json())
+                .unwrap_or(Value::Null);
+            let mut out = to_value(&info);
+            out["recipe"] = doc;
+            out["toml"] = json!(i.source);
+            plain(out)
         }
         "list_files" => {
             let dir = root.folder("arguments.path", opt_str(args, "path")?)?;
@@ -641,14 +683,13 @@ fn run(
             })?;
             let (mut doc, file) = match &src {
                 Source::Inline(v) => (v.clone(), None),
-                Source::Path(p)
-                    if p.to_string_lossy()
-                        .starts_with(duck_echo_tools::PRESET_PREFIX) =>
-                {
-                    let name =
-                        p.to_string_lossy()[duck_echo_tools::PRESET_PREFIX.len()..].to_string();
-                    let preset = presets::get(&name).map_err(|e| e.at("arguments.path"))?;
-                    let doc = duck_echo_core::tree::parse_toml(preset.source)
+                // A preset or built-in instrument: edit a copy of its
+                // source. It is never written back.
+                Source::Path(p) if built_in_source(p).is_some() => {
+                    let source = built_in_source(p)
+                        .expect("checked")
+                        .map_err(|e| e.at("arguments.path"))?;
+                    let doc = duck_echo_core::tree::parse_toml(source)
                         .map_err(|i| ToolError::Invalid(Report::from_error(*i)))?
                         .to_json()
                         .unwrap_or(Value::Null);

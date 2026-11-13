@@ -1,0 +1,56 @@
+# Pad: three saw waves, slightly out of tune with each other, behind a
+# slowly moving filter and a reverb. For long chords under a tune.
+#
+# The first layer is on the note. The second is 5 cents sharp and sits to
+# the left, the third is 5 cents flat and sits to the right. Their slow
+# drift against each other is what makes a pad sound wide and alive.
+#
+# The centre layer is louder than the two side layers together. That way
+# the three can never cancel each other out, so the note never drops away
+# and always reads at its true pitch.
+#
+# Written at C4. The attack is slow, so short notes stay quiet: give pad
+# notes two beats or more.
+version = 0
+name = "pad"
+description = "A wide, slow, soft chord sound with a moving filter."
+tags = ["instrument", "pad", "chords"]
+channels = 2
+
+[master]
+normalize_lufs = -22
+
+[[effects]]
+type = "reverb"
+size = 0.7
+decay = 2.0
+mix = 0.35
+
+[[layers]]
+name = "centre"
+source = "saw"
+volume = 0.5
+envelope = { attack = 0.35, decay = 0.3, sustain = 0.8, sustain_time = 1.5, release = 0.9 }
+pitch = { start = "C4" }
+filter = { kind = "lowpass", cutoff = 1500, resonance = 1.0 }
+lfo = { target = "cutoff", rate = 0.25, depth = 0.6 }
+
+[[layers]]
+name = "left, sharp"
+source = "saw"
+volume = 0.22
+pan = -0.6
+envelope = { attack = 0.35, decay = 0.3, sustain = 0.8, sustain_time = 1.5, release = 0.9 }
+pitch = { start = 262.38 }
+filter = { kind = "lowpass", cutoff = 1500, resonance = 1.0 }
+lfo = { target = "cutoff", rate = 0.25, depth = 0.6 }
+
+[[layers]]
+name = "right, flat"
+source = "saw"
+volume = 0.22
+pan = 0.6
+envelope = { attack = 0.35, decay = 0.3, sustain = 0.8, sustain_time = 1.5, release = 0.9 }
+pitch = { start = 260.87 }
+filter = { kind = "lowpass", cutoff = 1500, resonance = 1.0 }
+lfo = { target = "cutoff", rate = 0.25, depth = 0.6 }

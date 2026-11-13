@@ -1,0 +1,25 @@
+# Snare drum: a burst of noise (the wires) over a short low tone (the
+# drum skin).
+#
+# A piece of the built-in `drums` kit.
+version = 0
+name = "snare"
+description = "A crisp snare drum."
+tags = ["instrument", "drum", "snare"]
+
+[master]
+normalize_lufs = -18
+
+[[layers]]
+name = "wires"
+source = "noise"
+volume = 0.8
+envelope = { attack = 0.001, decay = 0.16 }
+filter = { kind = "bandpass", cutoff = 3200, resonance = 0.6 }
+
+[[layers]]
+name = "skin"
+source = "triangle"
+volume = 0.6
+envelope = { attack = 0.001, decay = 0.09 }
+pitch = { start = 200, end = 150, sweep_time = 0.06 }

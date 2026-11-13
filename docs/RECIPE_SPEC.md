@@ -488,6 +488,12 @@ but must start before it.
 A track's `instrument` is one of:
 
 * A name in the song's `instruments` (a recipe) or `kits`.
+* A built-in instrument: `"piano"`, `"pad"`, `"bass"`, `"chip_lead"`, the
+  drum kit `"drums"` (notes `kick`, `snare`, `hat`, `clap`), or one of
+  those four pieces on its own. `instruments/README.md` describes each
+  with its useful range; `duck-echo instruments list` and the MCP tool
+  `list_instruments` list them. A song's own instrument wins over a
+  built-in one of the same name.
 * `"preset:NAME"`: a built-in preset.
 * A recipe file ending in `.toml` or `.json`, relative to the folder the
   song file is in. In the MCP server the path is checked like every other
@@ -590,6 +596,10 @@ exactly as it was first pinned (the presets use the `clean` default):
 | `fanfare.toml` | four layers (arpeggio lead, two-note chord, bass), `normalize_lufs`, master reverb; reads note by note in `onsets` and layer by layer with `--per-layer` |
 | `siren.toml` | an LFO on the filter `cutoff` in time with a wide vibrato, and an LFO on `duty` (uses the `clean` default) |
 
+Anywhere a recipe path is accepted, `preset:NAME` names a built-in preset
+and `instrument:NAME` a built-in instrument, for example
+`duck-echo analyze instrument:piano`.
+
 ## Deferred (not in v0, never silently ignored)
 
 These are not accepted by the schema yet; using them is an `unknown_field`
@@ -600,8 +610,8 @@ error until implemented. See `ROADMAP.md` for the order.
 * Per-parameter random ranges (`volume = { min = 0.6, max = 0.9 }`).
 * Sample layers.
 * Formant voice sources (Phase 5).
-* In songs: seamless loops (`loop`, roadmap task 20), built-in instruments
-  (task 19), tempo changes inside a song, swing, volume or filter changes
+* In songs: seamless loops (`loop`, roadmap task 20), tempo changes
+  inside a song, swing, volume or filter changes
   over time (automation), sample tracks, filters that follow the note, and
   velocity changing the tone.
 

@@ -156,21 +156,49 @@ Lessons for the next builder:
 * An LFO restarts with each note. A slow filter sweep across a whole
   phrase is not possible yet (listed under Deferred).
 
-### 19. Starter instruments
+### 19. Starter instruments [done]
 
-* An `instruments/` folder like `presets/`, compiled in, with tags and a
-  loudness target per instrument: **piano**, **pad**, **bass**, **drums**
-  (a kit: kick, snare, hi-hat, clap) and **chip lead**. Each is a recipe
-  that sounds right across its useful note range.
-* A real piano needs more than today's oscillators. Try layered sines with
-  a fast decay and a noise "hammer" first; if that is not good enough, add
-  the smallest new source that is (for example a list of partials, or
-  simple FM), as its own small step with its own tests.
-* `list_presets` (or a new `list_instruments`) shows them; a song track can
-  name one.
-* Accept: each instrument plays a C major scale (drums: each kit piece) and
-  `analyze` reads every note back within 10 cents; levels match their
-  targets; all pinned.
+- [x] `instruments/`: `piano`, `pad`, `bass`, `chip_lead`, and the drum
+  pieces `kick`, `snare`, `hat`, `clap`, which make up the kit `drums`.
+  All are plain recipes, compiled in (`tools::instruments`). See
+  `instruments/README.md`.
+- [x] The piano needs no new sound source: six sine layers and a noise
+  hammer. It sounds like an electric piano, not a grand.
+- [x] A track names one plainly (`instrument = "piano"`).
+  `duck-echo instruments list|show`, MCP `list_instruments` and
+  `get_instrument`. `instrument:NAME` works wherever a recipe path does,
+  and in the MCP server it is checked like `preset:NAME`: a known name
+  only, read-only, never a path (tested).
+- [x] Every pitched instrument plays a C major scale in each octave of its
+  range and reads back within 10 cents; every kit piece is found at its
+  time; each is at its loudness target; all eight are pinned, and CI
+  renders them on Linux and Windows.
+- [x] A new precise pitch reader, `analyze::notes::spectrum_peak`, reads a
+  steady tone to a fraction of a cent. Task 21 builds on it.
+
+Lessons for the next builder:
+
+* **Detuned layers can cancel.** The first pad had three equal saws, 5
+  cents apart. Twice per beat cycle they cancelled, the note dropped away
+  for a moment, and its pitch read 12 cents off. The fix is in the recipe:
+  the centre layer is louder than the two side layers together, so they
+  can never cancel. Keep that rule for any detuned instrument.
+* **A pad cannot be tested like a piano.** It swells in slowly and rings
+  for a second after each note, so in a fast scale the note before is
+  louder than the new one. The scale test plays the pad in three-beat
+  notes and reads the second half of each note.
+* **White noise is too bright for a snare.** High-passed white noise has
+  its centre near 11 kHz, brighter than the hi-hat. The snare uses a wide
+  band-pass at 3.2 kHz instead.
+* **Levels.** With each instrument at its target and every track at
+  `volume = 1`, a five-track test mix came out within 3 LU from track to
+  track. That is the reason for the targets in the table.
+* **Filters do not follow the note** (Deferred). Each instrument therefore
+  has a useful range, listed in the README. Outside it the instrument
+  still plays but sounds dull or thin.
+* **Still weak:** the piano's fade is a straight line (the envelope has no
+  curved decay), so long notes sound a little flat and electric; all
+  notes of an instrument have the same tone whatever their `velocity`.
 
 ### 20. Loops with no seam
 

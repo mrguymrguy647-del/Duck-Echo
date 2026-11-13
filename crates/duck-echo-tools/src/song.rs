@@ -5,6 +5,7 @@
 //! [`load_document`], so `render`, `validate`, `analyze` and `compare` work
 //! on songs and recipes alike in both.
 
+use crate::instruments::{self, INSTRUMENT_PREFIX};
 use crate::{presets, RecipeRef, ToolError, PRESET_PREFIX};
 use duck_echo_core::load::{document_kind, read_text, DocumentKind};
 use duck_echo_core::song::is_file_reference;
@@ -13,6 +14,7 @@ use duck_echo_core::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Turns an instrument file reference written in a song (such as
@@ -32,8 +34,8 @@ pub fn files_next_to(song: &Path) -> impl Fn(&str) -> Result<PathBuf, ToolError>
     move |reference| Ok(folder.join(reference))
 }
 
-/// Finds the instruments a song does not define itself: `preset:NAME` and
-/// recipe files.
+/// Finds the instruments a song does not define itself: the built-in
+/// instruments and kits, `preset:NAME`, and recipe files.
 pub struct Library<'a> {
     files: &'a FileResolver<'a>,
 }
@@ -108,16 +110,29 @@ impl InstrumentSource for Library<'_> {
                 .map_err(|r| as_issue(ToolError::Invalid(r), reference))?;
             return Ok(Instrument::Sound(Box::new(loaded.recipe)));
         }
-        Err(Box::new(
-            Issue::error(
-                Code::NotFound,
-                "",
-                format!(
-                    "there is no instrument named `{reference}`; use a name from the song's `instruments` or `kits`, `preset:NAME`, or a recipe file ending in .toml or .json"
-                ),
-            )
-            .got(reference),
-        ))
+        // A built-in instrument or kit. `instrument:piano` means the same
+        // as `piano` here.
+        let name = reference
+            .strip_prefix(INSTRUMENT_PREFIX)
+            .unwrap_or(reference);
+        if let Some(found) = instruments::find(name) {
+            let loaded = instruments::load(found).map_err(|e| as_issue(e, reference))?;
+            return Ok(Instrument::Sound(Box::new(loaded.recipe)));
+        }
+        if let Some(kit) = instruments::find_kit(name) {
+            let mut pieces = BTreeMap::new();
+            for (piece, instrument) in kit.pieces {
+                let found = instruments::get(instrument).map_err(|e| as_issue(e, reference))?;
+                let loaded = instruments::load(found).map_err(|e| as_issue(e, reference))?;
+                pieces.insert(piece.to_string(), loaded.recipe);
+            }
+            return Ok(Instrument::Kit(pieces));
+        }
+        let mut issue = instruments::unknown(name);
+        issue.message = format!(
+            "there is no instrument named `{name}`; use a built-in one (in `allowed`), a name from the song's `instruments` or `kits`, `preset:NAME`, or a recipe file ending in .toml or .json"
+        );
+        Err(Box::new(issue))
     }
 }
 
@@ -175,7 +190,7 @@ fn stem_of(path: &Path, fallback: &str) -> String {
 /// A song's instrument files are read through `files`.
 pub fn load_document(reference: &Path, files: &FileResolver) -> Result<Document, ToolError> {
     let text = reference.to_string_lossy();
-    if text.starts_with(PRESET_PREFIX) {
+    if text.starts_with(PRESET_PREFIX) || text.starts_with(INSTRUMENT_PREFIX) {
         return crate::load_recipe(reference).map(Document::Recipe);
     }
     let src = read_text(reference)?;

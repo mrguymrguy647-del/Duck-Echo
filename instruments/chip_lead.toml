@@ -1,0 +1,20 @@
+# Chip lead: a narrow pulse wave, like the lead voice of an old game
+# console. A little vibrato comes in after the note has started, and an
+# LFO slowly changes the pulse width so long notes do not sound flat.
+#
+# Written at C5. Useful from about C3 to C7.
+version = 0
+name = "chip_lead"
+description = "A bright retro lead: a narrow pulse wave with light vibrato."
+tags = ["instrument", "lead", "chip"]
+
+[master]
+normalize_lufs = -18
+
+[[layers]]
+source = "square"
+duty = 0.25
+volume = 0.5
+envelope = { attack = 0.004, decay = 0.06, sustain = 0.75, sustain_time = 0.4, release = 0.06 }
+pitch = { start = "C5", vibrato = { rate = 5.5, depth = 0.1, delay = 0.2 } }
+lfo = { target = "duty", rate = 0.8, depth = 0.08, shape = "triangle" }

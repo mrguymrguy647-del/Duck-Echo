@@ -9,6 +9,7 @@ use std::fmt;
 use std::path::Path;
 
 pub mod files;
+pub mod instruments;
 pub mod measure;
 pub mod song;
 
@@ -176,6 +177,13 @@ pub struct RecipeRef {
 /// Load a recipe from a file path or a `preset:NAME` reference.
 pub fn load_recipe(reference: &Path) -> Result<RecipeRef, ToolError> {
     let text = reference.to_string_lossy();
+    if let Some(name) = text.strip_prefix(instruments::INSTRUMENT_PREFIX) {
+        let instrument = instruments::get(name)?;
+        return Ok(RecipeRef {
+            loaded: instruments::load(instrument)?,
+            stem: instrument.name.to_string(),
+        });
+    }
     if let Some(name) = text.strip_prefix(PRESET_PREFIX) {
         let preset = presets::get(name)?;
         return Ok(RecipeRef {
@@ -194,7 +202,10 @@ pub fn load_recipe(reference: &Path) -> Result<RecipeRef, ToolError> {
 /// True when `reference` names a recipe (a `.toml`/`.json` path or a
 /// preset) rather than audio.
 pub fn is_recipe_ref(reference: &Path) -> bool {
-    reference.to_string_lossy().starts_with(PRESET_PREFIX) || is_recipe_path(reference)
+    let text = reference.to_string_lossy();
+    text.starts_with(PRESET_PREFIX)
+        || text.starts_with(instruments::INSTRUMENT_PREFIX)
+        || is_recipe_path(reference)
 }
 
 /// Result of rendering a recipe to a file.
