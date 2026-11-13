@@ -2,6 +2,7 @@
 //! listened for on its own track, and anything missing, quiet or at the
 //! wrong pitch is reported with its track, bar, beat and both pitches.
 
+use duck_echo_analyze::notes::cents;
 use duck_echo_core::{load_song_str, Format, LoadedSong};
 use duck_echo_synth::song::{render_song, render_song_tracks};
 use duck_echo_tools::measure::{measure_document, measure_song, Options};
@@ -356,4 +357,139 @@ fn the_check_runs_when_asked_and_the_picture_has_bar_lines() {
     };
     let e = e.into_report();
     assert_eq!(e.errors[0].path, "--notes");
+}
+
+/// The extra onsets of every track of a song, as (track, count).
+fn extras_per_track(name: &str) -> Vec<(String, usize)> {
+    let path = songs_dir().join(format!("{name}.toml"));
+    let doc = load_document(&path, &files_next_to(&path)).unwrap();
+    let options = Options {
+        check_notes: true,
+        ..Options::default()
+    };
+    let m = measure_document(&doc, None, &options, "").unwrap().measured;
+    m.note_check
+        .unwrap()
+        .tracks
+        .into_iter()
+        .map(|t| (t.name, t.extra_onsets.len()))
+        .collect()
+}
+
+/// Long low notes wobble (a closing filter, layers beating against each
+/// other), and the onset finder used to report each wobble as an extra
+/// note: 9 on the day bass, 16 on the night bass. None are real.
+#[test]
+fn held_notes_do_not_make_false_extra_notes() {
+    for name in ["duck_craft_day", "duck_craft_night", "four_bars"] {
+        for (track, extras) in extras_per_track(name) {
+            assert_eq!(extras, 0, "{name}, track {track}");
+        }
+    }
+}
+
+/// A piano holding A3 for two bars, plus `extra` notes on the same track.
+fn held_piano(extra: &str) -> LoadedSong {
+    load(&format!(
+        "version = 0\ntempo = 120\nbars = 2\n[[tracks]]\nname = \"keys\"\ninstrument = \"piano\"\nnotes = [{{ beat = 0, note = \"A3\", length = 8 }}{extra}]\n"
+    ))
+}
+
+#[test]
+fn an_unwritten_note_is_still_reported_as_extra() {
+    // The song as written: a held A3. What was played: the same, plus an
+    // E4 nobody wrote, while the A3 is still held (bar 2, beat 1).
+    let written = held_piano("");
+    let played = held_piano(r#", { bar = 2, beat = 1, note = "E4", length = 2 }"#);
+    let keys = check_against(&played, &written, 0);
+    assert_eq!(keys.extra_onsets.len(), 1, "{:?}", keys.extra_onsets);
+    let extra = &keys.extra_onsets[0];
+    assert_eq!((extra.bar, extra.beat), (2, 1.0));
+    // 120 BPM: bar 2, beat 1 is 2.5 seconds in.
+    assert!((extra.time_seconds - 2.5).abs() < 0.03, "{extra:?}");
+    let hz = extra.note_hz.unwrap() as f64;
+    assert!(cents(hz, 329.63).abs() < 50.0, "{hz}");
+    // The written note is still heard.
+    assert_eq!((keys.notes_written, keys.notes_heard), (1, 1));
+    // Played as written: nothing extra.
+    assert!(check_against(&written, &written, 0).extra_onsets.is_empty());
+
+    // The same pitch struck again while the first is held: no new
+    // pitch, but a clear jump in level, so it is a new note too.
+    let again = held_piano(r#", { bar = 2, beat = 0, note = "A3", length = 1 }"#);
+    let keys = check_against(&again, &written, 0);
+    assert_eq!(keys.extra_onsets.len(), 1, "{:?}", keys.extra_onsets);
+    assert_eq!(
+        (keys.extra_onsets[0].bar, keys.extra_onsets[0].beat),
+        (2, 0.0)
+    );
+}
+
+/// A held bass note wobbles: its filter closes and its two layers beat.
+/// The onset finder reports those wobbles, some with a nonsense pitch
+/// near 20 kHz. None of them is an extra note.
+#[test]
+fn a_wobbling_bass_note_is_not_extra() {
+    let song = load(
+        "version = 0\ntempo = 120\nbars = 2\n[[tracks]]\nname = \"low\"\ninstrument = \"bass\"\nnotes = [{ beat = 0, note = \"A1\", length = 8 }]\n",
+    );
+    let (_, mastering) = render_song(&song.song, &song.arrangement);
+    let stem = render_song_tracks(&song.song, &song.arrangement, &[0], &mastering);
+    let onsets = duck_echo_analyze::analyze(&stem.samples, stem.sample_rate, stem.channels).onsets;
+    // The onset finder itself does see many starts here...
+    assert!(onsets.len() > 10, "{}", onsets.len());
+    // ...but the note check explains every one by the held note.
+    let low = check_against(&song, &song, 0);
+    assert!(low.extra_onsets.is_empty(), "{:?}", low.extra_onsets);
+    assert_eq!(low.notes_heard, 1);
+}
+
+#[test]
+fn drum_tracks_are_still_checked_by_time() {
+    let beat = |extra: &str| {
+        load(&format!(
+            "version = 0\ntempo = 120\nbars = 1\n[[tracks]]\nname = \"drums\"\ninstrument = \"drums\"\nnotes = [{{ beat = 0, note = \"kick\" }}, {{ beat = 1, note = \"snare\" }}, {{ beat = 2, note = \"kick\" }}{extra}]\n"
+        ))
+    };
+    let written = beat("");
+    // A hi-hat nobody wrote, half way between two written hits.
+    let played = beat(r#", { beat = 2.5, note = "hat" }"#);
+    let drums = check_against(&played, &written, 0);
+    assert_eq!((drums.notes_written, drums.notes_heard), (3, 3));
+    assert_eq!(drums.extra_onsets.len(), 1, "{:?}", drums.extra_onsets);
+    assert_eq!(
+        (drums.extra_onsets[0].bar, drums.extra_onsets[0].beat),
+        (1, 2.5)
+    );
+    // Played as written: nothing extra.
+    assert!(check_against(&written, &written, 0).extra_onsets.is_empty());
+}
+
+/// Playtest 2: in the tune a fresh agent wrote, a short plucked bass
+/// note whose resonant filter sweeps down made the onset finder name a
+/// pitch (247 Hz over a 55 Hz A1) that is neither a note nor an overtone.
+/// It was already sounding before the onset, so it is not extra.
+#[test]
+fn a_filter_sweeping_past_a_pitch_is_not_an_extra_note() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../playtest/playtest-2/music/tune.toml");
+    let doc = load_document(&path, &files_next_to(&path)).unwrap();
+    let options = Options {
+        check_notes: true,
+        ..Options::default()
+    };
+    let check = measure_document(&doc, None, &options, "")
+        .unwrap()
+        .measured
+        .note_check
+        .unwrap();
+    assert_eq!((check.notes_written, check.notes_heard), (155, 155));
+    for track in &check.tracks {
+        assert!(
+            track.extra_onsets.is_empty(),
+            "{}: {:?}",
+            track.name,
+            track.extra_onsets
+        );
+    }
 }

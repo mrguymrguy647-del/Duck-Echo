@@ -1,0 +1,52 @@
+version = 0
+name = "explosion"
+description = "Medium explosion."
+tags = ["impact", "explosion", "noisy"]
+seed = 7
+
+[master]
+normalize_lufs = -16
+trim_silence = true
+
+[[layers]]
+name = "boom"
+source = "noise"
+volume = 0.45
+
+[layers.envelope]
+attack = 0.002
+decay = 0.9
+hold = 0.08
+
+[layers.filter]
+curve = "exponential"
+cutoff = 2500
+cutoff_end = 150
+kind = "lowpass"
+resonance = 0.9
+
+[[layers]]
+name = "thump"
+source = "sine"
+volume = 0.35
+
+[layers.envelope]
+attack = 0.005
+decay = 0.35
+
+[layers.pitch]
+curve = "exponential"
+end = 35
+start = 140
+sweep_time = 0.3
+
+[[effects]]
+drive = 2.5
+kind = "soft"
+type = "distortion"
+
+[[effects]]
+decay = 0.6
+mix = 0.2
+size = 0.6
+type = "reverb"

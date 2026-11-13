@@ -7,7 +7,9 @@
 //! every written note this module listens at the place the note should
 //! be, on its track rendered alone, and says what is there.
 
-use duck_echo_analyze::notes::{cents, read_hit, read_pitched, NoteStatus};
+use duck_echo_analyze::notes::{
+    cents, read_hit, read_pitched, spectrum, NoteStatus, SAME_NOTE_CENTS,
+};
 use duck_echo_analyze::Onset;
 use duck_echo_audio::AudioBuffer;
 use duck_echo_core::note::note_name;
@@ -26,6 +28,21 @@ const ONSET_REACH: f64 = 0.06;
 /// How long a note may ring on after it ends, when deciding which other
 /// notes could be sounding, seconds.
 const RING_SECONDS: f64 = 1.5;
+/// An onset up to this long after a held note ends still counts as
+/// inside it (the note's release is still sounding), seconds.
+const HELD_GRACE: f64 = 0.15;
+/// The stretch measured just before and just after an onset, to see
+/// whether the level jumps, seconds. Long enough for several cycles of a
+/// low bass note, so the wobble of one cycle does not count as a jump.
+const JUMP_WINDOW: f64 = 0.08;
+/// A rise in level this big, from just before an onset to just after it,
+/// is a new sound even at the pitch of a held note, dB.
+const JUMP_DB: f64 = 6.0;
+/// The highest pitch read from an onset that counts as a note, Hz. The
+/// top note of a piano (C8) is 4186 Hz. Above this, a "pitch" read from a
+/// short stretch is hiss or a fold-back tone, so it counts as no clear
+/// pitch.
+const NOTE_PITCH_LIMIT: f64 = 5000.0;
 
 /// One written note and what was heard for it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -68,7 +85,8 @@ pub struct ExtraOnset {
     pub time_seconds: f64,
     /// The bar it falls in, counted from 1.
     pub bar: u32,
-    /// The beat in that bar, counted from 0.
+    /// The beat in that bar, counted from 0, rounded to the nearest eighth
+    /// of a beat (the place you would write a note there).
     pub beat: f64,
     /// Its pitch, when it has one.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -284,6 +302,17 @@ pub fn check_track(
 
     // Starts of sound that no written note explains.
     let starts: Vec<f64> = plan.events.iter().map(|e| seconds(e.beat)).collect();
+    // For a loop, notes held across the end also ring at the start of
+    // the file, so they are counted there too, one loop length earlier.
+    let loop_seconds = song.loop_.then(|| mono.len() as f64 / sr);
+    let mut held = pitched.clone();
+    if let Some(length) = loop_seconds {
+        held.extend(
+            pitched
+                .iter()
+                .map(|(s, e, hz)| (s - length, e - length, *hz)),
+        );
+    }
     let bpb = song.beats_per_bar as f64;
     let extra_onsets = onsets
         .iter()
@@ -294,12 +323,15 @@ pub fn check_track(
                 .iter()
                 .any(|s| (s - o.time_seconds).abs() <= ONSET_REACH)
         })
+        .filter(|o| !inside_held_note(o, &held, &mono, sr))
         .map(|o| {
             let beats = o.time_seconds / spb;
             ExtraOnset {
                 time_seconds: o.time_seconds,
                 bar: (beats / bpb).floor() as u32 + 1,
-                beat: ((beats - (beats / bpb).floor() * bpb) * 100.0).round() / 100.0,
+                // Rounded to the nearest eighth of a beat: the place you
+                // would write the note. The exact time is in time_seconds.
+                beat: ((beats - (beats / bpb).floor() * bpb) * 8.0).round() / 8.0,
                 note_hz: o.note_hz,
             }
         })
@@ -314,5 +346,88 @@ pub fn check_track(
         problems,
         extra_onsets,
         notes: list_all.then_some(all),
+    }
+}
+
+/// True when `onset` is only a ripple inside a note that is still held on
+/// the same track, so it is not an extra note.
+///
+/// The onset finder looks for sudden changes. A long, low note is never
+/// perfectly steady: its filter closes, its layers drift against each
+/// other, and its waves beat. Each of those can look like a new start.
+/// So an onset inside a held note is explained by that note when both
+/// are true:
+///
+/// * it brings no new pitch: it has no clear pitch (none, or one above
+///   5 kHz, where a short reading is hiss); or its pitch is the held
+///   note's pitch or one of its overtones (2, 3, ... 8 times it), within
+///   half a semitone; or its pitch was already sounding just before (the
+///   spectrum there rises by less than 6 dB: a filter sweeping past, not
+///   a new note); and
+/// * the level does not jump: the 80 ms after it are less than 6 dB
+///   louder than the 80 ms before it.
+///
+/// `held` is (start, end, Hz) in seconds for every pitched note of the
+/// track. Drum tracks have none, so their extras are found by time alone.
+fn inside_held_note(onset: &Onset, held: &[(f64, f64, f64)], mono: &[f32], sr: f64) -> bool {
+    let t = onset.time_seconds;
+    let sounding: Vec<&(f64, f64, f64)> = held
+        .iter()
+        .filter(|(start, end, _)| *start < t - ONSET_REACH && t <= end + HELD_GRACE)
+        .collect();
+    if sounding.is_empty() {
+        return false;
+    }
+    // "Before" is measured only after the held note started, so its own
+    // attack is never part of the comparison.
+    let latest_start = sounding
+        .iter()
+        .map(|(start, _, _)| *start)
+        .fold(f64::MIN, f64::max);
+    let before_from = (t - JUMP_WINDOW).max(latest_start + 0.02);
+    let frame = |s: f64| ((s * sr).round().max(0.0) as usize).min(mono.len());
+    let part = |from: f64, to: f64| &mono[frame(from)..frame(to).max(frame(from))];
+    let rms = |from: f64, to: f64| {
+        let part = part(from, to);
+        if part.is_empty() {
+            return None;
+        }
+        Some((part.iter().map(|x| (*x as f64).powi(2)).sum::<f64>() / part.len() as f64).sqrt())
+    };
+    // How much louder the sound is at `hz` just after the onset than
+    // just before it, dB. `None` when a stretch is too short to read.
+    let rise_at = |hz: f64| {
+        let reach = 2f64.powf(SAME_NOTE_CENTS / 1200.0);
+        let level = |from: f64, to: f64| {
+            spectrum(part(from, to), sr as u32)?
+                .peak(hz / reach, hz * reach)
+                .map(|p| p.amplitude)
+        };
+        let before = level(before_from, t - 0.005)?;
+        let after = level(t, t + JUMP_WINDOW)?;
+        Some(to_db(after) - to_db(before))
+    };
+
+    let same_pitch = match onset.note_hz.filter(|hz| (*hz as f64) <= NOTE_PITCH_LIMIT) {
+        None => true,
+        Some(hz) => {
+            let hz = hz as f64;
+            sounding.iter().any(|(_, _, note)| {
+                (1..=8).any(|n| cents(hz, note * n as f64).abs() < SAME_NOTE_CENTS)
+            })
+            // A pitch that was already sounding just before the onset is
+            // not new either: a filter sweeping past it, or two layers
+            // beating, can make the onset finder name it.
+            || rise_at(hz).is_some_and(|rise| rise < JUMP_DB)
+        }
+    };
+    if !same_pitch {
+        return false;
+    }
+    match (rms(before_from, t - 0.005), rms(t, t + JUMP_WINDOW)) {
+        (Some(before), Some(after)) => to_db(after) - to_db(before) < JUMP_DB,
+        // Too little before the onset to compare: the held note explains
+        // it, as it did for the pitch.
+        _ => true,
     }
 }

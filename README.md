@@ -114,6 +114,11 @@ a built-in instrument.
 
 ## Use it from an agent (MCP)
 
+**Agents: read [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md) first.** It
+is one short page on making sound effects and music without hearing
+them: start from a preset or instrument, change one thing, render, read
+the numbers, compare.
+
 `duck-echo-mcp` serves the Duck Echo tools over the Model Context Protocol:
 `get_schema`, `list_presets`, `get_preset`, `list_instruments`,
 `get_instrument`, `list_files`, `validate`,
@@ -202,6 +207,8 @@ details: `docs/ARCHITECTURE.md`.
 
 ## Documents
 
+* `docs/AGENT_GUIDE.md`: how an agent makes sounds and music without
+  hearing them. Start here.
 * `docs/RECIPE_SPEC.md`: every field, default and range, plus examples,
   for recipes and for songs.
 * `docs/phase1-design.md`: why songs work the way they do.

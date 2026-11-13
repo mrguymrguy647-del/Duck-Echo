@@ -21,7 +21,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 | Phase | What | Status |
 |---|---|---|
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
-| 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops | built; only the agent guide (task 10) is left |
+| 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops, the agent guide | done |
 | 2 | Duck Echo Studio: an app for people, with no terminal | |
 | 3 | Link with Duck Forge, the game engine | |
 | 4 | Duck Ear: listening models | |
@@ -52,7 +52,7 @@ Windows. Done tasks: 1, 2, 3, 6, 7, 8, 9, 17, plus review fixes R1 to R10
 and playtest fixes P1 to P7. Their notes are in "Phase 0 record" at the
 end of this file.
 
-## Phase 1: music (in progress)
+## Phase 1: music (done)
 
 Why music now: the Duck Craft game had to fake its music in Python because
 Duck Echo had none. Phase 1 makes Duck Echo the place a game gets its
@@ -68,8 +68,7 @@ Goals for the whole phase:
 * A small set of starter instruments, so an agent can write a tune
   without designing every sound first.
 
-Order: 16, then 4, then 19, then 20, then 21, then 10. All but 10 are
-done; 10 (the agent guide) is next.
+Order: 16, then 4, then 19, then 20, then 21, then 10. All are done.
 
 ### 16. Song document and scheduler [done]
 
@@ -338,7 +337,41 @@ Lessons for the next builder:
   phase had a red Windows job, and the cause was only read at the end.
   Look at CI after every push.
 
-### 10. Agent workflow guide (moved here from Phase 0, last in Phase 1)
+### No false "extra" notes inside held notes [done]
+
+The note check (task 21) reported many extra onsets that were not
+there: 9 on the day bass and 16 on the night bass, all inside held notes
+at about 55 Hz, plus one in the day pad. An agent would have believed
+them and "fixed" notes that were fine.
+
+- [x] An onset inside a note still held on the same track is explained
+  by that note when it brings no new pitch (no clear pitch, a reading
+  above 5 kHz, or the held note's pitch or one of its overtones) and the
+  level does not jump by 6 dB or more (`tools/src/notecheck.rs`,
+  `inside_held_note`). In a loop, notes held across the end count at the
+  start too.
+- [x] `extra_onsets[].beat` is rounded to the nearest eighth of a beat,
+  so it reads like a note an agent could write (2.5, not 2.51).
+- [x] Tests: both Duck Craft themes and the four-bar demo report zero
+  extra onsets on every track; an unwritten E4 played over a held A3 is
+  reported as exactly one extra at bar 2, beat 1; the same pitch struck
+  again (a jump in level) is still extra; an unwritten hi-hat is found
+  by time; the earlier wrong-note test still passes. Analysis only: no
+  render or fingerprint changed.
+
+Lessons for the next builder:
+
+* **The onset finder is tuned for sound effects.** It reports any sudden
+  change, and a held low note changes all the time. Explain onsets with
+  what you know was written before calling them extra.
+* **Overtones count as the same note.** The night bass's false onset at
+  439 Hz was the 8th overtone of its 55 Hz A1.
+* **The onset finder has a blind spot:** a pure sine entering under
+  another pure sine makes no detectable start. Real instruments (with an
+  attack, a filter or noise) are seen. Test with the built-in
+  instruments, not bare sines.
+
+### 10. Agent workflow guide [done]
 
 * `docs/AGENT_GUIDE.md`: how to design a sound or a tune without hearing
   it. Start from a preset or instrument, change one thing, render, read the
@@ -359,6 +392,70 @@ Lessons for the next builder:
 * Accept: another agent given only the guide and the MCP server produces a
   usable coin, hit and explosion, and a looping eight-bar tune, in one
   session.
+
+Progress:
+
+- [x] `docs/AGENT_GUIDE.md` written: the loop (start from a preset or
+  instrument, change one thing, render, read, compare), loudness targets
+  and `master.normalize_lufs` (with the edit that levels a preset copy),
+  `loudness_method`, which field answers which question, `per_layer`,
+  `picture`, `onsets`, `aliasing`, and a music chapter (a song on one
+  screen, instruments and their ranges, loops, stems, matching themes
+  for cross-fading, reading the note check, and a "done" checklist).
+- [x] Linked from the README and from the MCP server's instructions.
+- [x] `tools/tests/agent_guide.rs` keeps it honest: every TOML example
+  validates with no warnings, the song example loops cleanly with every
+  note heard, the levelling edit holds the target, and the preset and
+  instrument tables match the built-ins.
+- [x] Playtest 2 (`playtest/playtest-2/`, with `REVIEW.md`): a fresh
+  agent given only the guide and the MCP server made a usable coin, hit,
+  explosion and looping eight-bar tune in one session: 38 tool calls,
+  none failed, every check passed (155 of 155 notes heard, a clean loop).
+- [x] Its confusions fixed: two mistakes in the guide (the coin's interval,
+  where `loop_seam` sits), the `ops` of `edit`, what `compare` covers,
+  what `attack_seconds` measures, a loudness tolerance, making the melody
+  lead, defaults for songs, stale preset metadata, MCP-first wording.
+  `compare` now says "upside down" for a negative correlation. The note
+  check ignores a pitch that was already sounding before an onset (a
+  resonant filter sweeping past), tested on the agent's own tune.
+
+Bigger confusions, for Phase 2:
+
+* Copying a preset means pasting the whole recipe back into `create`.
+  Allow `create` from `preset:NAME` or `instrument:NAME`, or `edit` with a
+  new output path, and clear the copied `name` and `description`.
+* A song's summary uses sound-effect words ("pitch rising from 110 to
+  784 Hz", an onset count that changes with a track's volume). Give songs
+  their own summary: key-free facts such as bars, loop, notes heard,
+  loudest and quietest track.
+* A number for a click at the end of a one-shot sound, as `loop_seam`
+  does for loops.
+* The guide and the specs cannot be read through the MCP server. A
+  `get_guide` (or `get_doc`) tool would serve agents outside the
+  repository.
+* A playtest that starts from broken files, to try the error reports and
+  the `missing`, `quiet`, `wrong_pitch` and `uncertain` statuses, which
+  this one never met.
+
+Lessons for the next builder:
+
+* **Playtest with the binary you are about to ship.** The playtest's
+  server was built a little before the branch's last edits, and it showed
+  two false extra notes that were already fixed. Rebuild in release right
+  before a playtest.
+* **The guide test pays off.** `tools/tests/agent_guide.rs` runs every
+  example in the guide. The two factual mistakes the agent found were in
+  prose, which no test reads; keep prose claims few and checkable.
+* **An agent follows the guide literally.** "Change one thing" gave
+  sound effects that are presets with one edit. That is safe, and fine
+  for a first version; a later guide can show how to build a bigger
+  change one step at a time.
+* **The project MCP server times out on a cold start** (the 30 s limit
+  is shorter than a release build). Build it first, as the README says;
+  in a cloud session, a setup script that builds it would fix this.
+* One note-check test reads `playtest/playtest-2/music/tune.toml`. If that
+  file is ever changed, keep the bar 3 bass line, or move the song into
+  the test.
 
 ## Phase 2: Duck Echo Studio
 

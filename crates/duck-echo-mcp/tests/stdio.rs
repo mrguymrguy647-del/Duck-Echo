@@ -97,10 +97,10 @@ fn started(root: &Path) -> Session {
     );
     assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
     assert!(init["result"]["capabilities"]["tools"].is_object());
-    assert!(init["result"]["instructions"]
-        .as_str()
-        .unwrap()
-        .contains("preset:NAME"));
+    let instructions = init["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains("preset:NAME"));
+    // The instructions point an agent at the guide before anything else.
+    assert!(instructions.contains("docs/AGENT_GUIDE.md"));
     s.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
     s
 }

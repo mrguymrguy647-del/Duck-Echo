@@ -238,16 +238,27 @@ fn summarize(
     if b.clipping.clipped && !a.clipping.clipped {
         parts.push("b CLIPS".into());
     }
+    // A negative correlation means the shapes match upside down (one is
+    // the other with its sign flipped), which sounds the same on its own.
+    let flipped = |c: &Correlation| if c.peak < 0.0 { ", upside down" } else { "" };
     match corr {
-        Some(c) if c.peak.abs() >= 0.9 && c.lag_seconds.abs() < 1e-9 => {
-            parts.push(format!("waveforms closely match ({:.2})", c.peak))
-        }
+        Some(c) if c.peak.abs() >= 0.9 && c.lag_seconds.abs() < 1e-9 => parts.push(format!(
+            "waveforms closely match{} ({:.2})",
+            flipped(c),
+            c.peak
+        )),
         Some(c) if c.peak.abs() >= 0.9 => parts.push(format!(
-            "waveforms closely match ({:.2}) with b shifted {:+.3} s",
-            c.peak, c.lag_seconds
+            "waveforms closely match{} ({:.2}) with b shifted {:+.3} s",
+            flipped(c),
+            c.peak,
+            c.lag_seconds
         )),
         Some(c) if c.peak.abs() < 0.3 => parts.push(format!("waveforms differ ({:.2})", c.peak)),
-        Some(c) => parts.push(format!("waveforms partly similar ({:.2})", c.peak)),
+        Some(c) => parts.push(format!(
+            "waveforms partly similar{} ({:.2})",
+            flipped(c),
+            c.peak
+        )),
         None => {}
     }
     if parts.is_empty() {
