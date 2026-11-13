@@ -118,9 +118,10 @@ a built-in instrument.
 `get_schema`, `list_presets`, `get_preset`, `list_instruments`,
 `get_instrument`, `list_files`, `validate`,
 `create`, `edit`, `render`, `analyze`, `compare` and `variations`. File
-paths are relative to `--root` and cannot leave it: absolute paths, `..`
-and symbolic links that lead out are refused, and `render` only writes
-`.wav` files. `render` and `analyze` can return a picture of the sound as
+paths are relative to `--root` and cannot leave it: absolute paths, `..`,
+any `:` in a path (a drive letter) and symbolic links that lead out are
+refused, and `render` only writes `.wav` files. A song's instrument files
+are checked the same way. `render` and `analyze` can return a picture of the sound as
 an MCP image (`picture: true`) and analyze layers on their own
 (`per_layer`, `solo`, `mute`).
 

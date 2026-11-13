@@ -306,6 +306,38 @@ Lessons for the next builder:
   fades between.
 * **Phase 1 is done except task 10** (the agent guide), which is next.
 
+### Security fix found by CI: drive letters inside a path [done]
+
+The Windows CI job failed on the new song test, and it was right to: the
+MCP root guard (from Phase 0) could be left on Windows.
+
+- [x] The hole: `sub/C:\outside\x.wav` has no `..` and does not start
+  with a drive, so it passed the checks. But when the part after the
+  existing folder `sub` was joined back on, Windows read `C:\outside\x.wav`
+  as an absolute path, and `Path::join` with an absolute path *replaces*
+  the folder. A write or read could land outside the root. Linux was
+  never affected.
+- [x] The fix, in `crates/duck-echo-mcp/src/root.rs`: `:` is refused in
+  every path on every platform; the resolved path is built one plain
+  name at a time instead of joining a multi-part tail; and the result is
+  checked once more to be inside the root. A song's instrument file is
+  checked by itself before it is joined to the song's folder.
+- [x] Tests: a unit test and a stdio test try drive letters at the start
+  and in the middle of read paths, write paths and song instrument
+  files, and check that nothing outside the root is read or changed.
+
+Lessons for the next builder:
+
+* **Never `join` text that came from outside.** `Path::join` (and
+  `push`) replace the whole path when the argument is absolute, and what
+  counts as absolute differs by platform. Push single names you have
+  checked.
+* **Run the security tests on Windows.** This bug could not show on
+  Linux. The CI job on Windows is what caught it; keep it.
+* **A red CI is a finding, not noise.** The first five pushes of this
+  phase had a red Windows job, and the cause was only read at the end.
+  Look at CI after every push.
+
 ### 10. Agent workflow guide (moved here from Phase 0, last in Phase 1)
 
 * `docs/AGENT_GUIDE.md`: how to design a sound or a tune without hearing

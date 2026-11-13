@@ -1398,3 +1398,102 @@ fn built_in_instruments_are_listed_played_and_read_only() {
     );
     assert_eq!(files_under(&root), before, "a refused call wrote something");
 }
+
+/// Security: a drive letter in the middle of a path. On Windows, joining
+/// `C:\x` onto a folder replaces the folder, so `sub/C:\Windows\x.wav`
+/// could leave the root once `sub` exists. `:` is refused in every path,
+/// on every platform, and nothing is ever written or read outside.
+#[test]
+fn drive_letters_inside_a_path_cannot_leave_the_root() {
+    let (root, outside) = sandbox("mcp_security_drives");
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(
+        outside.join("recipe.toml"),
+        "version = 0\n[[layers]]\nsource = \"sine\"\n",
+    )
+    .unwrap();
+    let mut s = started(&root);
+    let before_root = files_under(&root);
+    let before_outside = files_under(&outside);
+    let why = "`:` is not allowed in a path";
+
+    // The real thing on this machine: an existing folder, then the full
+    // path of a place outside the root.
+    let real_out = format!("sub/{}", outside.join("evil.wav").display());
+    let real_in = format!("sub/{}", outside.join("recipe.toml").display());
+
+    for path in [
+        "sub/C:\\Windows\\evil.wav",
+        "sub/C:/Windows/evil.wav",
+        "x:y.wav",
+    ] {
+        assert_refused(
+            &mut s,
+            "render",
+            json!({"path": "preset:coin", "output": path}),
+            why,
+        );
+        assert_refused(
+            &mut s,
+            "variations",
+            json!({"path": "preset:coin", "output_dir": path}),
+            why,
+        );
+    }
+    for path in ["sub/C:\\Windows\\x.toml", "sub/C:/x.toml", "a:b.toml"] {
+        assert_refused(
+            &mut s,
+            "create",
+            json!({"path": path, "recipe": {"version": 0, "layers": [{}]}}),
+            why,
+        );
+        assert_refused(&mut s, "validate", json!({"path": path}), why);
+        assert_refused(&mut s, "analyze", json!({"path": path}), why);
+        assert_refused(&mut s, "list_files", json!({"path": path}), why);
+        assert_refused(
+            &mut s,
+            "compare",
+            json!({"a": path, "b": "preset:coin"}),
+            why,
+        );
+        // As a song's instrument file, inline and next to a song file.
+        let (report, _) = s.call("validate", json!({"recipe": song_json(path)}));
+        assert_eq!(report["ok"], false, "{path}");
+        assert_eq!(report["errors"][0]["path"], "tracks[0].instrument");
+        assert!(report["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains(why));
+        let (made, err) = s.call(
+            "create",
+            json!({"path": "sub/song.toml", "recipe": song_json(path), "overwrite": true}),
+        );
+        assert!(err, "{path}: {made}");
+    }
+
+    // Whatever this platform makes of the real paths, the calls may
+    // fail or stay inside the root, but nothing outside is touched or
+    // read: the outside recipe is never accepted as an instrument.
+    let _ = s.call("render", json!({"path": "preset:coin", "output": real_out}));
+    let (report, _) = s.call("validate", json!({"recipe": song_json(&real_in)}));
+    assert_eq!(report["ok"], false, "{report}");
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "sub/song.toml", "recipe": song_json(&real_in), "overwrite": true}),
+    );
+    assert!(err, "{made}");
+    let (report, err) = s.call("analyze", json!({"path": real_in}));
+    assert!(err, "{report}");
+
+    assert_eq!(
+        files_under(&outside),
+        before_outside,
+        "something outside changed"
+    );
+    let after: Vec<String> = files_under(&root)
+        .into_iter()
+        .filter(|f| !f.ends_with("evil.wav"))
+        .collect();
+    assert_eq!(after, before_root, "a refused call wrote something");
+    assert!(!outside.join("evil.wav").exists());
+}

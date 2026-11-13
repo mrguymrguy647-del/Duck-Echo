@@ -368,9 +368,15 @@ Rules the server keeps:
   `structuredContent` and as text.
 * **Paths stay inside the root.** File paths are relative to `--root`
   (default: the working directory). Absolute paths and `..` are refused;
-  symbolic links are resolved and refused if they lead out of the root or
-  are broken. `preset:NAME` is accepted only where a recipe is read, and
-  only for a known preset name; it can never be a write target. `render`
+  so is any `:` in a path, on every platform, because on Windows a drive
+  letter in the middle of a path (`sub/C:\x`) turns the rest into an
+  absolute path when paths are joined. The resolved path is built one
+  plain name at a time, never by joining a multi-part tail, and is
+  checked once more to lie inside the root. Symbolic links are resolved
+  and refused if they lead out of the root or are broken. `preset:NAME`
+  and `instrument:NAME` are accepted only where a recipe is read, and
+  only for a known name; they can never be a write target. A song's
+  instrument files go through the same checks. `render`
   writes only `.wav` files, so it cannot overwrite other files; recipe
   names are made file-safe before they become file names. Results show
   paths relative to the root. All of this lives in

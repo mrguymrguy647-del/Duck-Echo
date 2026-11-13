@@ -463,6 +463,9 @@ fn song_files<'r>(
     folder: String,
 ) -> impl Fn(&str) -> Result<PathBuf, ToolError> + 'r {
     move |reference| {
+        // Check the reference by itself first. Joined onto the folder, an
+        // absolute path would no longer look absolute.
+        root.check_relative("", reference)?;
         let joined = if folder.is_empty() || folder == "." {
             reference.to_string()
         } else {

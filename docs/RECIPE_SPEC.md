@@ -504,7 +504,8 @@ A track's `instrument` is one of:
 * `"preset:NAME"`: a built-in preset.
 * A recipe file ending in `.toml` or `.json`, relative to the folder the
   song file is in. In the MCP server the path is checked like every other
-  path: no absolute paths, no `..`, nothing outside the server root.
+  path: no absolute paths, no `..`, no `:`, nothing outside the server
+  root.
 
 A **kit** maps piece names to instruments, and its notes name a piece:
 
