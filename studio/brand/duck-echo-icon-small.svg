@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Duck Echo, for small sizes (48 pixels and below): the duck's head
+       close up, quacking, with two echoes. -->
+  <defs>
+    <clipPath id="tile"><rect width="1024" height="1024" rx="232" ry="232"/></clipPath>
+    <radialGradient id="night" cx="50%" cy="34%" r="80%">
+      <stop offset="0" stop-color="#7466F2"/>
+      <stop offset="0.45" stop-color="#5546D0"/>
+      <stop offset="1" stop-color="#1B1446"/>
+    </radialGradient>
+    <radialGradient id="duck" cx="38%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#FFF0A0"/>
+      <stop offset="0.45" stop-color="#FFCC2E"/>
+      <stop offset="1" stop-color="#E89A00"/>
+    </radialGradient>
+    <linearGradient id="bill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFA940"/>
+      <stop offset="1" stop-color="#F0701A"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="1024" height="1024" fill="url(#night)"/>
+    <!-- body, rising from the bottom -->
+    <ellipse cx="330" cy="1010" rx="420" ry="300" fill="url(#duck)"/>
+    <!-- head -->
+    <circle cx="370" cy="520" r="290" fill="url(#duck)"/>
+    <ellipse cx="270" cy="400" rx="100" ry="64" fill="#FFF7C9" opacity="0.5" transform="rotate(-28 270 400)"/>
+    <!-- open bill -->
+    <path d="M610,440 C700,400 780,400 810,425 C795,460 720,490 625,495 C605,485 598,460 610,440 Z" fill="url(#bill)"/>
+    <path d="M618,530 C700,535 770,560 795,595 C760,620 690,612 625,580 C608,566 606,544 618,530 Z" fill="url(#bill)"/>
+    <path d="M620,495 C690,492 750,505 790,530 C730,530 670,530 618,530 Z" fill="#9C2F12" opacity="0.85"/>
+    <!-- eye -->
+    <path d="M430,420 C450,392 492,392 512,420" stroke="#1B1446" stroke-width="30" fill="none" stroke-linecap="round"/>
+    <!-- two echoes -->
+    <g fill="none" stroke-linecap="round">
+      <path d="M850,360 A190,190 0 0 1 850,660" stroke="#46D6FF" stroke-width="64"/>
+      <path d="M940,260 A300,300 0 0 1 940,760" stroke="#46D6FF" stroke-width="56" opacity="0.6"/>
+    </g>
+  </g>
+</svg>

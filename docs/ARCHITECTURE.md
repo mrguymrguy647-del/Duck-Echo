@@ -52,6 +52,15 @@ crates/
   duck-echo-mcp/           the `duck-echo-mcp` binary: the agent tools as an MCP
                            server over stdio.
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
+studio/                    Duck Echo Studio, a workspace of its own (Rust
+                           1.95 for egui; the libraries above stay at 1.80):
+  crates/app/              DuckEchoStudio: the window, the speakers
+                           (tinyaudio + duck-echo-live), settings, the
+                           update check, the Linux app-menu entry.
+  brand/                   the Duck Echo icon (SVG sources, PNGs, .ico).
+  release/                 DuckEchoStudio.iss (the Windows installer),
+                           READ ME FIRST.txt, linux/ (AppRun, the menu entry,
+                           make-appimage.sh).
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 examples/recipes/          the example recipes (TOML, plus coin.json)
 examples/songs/            the example songs
@@ -646,7 +655,24 @@ output is one line per issue in the same order.
 | hound | audio | WAV read and write, zero dependencies of its own. |
 | clap | cli | Argument parsing. |
 | rtrb | live | A lock-free ring buffer with one writer and one reader, made for audio threads: the audio thread takes and sends messages without ever waiting on a lock or allocating. No dependencies of its own. Writing one ourselves needs `unsafe` code, which the workspace forbids. |
+| eframe (egui) 0.37 | studio | The window and every widget: the same library and version as Duck Quill and Duck Forge Studio, so the three apps look alike. Its default wgpu renderer draws on Direct3D 12 (or its software fallback, WARP) on Windows and on Vulkan or OpenGL on Linux. |
+| egui_kittest 0.37 | studio (tests only) | Draws every screen with no window and finds things by their words, as a person would; with wgpu it also saves pictures of the screens. The same as Duck Forge Studio. |
+| tinyaudio 2 | studio | Plays the mixer's blocks through the speakers: DirectSound on Windows, ALSA on Linux, linked in the normal way (ALSA reaches PipeWire and PulseAudio too), with no `unsafe` code of ours. The lightest crate that does it, and Duck Forge's choice. Building on Linux needs `libasound2-dev`. |
+| dirs 6 | studio | Where Documents and the settings folder really are: Windows' own answer (OneDrive often moves Documents), the XDG folders on Linux. The design named `windows-sys` for this, as Duck Forge uses; `windows-sys` would need `unsafe` code of ours to call Windows, and would leave Linux to us, so `dirs` (which wraps the same Windows call) does both. |
+| sha2 0.10 | studio | The SHA-256 fingerprint of a downloaded update, checked against the release's `SHA256SUMS` before it is used, as Duck Quill does. |
+| winresource 0.1 | studio (build only) | Puts the icon and the version into `DuckEchoStudio.exe`, as both siblings do. |
 | assert_no_alloc | live (tests only) | Replaces the test program's allocator and counts every allocation and free inside a marked section, so a test fails if the audio block touches the allocator. Its default features switch the check off in release builds; here they are off and the counting ones are on, so it always runs. |
+
+The Studio's crates live only in `studio/`, a workspace of its own (its own
+lock file and `target`), so the command-line tool and the MCP server gain
+none of them. Two programs are used to package it, not linked: **Inno
+Setup 6** builds `DuckEchoStudioSetup.exe` from
+`studio/release/DuckEchoStudio.iss` (as both siblings do), and
+**appimagetool** (downloaded by CI) builds `DuckEchoStudio.AppImage` with
+its static runtime, so a person's Linux does not need the old FUSE 2
+library. The Studio checks for new versions with the system's own `curl`
+(Windows 10 and later have it; so does nearly every Linux), as Duck Forge
+does: no web library.
 
 The MCP server and the tools crate add no external dependencies: the
 protocol layer is plain `serde_json` (see above), and `toml` writes edited

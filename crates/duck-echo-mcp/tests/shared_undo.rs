@@ -14,8 +14,8 @@ const EACH: usize = 40;
 /// The `duck-echo` binary, which sits next to `duck-echo-mcp`.
 /// `cargo test --workspace` builds both before running any test. A test
 /// cannot run cargo itself (cargo holds its build lock while tests run),
-/// so when the CLI is missing or older than a source file of the crates,
-/// this says how to build it instead of testing old code.
+/// so when the CLI is missing or older than a source file of the crates it
+/// is built from, this says how to build it instead of testing old code.
 fn cli_binary() -> PathBuf {
     let mcp = PathBuf::from(env!("CARGO_BIN_EXE_duck-echo-mcp"));
     let cli = mcp.with_file_name(format!("duck-echo{}", std::env::consts::EXE_SUFFIX));
@@ -32,11 +32,20 @@ fn cli_binary() -> PathBuf {
         }
         out
     }
+    // Only the crates the CLI is built from: a change to another crate
+    // (duck-echo-live, say) rightly does not rebuild it.
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let sources = std::fs::read_dir(&crates)
-        .unwrap()
-        .flatten()
-        .filter_map(|c| newest(&c.path().join("src")))
+    let built_from = [
+        "duck-echo-cli",
+        "duck-echo-tools",
+        "duck-echo-core",
+        "duck-echo-synth",
+        "duck-echo-analyze",
+        "duck-echo-audio",
+    ];
+    let sources = built_from
+        .iter()
+        .filter_map(|name| newest(&crates.join(name).join("src")))
         .max();
     let built = std::fs::metadata(&cli).and_then(|m| m.modified()).ok();
     assert!(

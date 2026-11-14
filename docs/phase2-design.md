@@ -587,14 +587,17 @@ AppImage and smoke-tests it on Linux.
 at once, the realtime audio rules, and the two installers. The other steps
 are mostly screens and wiring, built on what the marked steps prove.
 
-**Getting the installer from CI, with no terminal:** open the pull request
-on GitHub, click **Checks**, click the newest run, scroll to
-**Artifacts**, and download `DuckEchoStudioSetup`. It comes as a zip:
-open it and double-click the `.exe`. Windows may say "Windows protected
-your PC": click **More info**, then **Run anyway**. The program is not
-signed with a paid certificate, as with the siblings.
+**Getting the installer from CI, with no terminal** (you need to be signed
+in to GitHub): open the repository on GitHub, click the **Actions** tab,
+click **Studio** in the list on the left, and click the newest run for the
+branch (its name is the newest commit's first line). Scroll down to
+**Artifacts** and click `DuckEchoStudioSetup`. It downloads as a zip: open
+it and double-click `DuckEchoStudioSetup.exe`. Windows may say "Windows
+protected your PC": click **More info**, then **Run anyway**. The program
+is not signed with a paid certificate, as with the siblings. (Once a
+release is made, the same file is on the **Releases** page.)
 
-**Getting the AppImage from CI, with no terminal:** the same page has a
+**Getting the AppImage from CI, with no terminal:** the same run has a
 download called `DuckEchoStudio-AppImage`. Open the zip, drag
 `DuckEchoStudio.AppImage` into your home folder, right-click it, choose
 **Properties**, and turn on **Allow executing file as program** (the
@@ -684,6 +687,16 @@ words differ a little between desktops). Then double-click it.
 6. Open **Help > About**: it shows the version number.
 7. Open **Settings** and click **Remove from app menu**. Search the app
    menu again: it is gone. Your `Documents/Duck Echo` folder stays.
+
+**As built** (step 4): `dirs` finds Documents and the settings folder
+instead of `windows-sys` (the same Windows call without `unsafe` code of
+ours, and the XDG folders on Linux). The window needs
+`libxkbcommon-x11` at run time on Linux, which every desktop has. CI's
+start test sets `DUCK_ECHO_STUDIO_SMOKE_TEST`: the Studio draws 30 frames,
+writes a line to that file and closes itself. The AppImage is built on
+Ubuntu 22.04 so it runs on older systems too. Until this branch is merged,
+the downloads are on each run's page under **Artifacts** (the **Run
+workflow** button appears once the workflow is on the main branch).
 
 ### Step 5: Home (task 23)
 

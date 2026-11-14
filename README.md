@@ -8,6 +8,30 @@ Every sound is a text **recipe**. The recipe is the source of truth; audio
 is its output. Renders are deterministic: same recipe plus same seed gives
 byte-identical WAV files.
 
+## Duck Echo Studio (no terminal)
+
+**Duck Echo Studio** is the app for people: play the built-in sounds
+through your speakers, and (in the coming steps) make and edit your own
+sounds and songs, with Undo shared with an AI assistant.
+
+* **Windows:** download `DuckEchoStudioSetup.exe` from the
+  [Releases page](https://github.com/mrguymrguy647-del/Duck-Echo/releases)
+  and double-click it. It installs just for you, with no administrator
+  rights. Windows may say "Windows protected your PC": click **More info**,
+  then **Run anyway** (the installer is not signed with a paid
+  certificate).
+* **Linux:** download `DuckEchoStudio.AppImage` from the same page,
+  right-click it, choose **Properties**, turn on **Allow executing file as
+  program**, and double-click it. The first time, it offers to add itself to
+  your app menu.
+
+Your sounds and songs go in `Documents/Duck Echo`, and updating or
+uninstalling never touches them. The Studio says when a new version is
+out, and **Update** checks the download's SHA-256 fingerprint before it
+uses it. Both downloads also hold the command-line tool and the MCP server,
+ready to run: no Rust and no build needed (see `studio/release/READ ME
+FIRST.txt`).
+
 ## Quick start
 
 ```bash
@@ -245,6 +269,10 @@ crates/duck-echo-analyze  measurements and compare
 crates/duck-echo-tools    operations shared by the CLI and the MCP server
 crates/duck-echo-live     realtime mixer for playing through speakers (no
                           allocation or locks on the audio thread)
+studio                    Duck Echo Studio, its own workspace: the app
+                          (studio/crates/app), its icon (studio/brand), the
+                          Windows installer and the Linux AppImage
+                          (studio/release)
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
 crates/duck-echo-mcp      the duck-echo-mcp binary: MCP server over stdio
 presets                   30 tagged starting points (see presets/README.md)
@@ -277,6 +305,29 @@ cargo test --workspace
 ```bash
 cargo clippy --workspace --all-targets && cargo fmt --all -- --check
 ```
+
+### Building the Studio
+
+The Studio is its own Cargo workspace in `studio/` (egui needs Rust 1.95;
+the libraries above stay at 1.80). On Linux it needs ALSA's build files for
+the sound:
+
+```bash
+sudo apt-get install libasound2-dev pkg-config
+```
+
+```bash
+cd studio && cargo run --release
+```
+
+```bash
+cd studio && cargo test --workspace
+```
+
+`STUDIO_SCREENSHOTS=<folder>` with the tests saves a picture of every
+screen. The `Studio` workflow (`.github/workflows/studio.yml`) builds the
+installer and the AppImage, installs and starts them, and publishes a
+release from the **Run workflow** button in the Actions tab.
 
 After changing the recipe or song types, regenerate the checked-in schemas
 (a test fails when one is stale):

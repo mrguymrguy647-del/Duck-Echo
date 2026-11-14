@@ -475,13 +475,75 @@ MCP tools come for free instead of being added to each button later), then
 and widget toolkit, audio output to the speakers, an installer builder);
 justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
 
-### 22. Launcher and installer
+### 22. Launcher and installer [done: Phase 2 step 4]
 
 * A `setup.exe` for Windows (and a matching package for other systems
   later) that installs Duck Echo Studio with a desktop icon. Starting it
   opens the app; no terminal window, no Rust needed.
 * Accept: installs and starts on a clean Windows machine; uninstalls
   cleanly.
+
+Done in Phase 2 step 4:
+
+* [x] `studio/`, a workspace of its own: the window (egui 0.37) with the
+  Duck Echo icon and brand colours, the Theme menu (Dark, Light, Same as
+  Windows or the system), Help > About with the version, Settings (the
+  project folder, the new-version tick box, and on Linux the app menu),
+  and a first list of the 30 built-in sounds with Play.
+* [x] Sound out loud: the step 3 mixer through `tinyaudio`, DirectSound on
+  Windows and ALSA linked normally on Linux (no `unsafe` code of ours).
+  The speakers open on the first Play, so a PC with none still opens the
+  Studio and says "No speakers were found" in plain words.
+* [x] The project folder `Duck Echo` in the real Documents (`dirs`), the
+  settings in `%APPDATA%\Duck Echo Studio` or
+  `~/.config/duck-echo-studio`.
+* [x] `DuckEchoStudioSetup.exe` (Inno Setup): per user, no administrator
+  rights, Start menu, desktop icon and "add to PATH" tick boxes (both off
+  at first, as in Duck Quill), the three ready-made programs.
+* [x] `DuckEchoStudio.AppImage`: one file, three programs (`AppRun`
+  picks the Studio, `mcp` or `cli` by the first word), the menu entry and
+  icon, and the first-start "Add Duck Echo Studio to your app menu?"
+  (Settings removes it; a moved AppImage is followed).
+* [x] The update banner on both systems: GitHub's release list through
+  `curl`; drafts, pre-releases and older versions ignored; **Update**
+  checks the download against the release's `SHA256SUMS` and refuses a
+  mismatch; Windows starts the installer, Linux swaps the AppImage in one
+  rename and starts again.
+* [x] The `Studio` workflow: on Windows it tests (with screenshots),
+  builds the installer, installs it silently with both tick boxes, starts
+  the installed Studio (which draws its window and closes itself),
+  installs a newer copy over it, and uninstalls it, checking that
+  `Documents\Duck Echo` and the settings stay and the Path is as before.
+  On Linux (Ubuntu 22.04, so the AppImage runs on older systems too) it
+  tests (with screenshots), builds the AppImage, runs its three programs,
+  plays a sound into ALSA's null device, and starts its window on a
+  virtual screen. On both, the update check against pretend release lists.
+  The **Run workflow** button publishes the setup, the AppImage and
+  `SHA256SUMS`.
+* [ ] Home (step 5): cards, the gallery, Make a copy.
+
+Lessons for the next builder:
+
+* **ALSA's null device does not keep time.** It took about 70 million
+  frames a second, so a sound started and ended between two looks at
+  "is it playing?". `Status::starts` counts sounds that started, and the
+  wait uses it.
+* **egui's own fonts have no ▶.** egui stops with "No glyph" on a missing
+  letter, which the screen tests caught. Keep button words plain, or add
+  a font.
+* **The test harness resets the theme** when it builds an eframe app: set
+  the theme after building, or a "light" picture comes out dark.
+* **The window needs `libxkbcommon-x11`** at run time on Linux. Every
+  desktop has it; a bare container or CI machine does not.
+* **Hover text is not a button's name** for the screen tests: thirty
+  buttons are all "Play". Find a row by its sound's name instead.
+* **`dirs` instead of `windows-sys`** for Documents: the same Windows
+  call, without `unsafe` code of ours, and the XDG folders on Linux.
+* **The AppImage is built on Ubuntu 22.04**, the oldest GitHub offers: an
+  AppImage only runs on systems with the same or a newer C library.
+* **GitHub only shows the Run workflow button for a workflow on the main
+  branch.** Until this is merged, the installer and the AppImage are
+  downloads on each run's page.
 
 ### 23. Home screen
 

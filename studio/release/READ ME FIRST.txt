@@ -1,0 +1,41 @@
+Duck Echo Studio
+================
+
+Make sound effects and music from short text recipes, without a terminal.
+
+Starting it
+-----------
+Windows: Start menu > Duck Echo Studio (or the desktop icon, if you ticked
+that box when installing).
+Linux: double-click DuckEchoStudio.AppImage. The first time, it offers to
+add itself to your app menu.
+
+Where things are
+----------------
+Your sounds and songs:  Documents\Duck Echo  (Linux: ~/Documents/Duck Echo)
+Your settings:          %APPDATA%\Duck Echo Studio  (Linux: ~/.config/duck-echo-studio)
+Updating or uninstalling the Studio never touches either of them.
+
+New versions
+------------
+When a new version is out, the Studio shows it at the top of its window.
+Press Update: it downloads the new version, checks its SHA-256 fingerprint
+against the list published with the release, and puts it in. Nothing about
+you is sent. You can turn the check off in Settings.
+
+For AI assistants
+-----------------
+The Studio comes with Duck Echo's command-line tool and MCP server, ready
+to run:
+  Windows: duck-echo.exe and duck-echo-mcp.exe, next to DuckEchoStudio.exe.
+           Tick "Let terminals and AI assistants find duck-echo" when
+           installing to call them by name.
+  Linux:   DuckEchoStudio.AppImage cli ...   (the command-line tool)
+           DuckEchoStudio.AppImage mcp ...   (the MCP server)
+
+"Windows protected your PC"
+---------------------------
+The installer is not signed with a paid certificate. Click "More info",
+then "Run anyway".
+
+More: https://github.com/mrguymrguy647-del/Duck-Echo

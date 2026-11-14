@@ -57,6 +57,13 @@ impl Status {
         s.playing.load(SeqCst).then(|| s.position.load(Relaxed))
     }
 
+    /// How many sounds have started playing in `slot` since the mixer was
+    /// made. A sound that starts and ends between two looks at
+    /// [`Status::is_playing`] still counts here.
+    pub fn starts(&self, slot: usize) -> u64 {
+        self.slots.get(slot).map_or(0, |s| s.starts.load(SeqCst))
+    }
+
     /// How many times the sound in `slot` has repeated.
     pub fn loops(&self, slot: usize) -> u64 {
         self.slots.get(slot).map_or(0, |s| s.loops.load(Relaxed))

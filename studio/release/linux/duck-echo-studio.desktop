@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Duck Echo Studio
+GenericName=Sound and music maker
+Comment=Make sound effects and music without a terminal
+Exec=DuckEchoStudio
+Icon=duck-echo-studio
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupWMClass=duck-echo-studio
