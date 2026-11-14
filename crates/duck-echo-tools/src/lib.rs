@@ -8,10 +8,15 @@ use duck_echo_core::{load_path, Code, Format, Issue, Report};
 use std::fmt;
 use std::path::Path;
 
+pub mod commands;
 pub mod files;
+pub mod history;
 pub mod instruments;
 pub mod measure;
 pub mod notecheck;
+pub mod project;
+pub mod root;
+pub mod save;
 pub mod song;
 
 pub use measure::{Extras, LayerAnalysis, Measured, Options, TrackAnalysis};
@@ -341,13 +346,7 @@ pub fn write_png(path: &Path, png: &[u8]) -> Result<(), ToolError> {
             format!("picture file {} must end in .png", path.display()),
         ));
     }
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).map_err(|e| {
-            ToolError::failed(Code::Io, format!("cannot create {}: {e}", dir.display()))
-        })?;
-    }
-    std::fs::write(path, png)
-        .map_err(|e| ToolError::failed(Code::Io, format!("cannot write {}: {e}", path.display())))
+    save::write_atomic(path, png)
 }
 
 /// True when `path` ends in `.wav` (any case).
@@ -384,13 +383,10 @@ fn write_wav_file(
     buffer: &AudioBuffer,
     format: duck_echo_audio::WavFormat,
 ) -> Result<(), ToolError> {
-    if let Some(dir) = output.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).map_err(|e| {
-            ToolError::failed(Code::Io, format!("cannot create {}: {e}", dir.display()))
-        })?;
-    }
-    duck_echo_audio::write_wav(output, buffer, format)
-        .map_err(|e| ToolError::failed(Code::Io, format!("cannot write {}: {e}", output.display())))
+    let bytes = duck_echo_audio::encode_wav(buffer, format).map_err(|e| {
+        ToolError::failed(Code::Io, format!("cannot write {}: {e}", output.display()))
+    })?;
+    save::write_atomic(output, &bytes)
 }
 
 /// Most renders one `variations` call may make.

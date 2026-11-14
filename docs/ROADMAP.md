@@ -509,7 +509,7 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
 * Accept: a song made in the timeline renders the same bytes as the same
   song written as text.
 
-### 25. Every button is a command, with Undo
+### 25. Every button is a command, with Undo [command layer done: step 1]
 
 * Each action in the Studio is a named command (for example
   `set_layer_volume`, `add_note`) with arguments, recorded on an undo
@@ -517,6 +517,59 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
   work on the same project and undo each other's steps.
 * Accept: every button's action can be undone and redone; each command is
   listed by the MCP server with the same name and arguments.
+
+Done in Phase 2 step 1 (see `docs/phase2-design.md`, section 3):
+
+* [x] 30 commands in `duck-echo-tools/src/commands.rs`, one table, in
+  four groups: `file_*` (new sound, new song, copy from a preset,
+  instrument or file, rename, duplicate, delete, restore, set the whole
+  text), `sound_*` (set or remove a field by path, add, remove and move
+  layers, add and remove effects), `song_*` (set or remove a field, add
+  and remove tracks, add, move, resize and remove notes, place, move and
+  remove patterns, set the loop) and `edit_undo`, `edit_redo`,
+  `edit_history`. Names use `_` because Claude's tool names cannot hold
+  a dot.
+* [x] The MCP server lists one tool per command, same name and arguments
+  (schemas from `schemars`); the CLI has `duck-echo commands`, `do` and
+  `run`. `create` and `edit` are Undo steps too.
+* [x] The Undo history is on disk in `<project>/.duck-echo/history`, so
+  the Studio, the CLI and the MCP server share it. Steps say who made
+  them; slider strokes join one step; 500 are kept; deleted files go to
+  `.duck-echo/recycle`. Changes made by other programs become their own
+  step, and Undo never overwrites them.
+* [x] No change is lost: compare-before-write under a project lock, one
+  retry, then a plain refusal; every file is written to a temporary file
+  and renamed into place.
+* [x] `Root` (the path rules) moved from the MCP server into
+  `duck-echo-tools`, and refuses the `.duck-echo` folder.
+* [x] Tests: every command undone and redone gives back every file
+  exactly; the real CLI and the real MCP server add 40 layers each to one
+  file at the same moment and none is lost; retry-then-refuse; a stale
+  lock; Undo after an outside change.
+* [ ] The Studio's buttons (steps 3 to 8 of the design) build these
+  commands.
+
+Lessons for the next builder:
+
+* **Retry the second time while holding the lock.** The first version
+  retried without the lock, and the concurrency test showed two Duck Echo
+  programs refusing each other's changes under load. Working the change
+  out again under the lock means only a program that is not Duck Echo can
+  make a change fail.
+* **A test cannot run cargo.** Cargo holds its build lock while tests
+  run, so a nested `cargo build` waits forever. The concurrency test
+  needs the `duck-echo` binary from another package; it checks the binary
+  is newer than every source file and otherwise says to run
+  `cargo test --workspace`. An old binary once made this test fail with
+  code that was already fixed.
+* **Close a child's stdin to end it.** A closure that writes to a child
+  only borrows its stdin; dropping the closure does not close the pipe,
+  and `wait()` then hangs.
+* **Commands rewrite a file from its data, so `#` comments go** (as the
+  `edit` tool always did). `file_set_text` and `file_copy_from` keep the
+  text. Step 6 adds `toml_edit` to keep comments on every edit.
+* **Errors keep the field path but drop line numbers** when the text was
+  made by a command, since nobody has seen those lines.
 
 ## Phase 3: link with Duck Forge
 

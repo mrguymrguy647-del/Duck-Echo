@@ -284,23 +284,40 @@ pub fn to_toml_document(doc: &Value) -> Result<String, ToolError> {
     Ok(out)
 }
 
-/// Write a recipe document to `path` as TOML or (for `.json`) JSON.
-pub fn write_document(path: &Path, doc: &Value) -> Result<(), ToolError> {
-    let text = match Format::from_path(path) {
+/// A recipe or song document as the text of a file at `path`: TOML, or
+/// pretty JSON for a `.json` path.
+pub fn document_text(path: &Path, doc: &Value) -> Result<String, ToolError> {
+    Ok(match Format::from_path(path) {
         Format::Toml => to_toml_document(doc)?,
         Format::Json => {
             let mut d = doc.clone();
             drop_nulls(&mut d);
             serde_json::to_string_pretty(&d).expect("json") + "\n"
         }
-    };
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).map_err(|e| {
-            ToolError::failed(Code::Io, format!("cannot create {}: {e}", dir.display()))
-        })?;
+    })
+}
+
+/// Write a recipe or song document to `path` as TOML or (for `.json`)
+/// JSON, in one step (see [`crate::save`]).
+pub fn write_document(path: &Path, doc: &Value) -> Result<(), ToolError> {
+    let text = document_text(path, doc)?;
+    crate::save::write_atomic(path, text.as_bytes())
+}
+
+/// The document in `text` (TOML, or JSON for `format`), as written: no
+/// defaults filled in. Syntax errors come back as a report with the line.
+pub fn parse_document(text: &str, format: Format) -> Result<Value, ToolError> {
+    let tree = match format {
+        Format::Toml => duck_echo_core::tree::parse_toml(text),
+        Format::Json => duck_echo_core::tree::parse_json(text),
     }
-    std::fs::write(path, text)
-        .map_err(|e| ToolError::failed(Code::Io, format!("cannot write {}: {e}", path.display())))
+    .map_err(|issue| ToolError::Invalid(Report::from_error(*issue)))?;
+    tree.to_json().ok_or_else(|| {
+        ToolError::failed(
+            Code::Invalid,
+            "the file holds values JSON cannot represent (a date, or a number that is not finite)",
+        )
+    })
 }
 
 #[cfg(test)]

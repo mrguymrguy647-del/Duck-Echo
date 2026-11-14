@@ -23,17 +23,23 @@
 //!   refuses it, since presets are built in and cannot be written.
 //! * `instrument:NAME` (a built-in instrument) follows exactly the same
 //!   rules: read-only, a known name only, never treated as a path.
+//! * No path may go into `.duck-echo`, Duck Echo's own folder for the
+//!   Undo history and the recycle bin. Only the history code writes there,
+//!   so a tool call cannot rewrite the history behind Undo's back.
 //! * Errors name the argument (`arguments.path`) and show paths as the
 //!   agent wrote them, never the root's absolute location.
+//!
+//! The CLI's command scripts (`duck-echo run`, `duck-echo do`) and the
+//! MCP server both resolve paths here, so the rules are the same for both.
 //!
 //! Checking then writing leaves a window in which another local process
 //! could swap a directory for a link; the server is a local tool for one
 //! user's agent, and these rules stop the agent itself from leaving the
 //! root.
 
+use crate::instruments::{self, INSTRUMENT_PREFIX};
+use crate::{presets, ToolError, PRESET_PREFIX};
 use duck_echo_core::{load::did_you_mean, Code, Issue};
-use duck_echo_tools::instruments::{self, INSTRUMENT_PREFIX};
-use duck_echo_tools::{presets, ToolError, PRESET_PREFIX};
 use std::path::{Component, Path, PathBuf};
 
 /// The root directory, canonical.
@@ -50,6 +56,15 @@ fn refuse(key: &str, arg: &str, why: impl std::fmt::Display) -> ToolError {
         )
         .got(arg),
     )
+}
+
+/// The folder in the root where Duck Echo keeps its Undo history and
+/// recycle bin.
+pub const OWN_FOLDER: &str = ".duck-echo";
+
+/// True for `.duck-echo` in any letter case (Windows ignores case).
+fn is_own_folder(name: &std::ffi::OsStr) -> bool {
+    name.to_string_lossy().eq_ignore_ascii_case(OWN_FOLDER)
 }
 
 /// True for names a preset can have.
@@ -196,6 +211,13 @@ impl Root {
         }
         for c in Path::new(arg).components() {
             match c {
+                Component::Normal(name) if is_own_folder(name) => {
+                    return Err(refuse(
+                        key,
+                        arg,
+                        "`.duck-echo` is Duck Echo's own folder for the Undo history; use edit_undo, edit_redo and edit_history instead",
+                    ))
+                }
                 Component::Normal(_) | Component::CurDir => {}
                 Component::ParentDir => {
                     return Err(refuse(
@@ -272,6 +294,30 @@ impl Root {
         Ok(out)
     }
 
+    /// How a song in `folder` (a path relative to the root, empty for the
+    /// root itself) reads its instrument files: relative to its own
+    /// folder, and always through [`Root::read`], so an instrument file
+    /// can no more leave the root than any other path. The empty key
+    /// leaves the error's path free for the song field that named the file.
+    pub fn song_files(&self, folder: String) -> impl Fn(&str) -> Result<PathBuf, ToolError> + '_ {
+        move |reference| {
+            // Check the reference by itself first. Joined onto the folder,
+            // an absolute path would no longer look absolute.
+            self.check_relative("", reference)?;
+            let joined = if folder.is_empty() || folder == "." {
+                reference.to_string()
+            } else {
+                format!("{folder}/{reference}")
+            };
+            self.read("", &joined)
+        }
+    }
+
+    /// The folder of a file inside the root, as a path relative to it.
+    pub fn folder_of(&self, file: &Path) -> String {
+        file.parent().map(|p| self.show(p)).unwrap_or_default()
+    }
+
     /// A path as shown to the agent: relative to the root when inside it,
     /// with `/` between the parts on every platform (Windows too), so an
     /// agent sees the same paths wherever the server runs.
@@ -336,6 +382,16 @@ mod tests {
             assert!(root.read("k", bad).is_err(), "read {bad}");
             assert!(root.write("k", bad).is_err(), "write {bad}");
             assert!(root.check_relative("k", bad).is_err(), "check {bad}");
+        }
+        // Duck Echo's own history folder, in any case and at any depth.
+        for own in [
+            ".duck-echo/history/000001.json",
+            "sfx/.DUCK-ECHO/x.toml",
+            ".duck-echo",
+        ] {
+            let e = root.write("k", own).unwrap_err().into_report();
+            assert!(e.errors[0].message.contains("own folder"), "{own}");
+            assert!(root.read("k", own).is_err(), "{own}");
         }
         // Whatever is accepted resolves inside the root.
         for good in ["a.toml", "sub/a.wav", "./sub/deep/a.wav"] {

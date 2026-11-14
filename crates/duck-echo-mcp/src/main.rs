@@ -7,7 +7,6 @@
 //! stdout; logs go to stderr.
 
 mod protocol;
-mod root;
 mod tools;
 
 use std::io::{BufRead, Write};
@@ -42,7 +41,7 @@ fn main() -> ExitCode {
             }
         }
     }
-    let root = match root::Root::new(&root) {
+    let root = match duck_echo_tools::root::Root::new(&root) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("duck-echo-mcp: {e}");

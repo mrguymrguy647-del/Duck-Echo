@@ -6,6 +6,11 @@
 //! `validate`, `render`, `analyze` and `compare` also take a song (a
 //! document with `tracks`); they tell the two apart by looking inside.
 //!
+//! `commands`, `do` and `run` reach the same named commands as Duck Echo
+//! Studio's buttons and the MCP server's command tools (see
+//! `duck_echo_tools::commands`). Each change they make is a step of the
+//! project's shared Undo history.
+//!
 //! Exit codes: 0 success, 1 the recipe is invalid, 2 I/O or usage error.
 //! Commands that print JSON (`analyze`, `compare`, and the others with
 //! `--json`) print exactly one JSON document on stdout, failures included:
@@ -16,6 +21,10 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use duck_echo_audio::WavFormat;
+use duck_echo_tools::commands;
+use duck_echo_tools::history::Who;
+use duck_echo_tools::project::Project;
+use duck_echo_tools::root::Root;
 use duck_echo_tools::song::files_next_to;
 use duck_echo_tools::{measure, Document, Options, ToolError};
 use std::path::{Path, PathBuf};
@@ -114,12 +123,72 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// List the named commands that change a project (the same ones the
+    /// Studio's buttons and the MCP server use).
+    Commands {
+        /// Print JSON: each command's name, description and the JSON
+        /// Schema of its arguments.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run one command, such as
+    /// `duck-echo do sound_set '{"file": "coin.toml", "path": "layers[0].volume", "value": 0.6}'`.
+    /// Prints the result as JSON. The change is one step of the project's
+    /// Undo history.
+    Do {
+        /// The command's name (`duck-echo commands` lists them).
+        name: String,
+        /// Its arguments as a JSON object. Default `{}`.
+        #[arg(default_value = "{}")]
+        arguments: String,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+    /// Run a script: a JSON file holding a list of commands, each an object
+    /// whose `"do"` is the command's name. They run in order and the first
+    /// failure stops the script. Each command is its own Undo step.
+    Run {
+        /// The script, a .json file inside the project folder.
+        script: String,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
     /// Print the JSON Schema for recipes, or for songs with `schema song`.
     Schema {
         /// Which schema: `recipe` (default) or `song`.
         #[arg(value_enum, default_value_t = SchemaKind::Recipe)]
         kind: SchemaKind,
     },
+}
+
+/// The project a command works in, shared by `do` and `run`.
+#[derive(clap::Args)]
+struct ProjectArgs {
+    /// The project folder. Every file a command names is inside it.
+    /// Default: the current folder.
+    #[arg(long, default_value = ".")]
+    root: PathBuf,
+    /// Who the history says made the change.
+    #[arg(long, value_enum, default_value_t = By::Person)]
+    by: By,
+}
+
+/// Who made a change, for the Undo history.
+#[derive(Clone, Copy, ValueEnum)]
+enum By {
+    /// A person typing commands.
+    Person,
+    /// An AI agent running commands.
+    Agent,
+}
+
+impl From<By> for Who {
+    fn from(b: By) -> Self {
+        match b {
+            By::Person => Who::Person,
+            By::Agent => Who::Agent,
+        }
+    }
 }
 
 /// Extra measurements shared by `analyze` and `render`.
@@ -274,6 +343,13 @@ fn main() -> ExitCode {
             output_dir,
             json,
         } => variations(&recipe, count, variation, output_dir.as_deref(), json),
+        Command::Commands { json } => list_commands(json),
+        Command::Do {
+            name,
+            arguments,
+            project,
+        } => do_command(&name, &arguments, &project),
+        Command::Run { script, project } => run_script(&script, &project),
         Command::Schema { kind } => {
             println!(
                 "{}",
@@ -285,6 +361,124 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
     }
+}
+
+fn list_commands(json: bool) -> ExitCode {
+    if json {
+        let list: Vec<serde_json::Value> = commands::TABLE
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "name": e.name,
+                    "description": commands::description(e),
+                    "changes_files": e.changes_files,
+                    "arguments": (e.schema)(),
+                })
+            })
+            .collect();
+        return print_json(&list, false);
+    }
+    for e in commands::TABLE {
+        println!("{:<20} {}", e.name, e.description);
+    }
+    ExitCode::SUCCESS
+}
+
+/// The project folder of `do` and `run`.
+fn open_root(args: &ProjectArgs) -> Result<Root, ToolError> {
+    Root::new(&args.root).map_err(|e| {
+        ToolError::issue(duck_echo_core::Issue::error(
+            duck_echo_core::Code::NotFound,
+            "--root",
+            e,
+        ))
+    })
+}
+
+fn do_command(name: &str, arguments: &str, args: &ProjectArgs) -> ExitCode {
+    let result = open_root(args).and_then(|root| {
+        let value: serde_json::Value = serde_json::from_str(arguments).map_err(|e| {
+            ToolError::issue(duck_echo_core::Issue::error(
+                duck_echo_core::Code::Syntax,
+                "arguments",
+                format!("the arguments are not JSON: {e}"),
+            ))
+        })?;
+        let command = commands::parse(name, &value, "arguments.")?;
+        commands::run(
+            &Project::new(&root),
+            command,
+            args.by.into(),
+            None,
+            "arguments.",
+        )
+    });
+    match result {
+        Ok(v) => print_json(&v, false),
+        Err(e) => tool_error(e, true),
+    }
+}
+
+fn run_script(script: &str, args: &ProjectArgs) -> ExitCode {
+    let root = match open_root(args) {
+        Ok(r) => r,
+        Err(e) => return tool_error(e, true),
+    };
+    let list = root.read("script", script).and_then(|path| {
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            ToolError::failed(duck_echo_core::Code::Io, format!("cannot read {script}: {e}"))
+                .at("script")
+        })?;
+        match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(serde_json::Value::Array(list)) => Ok(list),
+            Ok(_) => Err(ToolError::issue(duck_echo_core::Issue::error(
+                duck_echo_core::Code::TypeMismatch,
+                "script",
+                "a script is a JSON list of commands: [{\"do\": \"file_new_sound\", \"file\": \"a.toml\"}]",
+            ))),
+            Err(e) => Err(ToolError::issue(duck_echo_core::Issue::error(
+                duck_echo_core::Code::Syntax,
+                "script",
+                format!("the script is not JSON: {e}"),
+            ))),
+        }
+    });
+    let list = match list {
+        Ok(l) => l,
+        Err(e) => return tool_error(e, true),
+    };
+    let project = Project::new(&root);
+    let mut results = Vec::new();
+    for (i, item) in list.iter().enumerate() {
+        let prefix = format!("script[{i}].");
+        let name = item.get("do").and_then(|v| v.as_str()).unwrap_or_default();
+        let outcome = if name.is_empty() {
+            Err(ToolError::issue(
+                duck_echo_core::Issue::error(
+                    duck_echo_core::Code::MissingField,
+                    format!("{prefix}do"),
+                    "each command needs `do`, the command's name",
+                )
+                .one_of(commands::names()),
+            ))
+        } else {
+            commands::parse(name, item, &prefix)
+                .and_then(|c| commands::run(&project, c, args.by.into(), None, &prefix))
+        };
+        match outcome {
+            Ok(v) => results.push(v),
+            Err(e) => {
+                eprintln!(
+                    "duck-echo run: command {i} ({name}) failed; the ones before it were done"
+                );
+                return tool_error(e, true);
+            }
+        }
+    }
+    print_json(
+        &serde_json::json!({ "ok": true, "results": results }),
+        false,
+    )
 }
 
 fn validate(reference: &Path, json: bool) -> ExitCode {

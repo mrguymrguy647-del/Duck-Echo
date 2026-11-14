@@ -17,6 +17,8 @@ Never write a sound from nothing, and never change many things at once.
 2. **Save a copy.** `create` with a path such as `sfx/coin.toml` and the
    `recipe` object from step 1 (pass the whole object back). Then edit
    its `name`, `description` and `tags`: they still describe the preset.
+   Or use `file_copy_from` with `from: "preset:coin"` and `to:
+   "sfx/coin.toml"`: it names the copy after its file for you.
 3. **Change one thing.** `edit` with one op, for example
    `{"path": "layers[0].pitch.start", "value": "C6"}`.
 4. **Render.** `render` with an `output` such as `sfx/coin.wav`. The
@@ -30,7 +32,7 @@ Never write a sound from nothing, and never change many things at once.
    `analyze` both and read `onsets` and `pitch_track`. To keep a "before"
    to compare with, `render` it to a second file (`sfx/coin_before.wav`)
    first.
-7. Keep the change or undo it. Go back to step 3.
+7. Keep the change, or take it back with `edit_undo`. Go back to step 3.
 
 Every failed call returns `{ok: false, errors: [...]}`. Each error has
 a `code`, a `path` (the field at fault, such as `layers[0].volume`, or
@@ -308,6 +310,17 @@ in the mix. Raise its `volume`.
 
 Duck Echo cannot tell you whether a tune is *good*. Say so, and ask a
 person to listen.
+
+## Undo, and working beside a person
+
+Every change you make to a file (`create`, `edit`, and the commands such
+as `sound_set`, `sound_add_layer` or `song_add_note`) is one step of the
+project's Undo history, shared with the person in Duck Echo Studio.
+`edit_undo` takes back the newest step, whoever made it, so check
+`edit_history` first: it lists each step with who made it (`You`, `AI
+assistant` or `Outside Duck Echo`). If a call says a file "kept changing",
+the person was saving it at that moment; nothing was changed, so read the
+file again and retry.
 
 ## Where to read more
 

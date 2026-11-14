@@ -39,7 +39,10 @@ crates/
   duck-echo-tools/         operations shared by the CLI and the MCP server:
                            load a WAV or render a recipe, compare, presets,
                            variations, edits, analysis extras (per layer,
-                           solo, mute, picture) and file listings.
+                           solo, mute, picture) and file listings; the path
+                           rules (`root`), the named commands (`commands`),
+                           the shared Undo history (`project`, `history`)
+                           and writing files in one step (`save`).
   duck-echo-cli/           the `duck-echo` binary and the end-to-end tests.
   duck-echo-mcp/           the `duck-echo-mcp` binary: the agent tools as an MCP
                            server over stdio.
@@ -326,6 +329,7 @@ a song works too: the tools tell the two apart by looking inside.
 | `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. For a song also `song`, `loop_seam` and always `note_check` (the notes written next to the notes heard; `notes: true` lists every note). |
 | `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
 | `variations` | recipe (not a song), optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
+| the commands | see below | One tool per command (`sound_set`, `song_add_note`, `edit_undo`...), with the command's name and arguments. |
 | `export` | (task 13) | Not built: the Duck Forge format is still to be agreed. |
 
 Extras on `render` and `analyze`, shared with the CLI's `--per-layer`,
@@ -380,7 +384,10 @@ Rules the server keeps:
   writes only `.wav` files, so it cannot overwrite other files; recipe
   names are made file-safe before they become file names. Results show
   paths relative to the root. All of this lives in
-  `crates/duck-echo-mcp/src/root.rs`, and stdio tests try each escape.
+  `crates/duck-echo-tools/src/root.rs` (shared by the server and the
+  CLI's `do` and `run`), and stdio tests try each escape. The project's own
+  `.duck-echo` folder (the Undo history) is refused as a path, so a tool
+  can never write into the history behind its back.
 * **Never silently.** Edits that cannot apply say which op and why; an
   invalid result changes no file.
 
@@ -393,6 +400,74 @@ dependency tree into a synchronous program. It negotiates protocol versions
 2024-11-05 through 2025-11-25. If Duck Echo later needs resources, prompts,
 progress notifications or HTTP transport, replacing that one file with the
 SDK is the way; the tools module does not depend on it.
+
+## Commands and the shared Undo history
+
+Phase 2 (Duck Echo Studio) needs a person and an agent to work on one
+project at the same moment, and to undo each other's changes. So every
+action that changes a project is a named **command**
+(`crates/duck-echo-tools/src/commands.rs`): a `Command` enum, tagged by
+`"do"`, whose arguments deserialize with `deny_unknown_fields` and whose
+JSON Schemas come from `schemars`. One table (`commands::TABLE`) lists
+each command's name, description and argument schema. Every front end
+uses it:
+
+* the MCP server makes one tool per entry, same name, same arguments;
+* the CLI has `duck-echo commands`, `duck-echo do NAME '{json}'` and
+  `duck-echo run script.json` (a JSON list of commands);
+* the Studio's buttons will build the same `Command` values.
+
+Names use `_`, not `.`, because Claude's tool names must match
+`^[a-zA-Z0-9_-]{1,128}$`. File commands (`file_new_sound`,
+`file_copy_from`, `file_rename`, `file_delete`, `file_restore`,
+`file_set_text`...), sound commands (`sound_set`, `sound_add_layer`...),
+song commands (`song_add_note`, `song_place_pattern`, `song_set_loop`...)
+and `edit_undo`, `edit_redo`, `edit_history`. A command checks its result
+(a recipe, or a song with its instruments) before it writes; an invalid
+result changes nothing and returns the usual report. Commands that change
+data rewrite the file from its data, so `#` comments go, as with `edit`
+(the design keeps `toml_edit` for step 6); `file_set_text` and
+`file_copy_from` keep the text as written.
+
+**History on disk** (`history.rs`). Undo cannot live in one program's
+memory when two programs share it, so each change is one JSON file,
+`<project>/.duck-echo/history/NNNNNN.json`, holding each changed file's
+whole text before and after, a title, who made it (`person`, `agent` or
+`outside`) and when. Undone steps move to `history/undone/` until Redo or
+the next change. Edits with the same `stroke` number from the same maker
+join one step (a slider drag). The newest 500 steps are kept. A deleted
+file is also copied to `.duck-echo/recycle/`. The step's time is only
+metadata: nothing rendered reads it.
+
+**No change is ever lost** (`project.rs`). A change works out its new
+text without holding anything, then takes the project lock
+(`.duck-echo/lock`, created with "fail if it exists"; a lock older than
+10 seconds was left by a crash and is removed), reads the files again and
+writes only if each still holds exactly the text it read. If another
+program saved first, the change is worked out again on the new text, this
+time holding the lock, so no Duck Echo program can save in between. If
+the file changed even then (only a program that is not Duck Echo can do
+that), the change is refused, "kept changing ... Nothing was changed; try
+again", and the other change is kept. A file whose text is not what the
+history last wrote was changed outside Duck Echo; that change becomes its
+own step ("Changed outside Duck Echo") before anything else, and an Undo
+that would overwrite it refuses instead and leaves that step on top.
+
+**One-step writes** (`save.rs`). Every file Duck Echo writes (recipes,
+songs, history steps, WAVs, PNGs) goes to a hidden temporary file in the
+same folder, is flushed to disk and renamed onto its name, so no program
+ever reads half a file. On Windows a rename onto a file another program
+holds open can fail with "access denied" for a moment; it is tried again
+for about a second.
+
+The tests: every command undone and redone gives back every file byte for
+byte (`crates/duck-echo-tools/tests/commands.rs`), and the real CLI and
+the real MCP server add 40 layers each to one file at the same moment
+while a reader checks the file always parses; every change is there, in
+each program's order, as one step each, and undoing all 80 gives back the
+first text exactly (`crates/duck-echo-mcp/tests/shared_undo.rs`). The
+MCP `create` and `edit` tools save through the same path, so they are
+steps too.
 
 ## Duck Ear bridge (design)
 
@@ -476,7 +551,7 @@ output is one line per issue in the same order.
 | Crate | Used by | Why |
 |---|---|---|
 | serde, serde_json, toml | core | One schema, two syntaxes. |
-| schemars | core | JSON Schema from the same types, with docs and defaults. |
+| schemars | core, tools | JSON Schema from the same types, with docs and defaults; in tools, the argument schemas of the commands, so the MCP tools and the Rust types cannot disagree. |
 | serde_path_to_error | core | Field path for the rare serde error the schema walk does not pre-empt. |
 | strsim | core | "Did you mean" suggestions. |
 | hound | audio | WAV read and write, zero dependencies of its own. |

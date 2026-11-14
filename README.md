@@ -97,6 +97,9 @@ to keep their level in mono.
 | `duck-echo instruments show <name> [--json]` | An instrument's recipe, to copy and edit. |
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
 | `duck-echo schema [song]` | The JSON Schema for recipes, or for songs, with descriptions and defaults. |
+| `duck-echo commands [--json]` | The named commands that change a project: make, copy, rename and delete files, set a field, add a layer, effect, track or note, place a pattern, undo and redo. The Studio's buttons and the MCP server use the same ones. |
+| `duck-echo do <command> ['{json}'] [--root DIR] [--by person\|agent]` | Run one command, such as `duck-echo do sound_set '{"file": "coin.toml", "path": "layers[0].volume", "value": 0.6}'`, then `duck-echo do edit_undo` to take it back. Prints JSON. |
+| `duck-echo run <script.json> [--root DIR] [--by person\|agent]` | Run a list of commands from a JSON file, in order; the first failure stops it. |
 
 `validate`, `render`, `analyze` and `compare` also take a song (a document
 with `tracks`). For a song, `--per-track` analyzes each track alone and
@@ -106,6 +109,15 @@ track's stem, which lines up with the full mix in time and level.
 written note and reports any that is missing, quiet or at the wrong pitch
 (`note_check`; `--notes` lists every note), and for a loop whether the end
 joins the start cleanly (`loop_seam`).
+
+Every change a command makes is one step of the project's **shared Undo
+history**, kept in the project's `.duck-echo/history` folder. A person
+(in the Studio or with `duck-echo do`) and an agent (through the MCP
+server) can work on the same files at the same moment: no change is ever
+lost, and either can undo the other's steps. `duck-echo do edit_history`
+lists the steps and who made them. If a file is changed by another program
+(a text editor), that change becomes a step of its own and Undo never
+overwrites it.
 
 Recipes and songs are TOML on disk and JSON in tool calls; both are the same schema.
 Anywhere a recipe is expected, `preset:NAME` names a built-in preset, for
@@ -122,7 +134,10 @@ the numbers, compare.
 `duck-echo-mcp` serves the Duck Echo tools over the Model Context Protocol:
 `get_schema`, `list_presets`, `get_preset`, `list_instruments`,
 `get_instrument`, `list_files`, `validate`,
-`create`, `edit`, `render`, `analyze`, `compare` and `variations`. File
+`create`, `edit`, `render`, `analyze`, `compare` and `variations`, plus
+one tool for each command of `duck-echo commands` (`sound_set`,
+`song_add_note`, `edit_undo` and the rest), with the same names and
+arguments. File
 paths are relative to `--root` and cannot leave it: absolute paths, `..`,
 any `:` in a path (a drive letter) and symbolic links that lead out are
 refused, and `render` only writes `.wav` files. A song's instrument files

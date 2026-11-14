@@ -148,6 +148,7 @@ dependencies = [
  "duck-echo-tools",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -166,6 +167,7 @@ dependencies = [
  "duck-echo-audio",
  "duck-echo-core",
  "duck-echo-synth",
+ "schemars",
  "serde",
  "serde_json",
  "toml",

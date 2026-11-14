@@ -118,7 +118,7 @@ fn create_edit_render_analyze_loop() {
         .map(|t| t["name"].as_str().unwrap())
         .collect();
     assert_eq!(
-        names,
+        names[..13],
         [
             "get_schema",
             "list_presets",
@@ -134,6 +134,12 @@ fn create_edit_render_analyze_loop() {
             "compare",
             "variations"
         ]
+    );
+    // Then one tool per command, with the command's own name.
+    let command_names: Vec<String> = duck_echo_tools::commands::names();
+    assert_eq!(
+        names[13..],
+        command_names.iter().map(String::as_str).collect::<Vec<_>>()
     );
     for t in tools["result"]["tools"].as_array().unwrap() {
         assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);

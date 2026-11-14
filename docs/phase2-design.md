@@ -120,9 +120,9 @@ The first command list (more come with each step):
 
 | Group | Commands | Undo? |
 |---|---|---|
-| file | `file_new_sound`, `file_new_song`, `file_copy_from` (a preset, an instrument or a file), `file_rename`, `file_duplicate`, `file_delete` (to the Studio's recycle bin), `file_restore` | yes |
-| sound | `sound_set` (one field by path: every slider uses it), `sound_remove`, `sound_add_layer`, `sound_remove_layer`, `sound_move_layer`, `sound_add_effect`, `sound_remove_effect`, `sound_set_text` (the whole text, from the text box) | yes |
-| song | `song_set` (by path), `song_add_track`, `song_remove_track`, `song_add_note`, `song_move_note`, `song_resize_note`, `song_remove_note`, `song_place_pattern`, `song_move_pattern`, `song_remove_pattern`, `song_set_loop` | yes |
+| file | `file_new_sound`, `file_new_song`, `file_copy_from` (a preset, an instrument or a file), `file_rename`, `file_duplicate`, `file_delete` (to the Studio's recycle bin), `file_restore`, `file_set_text` (the whole text of a sound or song, from the text box) | yes |
+| sound | `sound_set` (one field by path: every slider uses it), `sound_remove`, `sound_add_layer`, `sound_remove_layer`, `sound_move_layer`, `sound_add_effect`, `sound_remove_effect` | yes |
+| song | `song_set` (by path), `song_remove`, `song_add_track`, `song_remove_track`, `song_add_note`, `song_move_note`, `song_resize_note`, `song_remove_note`, `song_place_pattern`, `song_move_pattern`, `song_remove_pattern`, `song_set_loop` | yes |
 | edit | `edit_undo`, `edit_redo`, `edit_history` (the list of steps) | no |
 | play | `play_start`, `play_stop`, `play_loop` | Studio only, no |
 
@@ -338,7 +338,7 @@ The Studio has three screens and a few panels. Every sketch is roughly
 ```
 
 * **The text and the sliders always agree**, because both edit the same
-  file through commands. Typing in the text box runs `sound_set_text` a
+  file through commands. Typing in the text box runs `file_set_text` a
   moment after you stop typing. Moving a slider runs `sound_set`, and the
   text shows the new value at once.
 * **Sliders are made from the schema.** Each number field becomes a
