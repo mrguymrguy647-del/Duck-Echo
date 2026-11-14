@@ -1,17 +1,19 @@
 # Phase 2 design: Duck Echo Studio
 
 This is the plan for Phase 2 (roadmap tasks 25, 22, 23, 11, 12 and 24).
-It is written before any code, so it is cheap to change. Nothing here is
-built yet.
+It was written before any code and approved with "yes to all", except
+question 6 (Linux), plus four changes on approval. The changes are
+marked **Changed on approval**.
 
 The short version:
 
-* **Duck Echo Studio** is a Windows app, installed with one `setup.exe`.
-  It needs no Rust, no terminal and no build. It ships a ready-made
-  program.
-* It looks and works like its two siblings. It uses **egui** like Duck
+* **Duck Echo Studio** is an app for Windows and Linux. On Windows it
+  installs with one `setup.exe`; on Linux it is one AppImage file. It
+  needs no Rust, no terminal and no build. It ships ready-made programs.
+* It looks and installs like its two siblings. It uses **egui** like Duck
   Quill and Duck Forge Studio, the same brand colours and theme menu, and
-  Duck Forge Studio's Home screen, installer, update banner and commands.
+  the Home screen, installer, update banner and named commands the two
+  share.
 * **Every action is a named command with Undo.** A button, a key, a
   script and an agent's MCP tool all run the same command. A person and
   an agent can edit the same sound and undo each other's steps.
@@ -31,24 +33,31 @@ can answer "yes to all" or pick the ones to change.
 
 I read both sibling repositories before writing this.
 
-| Thing | Duck Quill | Duck Forge Studio | Duck Echo Studio |
+Duck Quill's installer, Home screen and update checks are on its
+unmerged Phase 6 branch, `claude/stoic-cannon-vyu6qr`
+(`docs/phase6-design.md` and `release/installer.iss` there). I read both
+that branch and Duck Forge Studio. Where the two agree, Duck Echo does
+the same. Where they differ, it follows Duck Forge Studio, unless Duck
+Quill's way is plainly safer.
+
+| Thing | Duck Quill (Phase 6 branch) | Duck Forge Studio | Duck Echo Studio |
 |---|---|---|---|
 | Window and widgets | egui 0.37 (eframe) | egui 0.37 (eframe) | **egui 0.37**, same |
 | Where the app code lives | `crates/app` beside the engine | its own workspace, `studio/` | **its own workspace, `studio/`** |
 | Logic without a window | the engine crate | `studio_core` | `duck-echo-tools` and a new `duck-echo-live` |
-| Every action is a command | yes, for Undo (decision 18) | yes: `{"do": "level.paint", ...}`, one `Command` type | **yes, the Duck Forge way** |
+| Every action is a command | one list of every command, used for menus, shortcuts and Ctrl+K search | one `Command` type, `{"do": "level.paint"}` | **one `Command` type and table**, also behind Ctrl+K search |
 | Undo | commands in memory | steps that name files, before and after | **steps that name files, kept on disk** |
-| Installer | a zip and a shortcut `.bat` | **Inno Setup 6**, `setup.exe`, per user | **Inno Setup 6**, same |
-| Home screen | none | cards, starters, rename, duplicate, delete | **cards and a gallery**, same layout |
-| Update check | none | GitHub releases through Windows' own `curl.exe` | **same**, no new library |
-| Sound out loud | none | `tinyaudio` (Windows, macOS), ALSA on Linux | **`tinyaudio`**, plus a lock-free mixer |
+| Installer | Inno Setup, per user, no admin, Start menu, uninstall entry, desktop icon ticked off by default, optional "add to PATH" box for agents | Inno Setup, per user, no admin, Start menu, uninstall entry, desktop icon ticked on | **Inno Setup**, per user, no admin; desktop icon **off** by default and an **"add to PATH" box**, as in Duck Quill |
+| Install folder | `%LOCALAPPDATA%\Programs\Duck Quill` | `%LOCALAPPDATA%\Programs\Duck Forge Studio` | `%LOCALAPPDATA%\Programs\Duck Echo Studio` |
+| Home screen | at start: big cards of recent work, New buttons, update banner top right | at start: cards, starters, rename, duplicate, delete, update banner | **at start: cards, a gallery, New buttons, update banner top right** |
+| Update check | GitHub releases; skips drafts and pre-releases; never an older or equal version; nothing about you is sent; a Settings tick box; a SHA-256 check of the setup before it runs | GitHub releases through Windows' own `curl.exe`; the same rules; checks the download's size | **the rules both share, `curl` as in Duck Forge, and Duck Quill's SHA-256 check** |
+| Linux | not shipped | not shipped | **an AppImage**, built and tested in CI |
+| Sound out loud | none | `tinyaudio` (Windows, macOS), ALSA on Linux | **`tinyaudio` on both systems**, plus a lock-free mixer |
 | Screenshots with no window | none | `egui_kittest` | **`egui_kittest`**, same |
 | Brand | night indigo, duck yellow, ink navy | the same | **the same**, plus an Echo icon |
 
-One thing did not match your description: I found no `setup.exe`, update
-check or Home screen in Duck Quill, on `main` or on its `phase-5` branch.
-It ships a zip. Duck Forge Studio has all three, so this design follows
-Duck Forge Studio for them. See question 1.
+**Changed on approval:** the first version of this table said Duck Quill
+had no installer. It has one, on the Phase 6 branch.
 
 ---
 
@@ -66,7 +75,8 @@ Duck-Echo/
     duck-echo-mcp           duck-echo-mcp.exe (+ one tool per command)
   studio/          NEW    its own workspace (Rust 1.95, egui)
     crates/app              DuckEchoStudio.exe: the window only
-    release/                DuckEchoStudio.iss, READ ME FIRST.txt
+    release/                DuckEchoStudio.iss, READ ME FIRST.txt,
+                            linux/ (AppRun, .desktop file, icon)
     brand/                  icon and logo
 ```
 
@@ -151,24 +161,41 @@ Documents/Duck Echo/              the project folder (the MCP root)
 
 The rules, in plain words:
 
-1. **A command reads the file, changes it, checks it, and writes it.**
-   Then it writes one step file with the text before and after. The step
-   number comes from creating the file with "fail if it exists", so two
-   programs writing at the same moment never get the same number.
-2. **Undo puts back the "before" text of the newest step**, but only if
-   the file still holds that step's "after" text. If someone changed the
-   file since, Undo stops and says so in plain words: "The agent changed
-   coin.toml after this step. Undo its step first, or keep both." Nothing
-   is ever overwritten silently.
-3. **A slider drag is one step.** Edits with the same "stroke" number
+1. **A change is never lost.** (**Changed on approval.**) A command
+   reads the file, makes its change in memory, and checks the result. It
+   writes the file only if the file still holds the exact text it read.
+   If the text changed in between (another program saved first), it reads
+   the file again and makes its change on the new text, once. If the text
+   changed again, it gives up and says so in plain words: "coin.toml kept
+   changing while I tried to save. Nothing was changed; try again." The
+   other program's change is always kept.
+2. **No program ever reads a half-written file.** Every file Duck Echo
+   writes (sounds, songs, history steps, WAV files, pictures) is first
+   written to a temporary file in the same folder, then renamed into
+   place in one go.
+3. **The check and the rename happen together.** "Is the text still the
+   same?" and "rename" are two actions. Two programs could both check,
+   both see the old text, and then both write, losing one change. So a
+   command holds a tiny lock while it checks and renames: a file
+   `.duck-echo/lock`, created with "fail if it exists" and removed right
+   after (a few milliseconds). A program that finds the lock waits a
+   moment and tries again. A lock older than 10 seconds is left over from
+   a crash and is removed. Slow work (checking the recipe, rendering) is
+   done before the lock is taken. The audio thread never sees it.
+4. **Undo puts back the "before" text of the newest step**, under the
+   same rules: only if the file still holds that step's "after" text.
+   The history is one line for the whole project, so the newest step is
+   undone first, whoever made it. The History panel shows who made each
+   step, so a person can see they are undoing the agent's step.
+5. **A slider drag is one step.** Edits with the same "stroke" number
    (one press of the mouse) join the last step, as in Duck Forge.
-4. **A change made outside both** (a text editor, a git pull) becomes a
+6. **A change made outside both** (a text editor, a git pull) becomes a
    step called "Changed outside the Studio" the next time either program
    looks at the file. Undo never jumps over it by surprise.
-5. **Steps say who made them**: `person` or `agent`. The History panel
+7. **Steps say who made them**: `person` or `agent`. The History panel
    shows "You" or "AI assistant" beside each step, so a person can undo
    an agent's change on purpose, and an agent can undo its own.
-6. **The history is trimmed**: the newest 500 steps per project are kept.
+8. **The history is trimmed**: the newest 500 steps per project are kept.
    It is in the project folder, so it can be deleted safely and never goes
    to git (`.duck-echo/` is skipped by `list_files`).
 
@@ -176,6 +203,12 @@ How the two programs see each other's changes: the Studio looks at the
 files of the open sound or song twice a second, by size and time. When one
 changed (a new history step by the agent), it reads it again and redraws.
 That is Duck Forge's pattern, and it needs no new library.
+
+The test that proves rules 1 to 3 (**Changed on approval**): the
+command-line tool and the MCP server, as separate programs, add many
+layers to the same file at the same moment, over and over. At the end,
+every layer from both is in the file, the file is valid every time it is
+read in between, and the history has one step for each change.
 
 ### 3.3 What the person sees
 
@@ -185,6 +218,9 @@ That is Duck Forge's pattern, and it needs no new library.
   assistant" and the time.
 * When an agent changes the open sound, a small note appears for three
   seconds: "AI assistant: Set layer 1 cutoff to 1200". Undo is right there.
+* **Ctrl+K** opens a search over every command, as in Duck Quill. It is
+  made from the same command table, so a new command is in the search the
+  moment it exists.
 
 ---
 
@@ -198,14 +234,17 @@ tool and the MCP server gain **no** new libraries.
 |---|---|---|---|
 | `eframe` (egui) | 0.37 | studio app | The window and every widget. The same version as both siblings, so the three apps look alike and share know-how. Immediate mode suits sliders that redraw as they move. |
 | `egui_kittest` | 0.37 | studio tests only | Draws every screen to a PNG with no window, as Duck Forge does. CI checks screens by their words, and pictures go in the docs. |
-| `rfd` | 0.18 | studio app | The standard Windows "Save As" window, for "Export WAV". The siblings use 0.17; 0.18 is current, and either works. |
+| `rfd` | 0.18 | studio app | The system's own "Save As" window, for "Export WAV": Windows' standard one, and on Linux the desktop's own (through the XDG portal, which needs no extra system library). The siblings use 0.17; 0.18 is current, and either works. |
 | `winresource` | 0.1 | studio build only | Puts the icon and version into `DuckEchoStudio.exe`, as both siblings do. |
 | `windows-sys` | 0.61 | studio app, Windows only | Asks Windows where Documents really is (OneDrive often moves it), as Duck Forge does. |
-| `tinyaudio` | 2.0 | studio app | Plays sound through the speakers. The lightest crate that does it; Duck Forge uses it. On Windows it needs nothing else installed. |
+| `tinyaudio` | 2.0 | studio app | Plays sound through the speakers. The lightest crate that does it; Duck Forge uses it. On Windows it needs nothing else installed. On Linux it links to ALSA in the normal way, with no `unsafe` code of ours, and ALSA reaches PipeWire and PulseAudio too. |
 | `rtrb` | 0.4 | duck-echo-live | A lock-free ring buffer with one writer and one reader, made for audio threads. The audio thread can take messages without ever waiting on a lock or allocating. It has no dependencies of its own. Writing our own needs `unsafe` code, which the workspace forbids. |
 | `assert_no_alloc` | 1.1 | duck-echo-live tests only | Makes the test fail if the audio code allocates or frees memory. This is the "debug counter" the roadmap asks for. |
 | Inno Setup 6 | (a program) | release and CI | Builds `DuckEchoStudioSetup.exe` from a short text script. The same choice and almost the same script as Duck Forge Studio: one person, no administrator rights, a desktop icon, an entry in Windows' Apps list, and upgrades in place. |
-| Windows' own `curl.exe` | (comes with Windows) | studio app | The update check, as Duck Forge does: no web library. |
+| `curl` | (comes with Windows 10 and later, and with nearly every Linux) | studio app | The update check and download, as Duck Forge does: no web library. |
+| `sha2` | 0.10 | studio app | Checks the downloaded setup or AppImage against the release's list of SHA-256 fingerprints before it runs, as Duck Quill does. A refused download is deleted. |
+| `libasound2-dev` | (a system package) | Linux build only | ALSA's files for building. Installed in CI and listed in the README's Linux build steps. A person running the AppImage needs nothing: every Linux desktop has ALSA. |
+| `appimagetool` | (a program) | release and CI | Packs the Linux programs, the icon and the menu file into one `.AppImage`. Downloaded in CI; nothing to install for a person. |
 
 Why not the alternatives:
 
@@ -217,11 +256,16 @@ Why not the alternatives:
 * **WiX or MSI** installers need an extra step to be one `.exe` and are
   awkward for per-user installs. Duck Forge Studio already weighed these.
 
-On **Linux**, the Studio builds with the speaker turned off, and shows
-"Sound output is Windows-only for now". CI still builds and tests it there.
-`tinyaudio` on Linux would need ALSA's development files to build, and
-Duck Forge's answer (loading ALSA at run time) needs `unsafe` code. See
-question 6.
+**Linux** (**changed on approval**: the first version only built it).
+The Studio works fully on Linux too:
+
+* Sound plays through `tinyaudio` and ALSA.
+* It ships as one AppImage with a menu entry and an icon.
+* It keeps your files in the XDG Documents folder and its settings in
+  the XDG config folder.
+* Update checks, Save As and "Connect an AI assistant" work there as on
+  Windows.
+* The click test and the no-allocation test run on both systems in CI.
 
 ---
 
@@ -453,33 +497,62 @@ Studio fixes this for people and for agents:
 * **The installer ships ready-made programs**: `DuckEchoStudio.exe`,
   `duck-echo.exe` and `duck-echo-mcp.exe`, built by GitHub's Windows
   machine. Nothing is built on the person's computer, and no Rust is
-  needed.
+  needed. The installer's optional "add to PATH" box (as in Duck Quill)
+  lets terminals and agents find `duck-echo` and `duck-echo-mcp` by name.
+* **The AppImage holds the same three programs**, built by GitHub's Linux
+  machine. One file runs all three: started plainly it opens the Studio;
+  started as `DuckEchoStudio.AppImage mcp --root ...` it is the MCP
+  server; started with `cli` it is the command-line tool. A small `AppRun`
+  script picks which by the first word. So an agent can always use the
+  AppImage, wherever the person keeps it.
 * **Settings > Connect an AI assistant** shows, with a **Copy** button,
-  the lines that start the installed `duck-echo-mcp.exe` with its root set
-  to the project folder (`Documents\Duck Echo`). The agent then starts in
-  under a second, and works on the same files the person sees.
+  the lines that start the installed MCP server with its root set to the
+  project folder: `duck-echo-mcp.exe` on Windows, the AppImage with `mcp`
+  on Linux. The agent then starts in under a second, and works on the same
+  files the person sees.
 * **For developers and cloud sessions**, the README gains a short "build
   once first" note. I will also suggest a setup script for this cloud
   environment that builds the release programs before a session starts.
   That is your choice, so it is not part of the build steps.
 
-Where things are kept on Windows, as in Duck Forge Studio:
+Where things are kept, as in Duck Forge Studio on Windows, and in the
+standard XDG places on Linux:
 
-| What | Where |
-|---|---|
-| The program | `%LOCALAPPDATA%\Programs\Duck Echo Studio` (from the installer) |
-| Your sounds and songs | `Documents\Duck Echo` (the real Documents, even when OneDrive moved it) |
-| Undo history | `Documents\Duck Echo\.duck-echo\history` |
-| Settings | `%APPDATA%\Duck Echo Studio\settings.json` |
+| What | Windows | Linux |
+|---|---|---|
+| The program | `%LOCALAPPDATA%\Programs\Duck Echo Studio` (from the installer) | the `.AppImage` file, wherever you put it |
+| The app menu entry and icon | Start menu (from the installer) | `~/.local/share/applications/duck-echo-studio.desktop` and `~/.local/share/icons/...`, added on first start (see below) |
+| Your sounds and songs | `Documents\Duck Echo` (the real Documents, even when OneDrive moved it) | `Duck Echo` in the XDG Documents folder (`xdg-user-dir DOCUMENTS`, usually `~/Documents`) |
+| Undo history | `Documents\Duck Echo\.duck-echo\history` | the same, inside the Linux folder |
+| Settings | `%APPDATA%\Duck Echo Studio\settings.json` | `$XDG_CONFIG_HOME/duck-echo-studio/settings.json` (usually `~/.config/...`) |
+
+**The Linux menu entry.** An AppImage has no installer, so the first
+time it starts, the Studio asks: "Add Duck Echo Studio to your app
+menu?" **Add** writes a standard `.desktop` file and the icon into your
+own folders (nothing system-wide), pointing at the AppImage. If you move
+the AppImage, the Studio notices at its next start and fixes the entry.
+Settings has **Remove from app menu**.
+
+**Updates on Linux.** The same check as on Windows. **Update** downloads
+the new AppImage and the checksum list, checks the SHA-256, puts the new
+file in place of the old one (a rename, so a failed download leaves the
+old one working), and restarts.
 
 ---
 
 ## 9. Build steps
 
 Each step is one session and one commit, in this order. After each step
-with a Windows checklist, I stop and tell you what to try. CI on Linux and
-Windows stays green at every step, and from step 4 on CI also builds and
-silently installs the `setup.exe`.
+with a checklist, I stop and tell you what to try. Each such step has a
+"What you test on Windows" and a "What you test on Linux" checklist. CI
+on Linux and Windows stays green at every step. From step 4 on, CI also
+builds the `setup.exe` and installs it silently on Windows, and builds the
+AppImage and smoke-tests it on Linux.
+
+**Steps that need a stronger model** (**changed on approval**) are marked
+**[strong model]**. They hold the hard parts: code that two programs run
+at once, the realtime audio rules, and the two installers. The other steps
+are mostly screens and wiring, built on what the marked steps prove.
 
 **Getting the installer from CI, with no terminal:** open the pull request
 on GitHub, click **Checks**, click the newest run, scroll to
@@ -488,52 +561,74 @@ open it and double-click the `.exe`. Windows may say "Windows protected
 your PC": click **More info**, then **Run anyway**. The program is not
 signed with a paid certificate, as with the siblings.
 
-### Step 1: commands, the project folder, shared Undo (task 25)
+**Getting the AppImage from CI, with no terminal:** the same page has a
+download called `DuckEchoStudio-AppImage`. Open the zip, drag
+`DuckEchoStudio.AppImage` into your home folder, right-click it, choose
+**Properties**, and turn on **Allow executing file as program** (the
+words differ a little between desktops). Then double-click it.
+
+### Step 1: commands, the project folder, shared Undo (task 25) [strong model]
 
 * `Command`, its table, and `run` in `duck-echo-tools`, with the `file`,
   `sound`, `song` and `edit` groups from section 3.1.
-* The on-disk history from section 3.2, with "changed since" refusals,
-  strokes, and outside changes.
+* The on-disk history from section 3.2, with strokes and outside
+  changes.
+* "No change is lost": write only if the text is unchanged, retry once,
+  then refuse; the short project lock; every file written to a temporary
+  file and renamed into place.
 * Every command as an MCP tool with the same name and arguments.
   `duck-echo commands` and `duck-echo run script.json` on the command
   line.
 * `create` and `edit` also record history.
+* The path guard (`Root`) moves from the MCP server into
+  `duck-echo-tools`, so the command-line tool's new `run` and `do` use the
+  very same checks. Every new file argument goes through `Root::read` or
+  `Root::write`, and nothing may touch `.duck-echo/`.
 * Tests: every command, undone and redone, gives back the exact file;
-  two processes (the CLI and the MCP server) edit one file and undo each
-  other's steps; a stale undo is refused, never forced.
-* No Windows checklist: there is no window yet.
+  the CLI and the MCP server add to one file at the same moment many
+  times and no change is lost; a change that keeps changing is refused,
+  never forced; a stale undo is refused.
+* No checklist: there is no window yet.
 
 ### Step 2: the playtest-2 items for agents
 
 * `get_guide`, `ending` (the click check), song summary words, and
   `from` on `create`. Tests, docs and the agent guide updated.
-* No Windows checklist.
+* No checklist.
 
-### Step 3: the realtime mixer, smooth changes, slider ranges (tasks 11, 12 without a window)
+### Step 3: the realtime mixer, smooth changes, slider ranges (tasks 11, 12 without a window) [strong model]
 
 * `duck-echo-live`: the voice pool, the two queues, clipping, the 10 ms
   smoothing and the cross-fade, the background song player.
 * Ranges in one table in core; the schema gains `minimum` and `maximum`.
 * Tests: no allocation in the audio block (`assert_no_alloc`), the click
-  test, and every fingerprint unchanged.
-* No Windows checklist.
+  test, and every fingerprint unchanged, on Linux and on Windows.
+* No checklist.
 
-### Step 4: the app, sound out loud, the installer, update checks (task 22)
+### Step 4: the app, sound out loud, the installers, update checks (task 22) [strong model]
 
 * `studio/` workspace, the window with the brand and the theme menu, an
   About box, Settings, the project folder in Documents, the speaker
   (`tinyaudio`), and a first simple list of presets with **Play**.
-* `DuckEchoStudio.iss`, the release workflow (a **Make a release**
-  button in the Actions tab, as in the siblings), and the update banner.
-* CI: build, test and screenshot the app on Linux and Windows; build the
-  installer; install it silently, start the program, check that it runs,
-  install a newer copy over it, and uninstall it.
+* `DuckEchoStudio.iss`, the Linux AppImage (`AppRun`, the `.desktop`
+  file, the icon, and the first-start "Add to your app menu"), the
+  release workflow (a **Make a release** button in the Actions tab, as in
+  the siblings, publishing the setup, the AppImage and the SHA-256 list),
+  and the update banner on both systems.
+* CI: build, test and screenshot the app on Linux and Windows. On
+  Windows: build the installer, install it silently, start the program,
+  check that it runs, install a newer copy over it, and uninstall it. On
+  Linux: build the AppImage, run it with `--version`, run its `mcp` and
+  `cli` modes, and play a sound into ALSA's "null" device (no sound card
+  needed). On both: the update check against pretend release lists, as
+  Duck Forge does.
 
 **What you test on Windows:**
 
 1. Download the installer as described above and double-click it.
 2. Click through the installer. It should not ask for an administrator
-   password. Leave "Put a Duck Echo Studio icon on the desktop" ticked.
+   password. Tick "Put a Duck Echo Studio icon on the desktop" (it is off
+   by default, as in Duck Quill).
 3. At the end, leave "Start Duck Echo Studio now" ticked and click
    **Finish**. The Studio opens with no black terminal window.
 4. Click **Play** next to `coin`. You hear the coin from your speakers.
@@ -543,6 +638,19 @@ signed with a paid certificate, as with the siblings.
 8. Open Windows **Settings > Apps > Installed apps**, find Duck Echo
    Studio, and click **Uninstall**. The desktop icon and the program go,
    and your `Documents\Duck Echo` folder stays.
+
+**What you test on Linux:**
+
+1. Download the AppImage as described above and double-click it.
+2. The Studio asks "Add Duck Echo Studio to your app menu?". Click
+   **Add**.
+3. Click **Play** next to `coin`. You hear the coin from your speakers.
+4. Close the Studio. Open your desktop's app menu and search for "Duck
+   Echo": it is there, with the duck icon. Start it from there.
+5. Open **Theme** and try Dark, Light and Same as the system.
+6. Open **Help > About**: it shows the version number.
+7. Open **Settings** and click **Remove from app menu**. Search the app
+   menu again: it is gone. Your `Documents/Duck Echo` folder stays.
 
 ### Step 5: Home (task 23)
 
@@ -563,6 +671,17 @@ signed with a paid certificate, as with the siblings.
 6. Close the Studio and open your `Documents\Duck Echo` folder in File
    Explorer. Your coin is a `.toml` file there.
 
+**What you test on Linux:**
+
+1. Start the Studio from the app menu. Home shows the gallery.
+2. Click **Impact**, then **Play** on `explosion`, and a few others.
+3. Click **Make a copy** on `coin`: it appears under "My sounds and
+   songs" in under a minute from opening the Studio.
+4. Rename it to `my coin`, then **Delete** it, then press **Ctrl+Z**: it
+   comes back.
+5. Open `Documents/Duck Echo` in your file manager. Your coin is a
+   `.toml` file there.
+
 ### Step 6: the sound editor (task 11)
 
 * The text with inline errors, sliders made from the schema, the picture,
@@ -581,6 +700,12 @@ signed with a paid certificate, as with the siblings.
 6. Press **Ctrl+Z** a few times. Each change goes back, one at a time.
 7. Open **History**: every change is listed with "You".
 
+**What you test on Linux:** the same seven steps as on Windows. Also:
+
+8. Open **...** on your coin and choose **Export WAV**. Your desktop's own
+   "Save As" window opens. Save it in your Music folder, then play the
+   file there with your usual music player.
+
 ### Step 7: smooth live changes (task 12)
 
 * `ParamUpdate` from the volume, cutoff and gain sliders; the cross-fade
@@ -596,6 +721,11 @@ signed with a paid certificate, as with the siblings.
    smoothly.
 4. Change the wave from `noise` to `saw` in the drop-down. The sound
    changes with no pop.
+
+**What you test on Linux:** the same four steps, with headphones if you
+can: clicks are easier to hear there. If you hear crackles even without
+touching a slider, open **Help > About** and note what it says under
+"Sound output" for me.
 
 ### Step 8: the song timeline, to look at and play (task 24, part 1)
 
@@ -613,6 +743,8 @@ signed with a paid certificate, as with the siblings.
 4. The music loops without a click where it starts again.
 5. Hover over a note: its name, bar and beat show.
 
+**What you test on Linux:** the same five steps.
+
 ### Step 9: editing the song (task 24, part 2)
 
 * Add, drag, stretch and delete notes; place, move and remove pattern
@@ -629,6 +761,8 @@ signed with a paid certificate, as with the siblings.
 4. Press **Play**. Within a couple of seconds you hear your note in the
    music, without stopping.
 5. Press **Ctrl+Z** until the note is gone.
+
+**What you test on Linux:** the same five steps.
 
 ### Step 10: a person and an agent together (task 25, finished)
 
@@ -649,20 +783,31 @@ signed with a paid certificate, as with the siblings.
 5. Press **Ctrl+Z** in the Studio. The coin is back as it was, and
    History shows both steps.
 
+**What you test on Linux:** there is no Claude Desktop for Linux, so
+this tests the same sharing with a text editor, and the Copy button:
+
+1. Open **Settings > Connect an AI assistant** and click **Copy**. Paste
+   it into a text file: it names your AppImage with `mcp`. (If your AI
+   assistant app on Linux takes MCP servers, paste it there and do the
+   Windows steps 3 to 5.)
+2. Open a copy of `coin` in the Studio and press **Loop**.
+3. Open the same `.toml` file in your text editor, change the number
+   after `decay`, and save. Within a second you hear the change, and
+   History shows "Changed outside the Studio".
+4. Press **Ctrl+Z** in the Studio. The coin is back as it was.
+
 ---
 
 ## 10. Risks and open questions
 
 Each has my recommendation. "Yes to all" is a fine answer.
 
-**1. Duck Quill has no installer or update check that I could find.**
-Its `main` and `phase-5` branches ship a zip, a shortcut `.bat` and a
-release button. Duck Forge Studio has the installer, Home and update
-banner.
-*Recommendation: follow Duck Forge Studio for those three, and Duck Quill
-for everything they share (egui, the theme, the brand colours, the
-release button). If Duck Quill's installer is somewhere I didn't look,
-tell me where.*
+**1. Following both siblings.** *Answered: Duck Quill's installer,
+Home and update checks are on its Phase 6 branch. Follow Duck Forge
+Studio, and match Duck Quill where the two agree (section 1). Where they
+differ, Duck Echo takes Duck Quill's desktop-icon default, its "add to
+PATH" box and its SHA-256 check, and Duck Forge Studio's `curl` and its
+command type.*
 
 **2. A brand and an icon for Duck Echo.** There is no icon yet.
 *Recommendation: a simple placeholder icon in the family style (a duck
@@ -686,10 +831,13 @@ about two seconds later, without stopping.
 *Recommendation: yes. True live song voices are bigger, and they fit with
 Phase 3's work for the game engine.*
 
-**6. No speaker on Linux.** The Studio builds and is tested on Linux, but
-plays no sound there.
-*Recommendation: yes. The Studio is for Windows. Duck Forge's ALSA code
-can be copied later if a Linux user asks.*
+**6. Linux.** *Answered (changed on approval): the Studio works fully
+on Linux. Sound through ALSA linked normally (no `unsafe` code), with
+`libasound2-dev` in CI and the README; an AppImage with a menu entry and
+icon, built and smoke-tested in CI next to the setup; XDG Documents and
+config folders; update checks, Save As and Connect an AI assistant on
+Linux; the click and no-allocation tests on both systems; a Linux
+checklist for every step that has a Windows one.*
 
 **7. Versions and releases.** The Studio gets its own version, starting
 at 0.1.0, and releases tagged `studio-v0.1.0`, as Duck Forge does. The
@@ -724,3 +872,16 @@ the library jobs stay as fast as now.*
 **13. Not in Phase 2:** recording a microphone, a mixer of many sounds
 at once in a scene, MIDI keyboards, a version for macOS, and code
 signing. All stay on the roadmap.
+
+**14. Risk: comments in a file are lost when a command edits it.**
+Commands change a file through its data and write it out again, as the
+`edit` tool does today, so `#` comments go. Typing in the text box keeps
+them, since it saves the text as written.
+*Recommendation: accept it for step 1, and in step 6 (the sound editor)
+add `toml_edit`, which changes values inside the text and keeps comments
+and layout. Justify it in ARCHITECTURE.md then.*
+
+**15. Risk: a Linux desktop with no XDG portal.** "Save As" uses the
+desktop portal, which nearly every desktop has.
+*Recommendation: if it is missing, save into `Documents/Duck Echo/exports`
+and say where. No extra system library.*
