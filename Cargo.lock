@@ -53,6 +53,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_no_alloc"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55ca83137a482d61d916ceb1eba52a684f98004f18e0cafea230fe5579c178a3"
+
+[[package]]
 name = "clap"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -137,6 +143,18 @@ dependencies = [
  "serde_path_to_error",
  "strsim",
  "toml",
+]
+
+[[package]]
+name = "duck-echo-live"
+version = "0.1.0"
+dependencies = [
+ "assert_no_alloc",
+ "duck-echo-audio",
+ "duck-echo-core",
+ "duck-echo-synth",
+ "duck-echo-tools",
+ "rtrb",
 ]
 
 [[package]]
@@ -274,6 +292,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "rtrb"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5974e397833d890f2f74963408e0d4a6cd8eda2f6a445ae06750291b5d7a997e"
 
 [[package]]
 name = "schemars"

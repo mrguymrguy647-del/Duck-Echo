@@ -490,7 +490,7 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
   start from.
 * Accept: a new user can find, play and copy a preset in under a minute.
 
-### 11. Sliders that change the sound while it plays
+### 11. Sliders that change the sound while it plays [mixer and ranges done: step 3]
 
 * A recipe editor with sliders made from the JSON Schema, next to the text
   with validation messages inline, plus waveform and spectrogram views and
@@ -502,12 +502,87 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
   views always agree because both edit the same `Recipe`; no allocation in
   the audio callback (checked by a debug counter).
 
-### 12. Smooth live changes
+Done in Phase 2 step 3 (no window yet; see `ARCHITECTURE.md`, "Realtime
+playback"):
+
+* [x] `duck-echo-live`: the mixer. A pool of 32 slots, two `rtrb`
+  queues, clipping to -1..=1, play heads as atomics. Finished sounds go
+  back to the control thread to be dropped.
+* [x] No allocation and no free in the audio block, checked by
+  `assert_no_alloc` in `crates/duck-echo-live/tests/realtime.rs`: 60
+  seconds of busy playback, a stalled control thread with every queue
+  full, and two real threads. A first test shows the detector catching
+  an allocation and the freeing of a voice.
+* [x] What plays is the rendered file, sample for sample, for every
+  preset and example, once and repeated (`tests/matches_render.rs`).
+* [x] Ranges in one table (`duck-echo-core/src/ranges.rs`) that
+  validation and the schema both read; the schema has `minimum` and
+  `maximum` for every number, ready for sliders.
+* [x] The background song player (`SongPlayback`): plays the song's
+  render, and swaps in a new render at the play head after an edit.
+* [ ] The window: sliders, text, pictures, Play (steps 4 to 6).
+
+### 12. Smooth live changes [done without a window: step 3]
 
 * `ParamUpdate` messages let a slider drag change the running `Voice`
   (volume, cutoff, gain) without rebuilding it; structure changes still
   rebuild.
 * Accept: no clicks on a volume drag in a recorded loopback test.
+
+Done in Phase 2 step 3:
+
+* [x] `ParamUpdate` (a layer's volume, a filter's cutoff, the master
+  gain) slides to its target over 10 ms, in `duck-echo-synth/src/live.rs`.
+  `Voice::process` was not edited: `process_live` wraps it.
+* [x] Structure changes build a new voice, which takes over at the same
+  place with a 10 ms cross-fade (`Player::replace`); Stop, and Play over
+  a playing sound, fade out.
+* [x] The click test (`crates/duck-echo-live/tests/clicks.rs`): the
+  volume dragged from 0.2 to 1.0 and back in 30 steps on a repeating 55
+  Hz tone. Smoothed, the biggest step between two samples is 0.00784,
+  the tone's own; with smoothing off it is 0.0538, seven times bigger.
+  A stop or a swap with no fade steps 0.78 to 0.98, a hundred times
+  bigger; faded, 0.00784. Every scene is run both ways, so the test is
+  known to fail without smoothing.
+* [x] Every render and fingerprint is unchanged: the pinned fingerprint
+  tests pass, and all 104 renders of presets, instruments, examples and
+  the playtest files hash the same as before the step.
+* [ ] The sliders in the window send these (step 7).
+
+Lessons for the next builder:
+
+* **Do not put live changes inside `process`.** The first idea was a
+  "smoothed value" read in the sample loop. Moving values between
+  one-frame calls of the untouched `process` keeps every render safe by
+  construction, and the cost is too small to measure.
+* **`assert_no_alloc` is off in release by default.** Its default
+  feature `disable_release` makes it do nothing without debug
+  assertions. The crate turns default features off and the two `warn`
+  features on, so it always counts, and a test can assert the count.
+  In abort mode a violation kills the test program with no message.
+* **Prove the detector, then break the code on purpose.** While
+  building, the mixer was changed to drop a finished sound itself, and
+  to allocate in the block; both times the tests failed. Without that a
+  green test says little.
+* **Freeing is the easy mistake.** Every path that takes a sound out of
+  a slot (ended, faded, replaced, refused, never heard) must hand it
+  back. The test "every sound sent comes back exactly once" counts them.
+* **A lock cannot be counted.** There is no `assert_no_lock`. The rule
+  rests on the ring buffer's own guarantee, a source-reading tripwire
+  test, the stall test, and review. Say so, do not pretend.
+* **Pick the test tone for the measure.** A step measure only sees a
+  click if the sound's own steps are small: a 55 Hz sine. A square or a
+  saw has steps as big as any click. And stop it near the top of a wave
+  (8 blocks in), not at a zero crossing (9 blocks in), where a cut makes
+  no step at all.
+* **Presets are normalized, so the voice alone is not the file.** The
+  mixer needs the mastering gain and the trimmed length (`Sound`), and
+  step 7 must refresh the level after a live change (see the design,
+  6.4).
+* **The structure walker must not read the ranges.** With `minimum` and
+  `maximum` in its schema it reported whole-number fields itself, with a
+  slightly different `got`, and pruned the value. It now reads the
+  schema without ranges; the published schema adds them.
 
 ### 24. Song timeline
 

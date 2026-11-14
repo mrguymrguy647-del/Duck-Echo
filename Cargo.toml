@@ -6,6 +6,7 @@ members = [
     "crates/duck-echo-synth",
     "crates/duck-echo-analyze",
     "crates/duck-echo-tools",
+    "crates/duck-echo-live",
     "crates/duck-echo-cli",
     "crates/duck-echo-mcp",
 ]
@@ -31,6 +32,7 @@ duck-echo-audio = { path = "crates/duck-echo-audio", default-features = false }
 duck-echo-synth = { path = "crates/duck-echo-synth" }
 duck-echo-analyze = { path = "crates/duck-echo-analyze" }
 duck-echo-tools = { path = "crates/duck-echo-tools" }
+duck-echo-live = { path = "crates/duck-echo-live" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

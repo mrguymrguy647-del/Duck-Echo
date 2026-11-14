@@ -34,6 +34,35 @@ impl EffectState {
         }
     }
 
+    /// Go back to the state [`Self::new`] left: empty delay lines and
+    /// counters at their start. Allocates nothing (the lines are filled
+    /// with zeros in place). Used by live playback to repeat a sound; the
+    /// offline renderer never calls it.
+    pub fn reset(&mut self) {
+        match self {
+            EffectState::Echo(s) => {
+                s.line.fill(0.0);
+                s.pos = 0;
+            }
+            EffectState::Reverb(s) => {
+                for c in &mut s.combs {
+                    c.buf.fill(0.0);
+                    c.pos = 0;
+                    c.store = 0.0;
+                }
+                for a in &mut s.allpasses {
+                    a.buf.fill(0.0);
+                    a.pos = 0;
+                }
+            }
+            EffectState::Distortion(_) => {}
+            EffectState::Bitcrush(s) => {
+                s.hold_phase = 1.0;
+                s.held = 0.0;
+            }
+        }
+    }
+
     /// Process a block in place.
     pub fn process(&mut self, buf: &mut [f32]) {
         match self {

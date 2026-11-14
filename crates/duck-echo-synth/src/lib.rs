@@ -12,11 +12,18 @@
 //! [`render`] is the offline convenience that runs both and applies the
 //! offline-only master `normalize` step.
 //!
+//! [`live`] adds what playing through speakers needs: changes to a running
+//! voice that slide instead of jumping, and repeating a voice. It is a
+//! separate file that changes a voice only between samples; the code that
+//! makes the samples is the same for a file and for the speakers, and a
+//! voice that gets no live change makes exactly the samples it always did.
+//!
 //! Determinism: all math on the audio path goes through [`math`], which
 //! avoids platform libm, and all randomness comes from the recipe `seed`.
 
 pub mod dsp;
 pub mod effects;
+pub mod live;
 pub mod loudness;
 pub mod math;
 pub mod song;
@@ -56,6 +63,9 @@ pub struct Voice {
     scratch: Vec<f32>,
     /// Planar per-channel mix for the current block (stereo only).
     mix: Vec<f32>,
+    /// Live changes on their way (see [`live`]). Idle in every offline
+    /// render, and never read by [`Voice::process`].
+    live: live::VoiceLive,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +89,9 @@ struct LayerVoice {
     effects: Vec<EffectState>,
     /// Equal-power left and right gains from `pan`.
     pan_gains: [f32; 2],
+    /// Live changes on their way (see [`live`]). Idle in every offline
+    /// render, and never read while making samples.
+    live: live::LayerLive,
 }
 
 /// Validate, plan and allocate. Errors are the validation report.
@@ -206,6 +219,7 @@ fn build(recipe: &Recipe, note: Option<&NotePlay>) -> Voice {
         } else {
             Vec::new()
         },
+        live: live::VoiceLive::new(sample_rate),
     }
 }
 
@@ -293,6 +307,7 @@ impl LayerVoice {
                 .map(|e| EffectState::new(e, sr))
                 .collect(),
             pan_gains: pan_gains(layer.pan),
+            live: live::LayerLive::IDLE,
         }
     }
 

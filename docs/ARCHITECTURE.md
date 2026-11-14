@@ -43,6 +43,11 @@ crates/
                            rules (`root`), the named commands (`commands`),
                            the shared Undo history (`project`, `history`)
                            and writing files in one step (`save`).
+  duck-echo-live/          the realtime mixer for playing through speakers:
+                           a pool of 32 voice slots, two lock-free queues,
+                           fades and clipping, and the background song
+                           player. No window and no sound card: the Studio
+                           connects it to both. See "Realtime playback".
   duck-echo-cli/           the `duck-echo` binary and the end-to-end tests.
   duck-echo-mcp/           the `duck-echo-mcp` binary: the agent tools as an MCP
                            server over stdio.
@@ -68,6 +73,7 @@ cli ──> tools ──> synth ──> core
  │        └────> core
  └────> core, synth, analyze, audio (directly, for render and validate)
 mcp ──> tools (and core, audio)
+live ──> synth, core, audio (and rtrb; tools only in its tests)
 ear (planned) ──> core, audio, analyze
 ```
 
@@ -198,10 +204,9 @@ is the same on both. In plain words:
   there, but it is not checked. A different Duck Echo version may change a
   sound, and its commit will say which.
 
-## Realtime constraints (for later phases)
+## Realtime playback
 
-Even though this phase renders offline, the renderer is already shaped for a
-realtime audio thread:
+The renderer was shaped for a realtime audio thread from the start:
 
 * `prepare(recipe) -> Voice` does all validation, planning and allocation.
 * `Voice::process(&mut [f32])` allocates nothing, takes no locks, does no I/O
@@ -211,12 +216,84 @@ realtime audio thread:
 * The offline `render` is just `process` in a loop plus the offline-only
   `normalize` step, which needs the whole signal.
 
-Rules for whoever adds playback: build a `Voice` on the control thread, move
-it to the audio thread through a lock-free channel or a triple buffer, and
-never share it. Parameter changes create a new `Voice` (or a small
-`ParamUpdate` message with plain numbers). The audio thread must clip its own
-output since `process` does not. Keep `RENDER_BLOCK` as the upper bound of
-scratch memory.
+Phase 2 step 3 built the playback on top of it, in two places.
+
+**Live changes, in `duck-echo-synth/src/live.rs`.** A `ParamUpdate` is a
+change a slider can make without a new voice: a layer's volume, a filter's
+cutoff (and `cutoff_end`), or the master gain. A change does not jump,
+which would click: the value slides to its target over 10 ms, a little
+each sample. `Voice::process` and everything under it were not edited for
+this. `Voice::process_live` is a wrapper: while nothing slides it calls
+`process`; while something slides it moves each sliding value one step
+and calls `process` for one frame, again and again. That is the same
+sound, because `process` gives the same samples however its blocks are
+cut (tested). So a render, which never sends a `ParamUpdate`, runs the
+same code on the same numbers as before. `Voice::rewind` plays a voice
+again from its first frame without building a new one (delay lines are
+cleared in place); a rewound voice makes exactly a new voice's samples.
+
+**The mixer, in `duck-echo-live`.**
+
+```
+ control thread (the window)                audio thread (the sound card)
+ ---------------------------                -----------------------------
+ Player                                      Mixer
+   play / replace / update / stop  ------>     process(block), every ~23 ms:
+   (sounds are made here, where                  take messages (never waits)
+    allocating is fine)                          mix the sounds in 32 slots
+                                                 slide changes, fade, clip
+   collect()  <-------------------------       send finished sounds back
+   (finished sounds are dropped here)
+```
+
+* **Two one-way queues**, both `rtrb` ring buffers (one writer, one
+  reader, lock-free). The mixer's state for the window (play heads,
+  clipped samples) is a few atomics.
+* **Nothing is allocated or freed on the audio thread.** Every buffer is
+  made in `live()`. A finished or replaced sound is sent back to the
+  control thread and dropped there. If the ring back is full, sounds wait
+  in a parking area made in advance; if that is nearly full, the mixer
+  stops taking messages (the player is told `Busy`) until the control
+  thread has collected. It never blocks and never drops a sound.
+* **What you hear is the file.** `Sound::from_recipe` plays the voice at
+  the gain and length the offline master steps give the rendered file
+  (`master.normalize`, `normalize_lufs`, `trim_silence`), and the mixer
+  clips its output to -1..=1 as a render does. A test plays every preset
+  and example through the mixer and compares it with `render`, sample for
+  sample, once and repeated.
+* **No clicks.** `Player::update` slides (above). `Player::replace` (an
+  edit that needs a new voice) puts the new voice at the old one's place
+  and cross-fades over 10 ms; `stop`, and `play` over a playing sound,
+  fade the old one out. A request that arrives during a fade waits for it
+  (at most 10 ms and one block), so a fade is never cut short.
+* **Songs** play from a render made on a worker thread
+  (`SongPlayback`): the same `render_song` that writes the file. After an
+  edit the song is rendered again and the new render takes over at the
+  play head with the same cross-fade. (`SongPlayer` makes a voice per
+  note, which allocates; live song voices from a pool are a Phase 3 job.)
+* **The mixer does not resample.** A sound must have the sound card's
+  sample rate; otherwise `Player` refuses it with a message. The Studio
+  opens the sound card at the sound's rate.
+
+How the rules are proven (`crates/duck-echo-live/tests`):
+
+* `realtime.rs` replaces the test program's allocator with
+  `assert_no_alloc` (always on, in debug and release). Every block is
+  mixed inside `assert_no_alloc`, which counts each allocation or free on
+  that thread; each test ends with the count at zero. One test runs 60
+  seconds of busy playback, one stalls the control thread until every
+  queue is full, one uses two real threads, and one first shows the
+  detector catching an allocation and the freeing of a voice.
+* `clicks.rs` measures the biggest step between two neighbouring samples
+  of the output and compares it with the sound's own. Each scene runs
+  twice: smoothed (no step bigger than the sound's own) and with the
+  smoothing turned off (the same scene clicks).
+* `audio_path.rs` is a tripwire for locks: it reads the source of every
+  file the audio thread runs and fails if one names a lock, a channel, a
+  sleep, a file or a print. Nothing can count locks at run time the way
+  allocations are counted, so the lock rule rests on this, on the stall
+  test, and on review.
+* `matches_render.rs` and `song.rs` compare what plays with what renders.
 
 ## How music and voice will extend the recipe model
 
@@ -496,9 +573,20 @@ it say so in their output rather than failing.
 
 One `validate` call reports every problem: structural ones from the schema
 walk and range ones from semantic validation, in document order, each with
-a line and column. The schema walk is driven by the same generated JSON
-Schema agents read, so it cannot drift from the Rust types; a unit test
+a line and column. The schema walk is driven by the JSON Schema generated
+from the Rust types, so it cannot drift from them; a unit test
 fails if schemars ever emits a schema keyword the walker does not handle.
+
+**Ranges live in one table**, `duck-echo-core/src/ranges.rs`: the smallest
+and largest value of every number in a recipe and a song. Semantic
+validation reads its limits from the table, and the published schema
+(`duck-echo schema`, `get_schema`, `schema/*.json`) is the schema of the
+types plus each range written in as `minimum` and `maximum` (or
+`exclusiveMinimum`), so agents and the Studio's sliders see the very
+limits that validation enforces. The walker reads the schema *without*
+the ranges, so a range error is still reported once, by validation, in
+the same words as before. A test puts every field of the table just
+outside its range and reads the table's limits back from the error.
 Two rules keep the report free of echoes: a value replaced by a placeholder
 suppresses later issues at or under its path, and a misspelled field with a
 suggestion suppresses complaints about the suggested field's default.
@@ -557,6 +645,8 @@ output is one line per issue in the same order.
 | strsim | core | "Did you mean" suggestions. |
 | hound | audio | WAV read and write, zero dependencies of its own. |
 | clap | cli | Argument parsing. |
+| rtrb | live | A lock-free ring buffer with one writer and one reader, made for audio threads: the audio thread takes and sends messages without ever waiting on a lock or allocating. No dependencies of its own. Writing one ourselves needs `unsafe` code, which the workspace forbids. |
+| assert_no_alloc | live (tests only) | Replaces the test program's allocator and counts every allocation and free inside a marked section, so a test fails if the audio block touches the allocator. Its default features switch the check off in release builds; here they are off and the counting ones are on, so it always runs. |
 
 The MCP server and the tools crate add no external dependencies: the
 protocol layer is plain `serde_json` (see above), and `toml` writes edited

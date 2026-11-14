@@ -476,6 +476,37 @@ render**:
 True live song voices (voices made ahead of the play head, from a pool)
 are a Phase 3 job. See question 5.
 
+### 6.4 As built in step 3
+
+Step 3 built 6.1 to 6.3 as planned. What was learned on the way, which
+the later steps rely on:
+
+* **Sliding does not touch the renderer.** `Voice::process` was not
+  edited. `Voice::process_live` moves each sliding value one step and
+  then makes one frame with `process`, again and again, and goes back to
+  whole blocks when nothing slides. Even in the worst preset a block
+  costs about 0.1 ms of its 23 ms, sliding or not.
+* **Loop repeats the same voice.** `Voice::rewind` goes back to the first
+  frame without building a new voice, so Loop needs nothing from the
+  window between rounds.
+* **The speakers play the file's level.** Almost every preset sets
+  `master.normalize_lufs`, which only the offline render can work out.
+  `Sound::from_recipe` renders once and plays the voice at that gain and
+  length. So in **step 7**, after a `ParamUpdate` on a recipe that is
+  normalized, the Studio renders again (it does so anyway, for the
+  picture and the summary) and calls `Player::set_level`, which slides
+  the level too. Without this a volume drag would sound louder live than
+  in the file.
+* **A request waits for a fade.** Two edits inside 10 ms never cut a
+  fade short: the second waits, then lines itself up with the frames that
+  played meanwhile.
+* **The mixer does not resample.** A sound must have the sound card's
+  sample rate. In **step 4** the Studio opens the sound card at the
+  sound's rate (nearly always 44100), and opens it again when a sound
+  with another rate is played.
+* **`Player::collect` must be called often** (every frame of the window):
+  the mixer hands finished sounds back instead of freeing them.
+
 ---
 
 ## 7. The four playtest-2 items

@@ -243,6 +243,8 @@ crates/duck-echo-audio    AudioBuffer and WAV I/O
 crates/duck-echo-synth    deterministic renderer
 crates/duck-echo-analyze  measurements and compare
 crates/duck-echo-tools    operations shared by the CLI and the MCP server
+crates/duck-echo-live     realtime mixer for playing through speakers (no
+                          allocation or locks on the audio thread)
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
 crates/duck-echo-mcp      the duck-echo-mcp binary: MCP server over stdio
 presets                   30 tagged starting points (see presets/README.md)

@@ -354,6 +354,14 @@ warning[unused] layers[0].duty: duty only affects `square`; this layer is `sine`
 Unknown fields are always errors: a misspelled field would otherwise be
 silently ignored, which is the worst outcome for an agent.
 
+Every range in this document comes from one table in the code
+(`duck-echo-core/src/ranges.rs`). Validation reads it, and the JSON Schema
+(`duck-echo schema`, the `get_schema` tool) carries each range as
+`minimum` and `maximum`, so a tool that builds a slider from the schema
+can never offer a value that validation refuses. One range depends on
+another field: an LFO's `depth` goes up to 1 for `volume`, 4 for `cutoff`
+and 0.5 for `duty`; the schema gives the widest, 4.
+
 ## JSON equivalence
 
 `examples/recipes/coin.toml` and `examples/recipes/coin.json` are the same

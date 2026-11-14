@@ -2,7 +2,8 @@
 //!
 //! The recipe is the source of truth for every sound. This crate owns the
 //! types ([`recipe`]), turns TOML or JSON text into them with exact error
-//! paths ([`load`]), checks ranges and structure ([`validate`]), reports
+//! paths ([`load`]), checks ranges and structure ([`validate`], with every
+//! range in one table, [`ranges`]), reports
 //! problems in a machine-readable shape ([`report`]) and exports a JSON
 //! Schema for agents ([`schema`]).
 //!
@@ -10,6 +11,7 @@
 
 pub mod load;
 pub mod note;
+pub mod ranges;
 pub mod recipe;
 pub mod report;
 pub mod schema;

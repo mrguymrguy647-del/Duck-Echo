@@ -338,6 +338,7 @@ file again and retry.
 * `analysis`: every analysis field and how it is measured.
 * `instruments` and `presets`: what each one is.
 
-Also `get_schema` (every recipe field; `kind: "song"` for songs),
+Also `get_schema` (every recipe field with its `minimum` and `maximum`;
+`kind: "song"` for songs),
 `get_preset`, `get_instrument`, and each tool's own description. From the
 command line, `duck-echo guide TOPIC` prints the same pages.
