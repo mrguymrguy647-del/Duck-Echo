@@ -14,11 +14,10 @@ Never write a sound from nothing, and never change many things at once.
 
 1. **Start from something that works.** `list_presets` (sounds) or
    `list_instruments` (music), then `get_preset` or `get_instrument`.
-2. **Save a copy.** `create` with a path such as `sfx/coin.toml` and the
-   `recipe` object from step 1 (pass the whole object back). Then edit
-   its `name`, `description` and `tags`: they still describe the preset.
-   Or use `file_copy_from` with `from: "preset:coin"` and `to:
-   "sfx/coin.toml"`: it names the copy after its file for you.
+2. **Save a copy.** `create` with a `path` such as `sfx/coin.toml` and
+   `from: "preset:coin"` (or `instrument:piano`, or a file). The copy is
+   named after its file, its description says what it was copied from,
+   and its comments are kept. Edit its `tags` if they no longer fit.
 3. **Change one thing.** `edit` with one op, for example
    `{"path": "layers[0].pitch.start", "value": "C6"}`.
 4. **Render.** `render` with an `output` such as `sfx/coin.wav`. The
@@ -105,6 +104,12 @@ Compare short sounds with short sounds. When the two methods differ,
 | Where are the notes? | `onsets`: time, `note_hz` and level of each start |
 | How does it fade? | `energy_over_time` (20 slices, dBFS) |
 | Is it broken? | `clipping.clipped`, `dc_offset`, `is_silent` |
+| Does it end with a click? | `ending.clean`, summary words "ends cleanly" or "ENDS WITH A CLICK" |
+
+A sound that is still loud when the file ends clicks when it stops. Let
+it fade: a longer `release`, or a `duration` long enough for the
+envelope to finish. (For a loop, read `loop_seam` instead: a loop never
+stops.)
 
 `attack_seconds` is the time from the first sound to the **loudest**
 moment. If a sound holds near its peak, or a later layer is a little
@@ -296,17 +301,19 @@ in your notes. Wobbles inside a held note are not listed. Read them as
 information: they are not errors in your song. `note_check` sits at the
 top level of the result, like `loop_seam`.
 
-Then check the balance with `per_track: true`: each track's
-`loudness_lufs` alone. A track 10 LU or more under the others is lost
-in the mix. Raise its `volume`.
+A song's summary uses words for a mix, such as `8 bars looping at 140
+BPM, 4 tracks; 13.71 s, -18.0 LUFS, no clipping, loop joins cleanly, 155
+of 155 notes heard; loudest track lead (-22.1 LUFS), quietest drums
+(-27.4 LUFS)`. A track 10 LU or more under the loudest is lost in the
+mix: raise its `volume`. `per_track: true` gives every track's analysis.
 
 ### Before you call a tune done
 
 * `validate` has no errors and no warnings.
-* The summary has "no clipping", "loop joins cleanly" (for a loop) and
-  "M of M notes heard".
-* `per_track` shows no track far under the rest.
-* The summary's brightness word fits the mood ("dark" for night).
+* The summary has "no clipping", "loop joins cleanly" (for a loop) or
+  "ends cleanly" (for a song that stops), and "M of M notes heard".
+* The quietest track is not far under the loudest.
+* `spectral_centroid_hz` fits the mood: lower is darker (night).
 
 Duck Echo cannot tell you whether a tune is *good*. Say so, and ask a
 person to listen.
@@ -324,11 +331,13 @@ file again and retry.
 
 ## Where to read more
 
-Through the tools: `get_schema` (every recipe field; `kind: "song"` for
-songs), `get_preset`, `get_instrument`, and each tool's own description.
+`get_guide` returns this guide, and with `topic` the reference pages:
 
-If you can read the Duck Echo repository:
+* `recipe_spec`: every recipe field, default and range.
+* `song_spec`: every song field.
+* `analysis`: every analysis field and how it is measured.
+* `instruments` and `presets`: what each one is.
 
-* `docs/RECIPE_SPEC.md`: every recipe and song field, default and range.
-* `docs/ANALYSIS.md`: every analysis field and how it is measured.
-* `instruments/README.md` and `presets/README.md`: what each one is.
+Also `get_schema` (every recipe field; `kind: "song"` for songs),
+`get_preset`, `get_instrument`, and each tool's own description. From the
+command line, `duck-echo guide TOPIC` prints the same pages.

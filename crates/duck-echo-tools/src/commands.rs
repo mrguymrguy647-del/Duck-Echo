@@ -67,8 +67,11 @@ pub struct CopyFromArgs {
     /// project.
     pub from: String,
     /// The new file, relative to the project folder, ending in `.toml` or
-    /// `.json`. It must not exist yet.
+    /// `.json`. It must not exist yet, unless `overwrite` is true.
     pub to: String,
+    /// Replace `to` if it exists. Default false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overwrite: Option<bool>,
 }
 
 /// A whole new text for a file.
@@ -646,7 +649,7 @@ pub fn run(
     let done = match command {
         Command::FileNewSound(a) => r.new_file(&a.file, Kind::Recipe)?,
         Command::FileNewSong(a) => r.new_file(&a.file, Kind::Song)?,
-        Command::FileCopyFrom(a) => r.copy_from(&a.from, &a.to)?,
+        Command::FileCopyFrom(a) => r.copy_from(&a.from, &a.to, a.overwrite.unwrap_or(false))?,
         Command::FileRename(a) => r.rename(&a.file, &a.to, false)?,
         Command::FileDuplicate(a) => r.rename(&a.file, &a.to, true)?,
         Command::FileDelete(a) => r.delete(&a.file)?,
@@ -1286,7 +1289,7 @@ impl Runner<'_, '_> {
         set_identity(&text, format, &Self::stem(rel), description)
     }
 
-    fn copy_from(&self, from: &str, to: &str) -> Result<Done, ToolError> {
+    fn copy_from(&self, from: &str, to: &str, overwrite: bool) -> Result<Done, ToolError> {
         let (rel, _) = self.doc_path("to", to)?;
         let (source, format, what) = self.source(from)?;
         let description = format!("Copy of {what}.");
@@ -1294,8 +1297,15 @@ impl Runner<'_, '_> {
         self.check(&rel, &text)?;
         self.project
             .apply(std::slice::from_ref(&rel), self.by, self.stroke, |texts| {
-                if texts[0].is_some() {
-                    return Err(self.exists("to", &rel));
+                if texts[0].is_some() && !overwrite {
+                    return Err(ToolError::issue(
+                        Issue::error(
+                            Code::AlreadyExists,
+                            format!("{}overwrite", self.prefix),
+                            format!("`{rel}` already exists; pass \"overwrite\": true to replace it, or choose another name"),
+                        )
+                        .suggest("true"),
+                    ));
                 }
                 Ok(Plan {
                     title: format!("Copy {what} to {rel}"),

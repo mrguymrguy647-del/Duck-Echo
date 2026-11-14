@@ -736,7 +736,9 @@ fn duck_craft_day_and_night_are_matching_loops() {
         m.measured.analysis.spectral_centroid_hz.unwrap()
     };
     assert!(brightness(&night) < brightness(&day) * 0.8);
-    assert!(night.measured.analysis.summary.contains("dark"));
+    // "dark" or "very dark" (below 800 Hz, see ANALYSIS.md). A song's
+    // summary leaves the word out, so read the number.
+    assert!(brightness(&night) < 800.0, "{}", brightness(&night));
 
     // The same length to the sample, so a game can start both together
     // and fade between them. Half way through a fade nothing clips.

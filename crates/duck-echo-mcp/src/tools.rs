@@ -184,7 +184,25 @@ fn command_definition(entry: &commands::Entry) -> Value {
 
 /// The tools from before commands existed.
 fn original_definitions() -> Vec<Value> {
+    let topics: Vec<&str> = duck_echo_tools::guide::TOPICS
+        .iter()
+        .map(|t| t.name)
+        .collect();
+    let topic_list: Vec<String> = duck_echo_tools::guide::TOPICS
+        .iter()
+        .map(|t| format!("`{}` ({})", t.name, t.about))
+        .collect();
     vec![
+        tool(
+            "get_guide",
+            "Read the guide",
+            &format!("Read Duck Echo's guide or one of its reference pages, as Markdown. Call it with no arguments first: the guide shows the whole workflow for sound effects and music in one page. Topics: {}.", topic_list.join("; ")),
+            json!({
+                "topic": { "type": "string", "enum": topics, "description": "Which page. Default `guide`." }
+            }),
+            &[],
+            true,
+        ),
         tool(
             "get_schema",
             "Recipe or song schema",
@@ -247,13 +265,14 @@ fn original_definitions() -> Vec<Value> {
         tool(
             "create",
             "Create a recipe file",
-            "Validate a recipe or a song and save it as a file (.toml or .json by extension) relative to the server root, creating folders as needed. Refuses an invalid document (returning its report) and refuses to replace an existing file unless `overwrite` is true.",
+            "Validate a recipe or a song and save it as a file (.toml or .json by extension) relative to the server root, creating folders as needed. Give the document as `recipe`, or give `from` (preset:NAME, instrument:NAME or a file) to save a copy of it: the copy is named after its new file and its description says what it was copied from, and a TOML copy keeps its comments. Refuses an invalid document (returning its report) and refuses to replace an existing file unless `overwrite` is true. The save is one step of the project's Undo history (edit_undo takes it back).",
             json!({
                 "path": { "type": "string", "description": "File to write, ending in .toml or .json." },
-                "recipe": { "type": "object", "description": "The recipe or song as a JSON object." },
+                "recipe": { "type": "object", "description": "The recipe or song as a JSON object. Give this or `from`." },
+                "from": { "type": "string", "description": "Copy this instead: preset:NAME, instrument:NAME, or a recipe or song file relative to the server root. Give this or `recipe`." },
                 "overwrite": { "type": "boolean", "description": "Replace an existing file. Default false." }
             }),
-            &["path", "recipe"],
+            &["path"],
             false,
         ),
         tool(
@@ -561,6 +580,57 @@ fn to_value<T: serde::Serialize>(v: &T) -> Value {
     serde_json::from_str(&serde_json::to_string(v).expect("serializes")).expect("valid json")
 }
 
+/// `create` with `from`: the `file_copy_from` command, answered in
+/// `create`'s own shape, with `to` reported as `arguments.path`.
+fn create_from(
+    root: &Root,
+    path_arg: &str,
+    path: &std::path::Path,
+    from: &Value,
+    args: &Map<String, Value>,
+) -> Result<(Value, Vec<Vec<u8>>), ToolError> {
+    if args.contains_key("recipe") {
+        return Err(arg_error(
+            "from",
+            Code::InvalidArgument,
+            "give `recipe` or `from`, not both",
+        ));
+    }
+    let Value::String(from) = from else {
+        return Err(arg_error(
+            "from",
+            Code::TypeMismatch,
+            "`from` must be a string: preset:NAME, instrument:NAME or a file",
+        ));
+    };
+    let command = commands::Command::FileCopyFrom(commands::CopyFromArgs {
+        from: from.clone(),
+        to: path_arg.to_string(),
+        overwrite: opt_bool(args, "overwrite")?,
+    });
+    commands::run(&Project::new(root), command, Who::Agent, None, "arguments.").map_err(
+        |mut e| {
+            for issue in e.issues_mut() {
+                if issue.path == "arguments.to" {
+                    issue.path = "arguments.path".into();
+                }
+            }
+            e
+        },
+    )?;
+    let loaded = load_doc(root, &Source::Path(path.to_path_buf()))?;
+    Ok((
+        json!({
+            "ok": true,
+            "path": root.show(path),
+            "kind": loaded.kind(),
+            "from": from,
+            "warnings": loaded.report().warnings
+        }),
+        Vec::new(),
+    ))
+}
+
 /// Run a tool. `None` for an unknown tool name.
 pub fn call(root: &Root, name: &str, args: &Value) -> Option<Outcome> {
     let empty = Map::new();
@@ -597,6 +667,11 @@ fn run(
 ) -> Result<(Value, Vec<Vec<u8>>), ToolError> {
     let plain = |v: Value| Ok((v, Vec::new()));
     match name {
+        "get_guide" => {
+            let topic = opt_str(args, "topic")?.unwrap_or("guide");
+            let text = duck_echo_tools::guide::page(topic, "arguments.topic")?;
+            plain(json!({ "topic": topic, "text": text }))
+        }
         "get_schema" => match opt_str(args, "kind")? {
             None | Some("recipe") => plain(duck_echo_core::schema::recipe_schema()),
             Some("song") => plain(duck_echo_core::schema::song_schema()),
@@ -669,7 +744,20 @@ fn run(
                     "`path` must end in .toml or .json",
                 ));
             }
+            if let Some(from) = args.get("from") {
+                return create_from(root, path_arg, &path, from, args);
+            }
             let Some(doc @ Value::Object(_)) = args.get("recipe") else {
+                if args.get("recipe").is_none() {
+                    return Err(ToolError::issue(
+                        Issue::error(
+                            Code::MissingField,
+                            "arguments.recipe",
+                            "`create` needs `recipe` (the document as a JSON object) or `from` (preset:NAME, instrument:NAME or a file to copy)",
+                        )
+                        .one_of(["recipe", "from"]),
+                    ));
+                }
                 return Err(arg_error(
                     "recipe",
                     Code::TypeMismatch,

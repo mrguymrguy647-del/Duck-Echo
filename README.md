@@ -96,6 +96,7 @@ to keep their level in mono.
 | `duck-echo instruments list [--json]` | The built-in instruments a song can play (piano, pad, bass, chip_lead and the kit `drums`), with their useful range. |
 | `duck-echo instruments show <name> [--json]` | An instrument's recipe, to copy and edit. |
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
+| `duck-echo guide [topic]` | The agent guide, or a reference page: `recipe_spec`, `song_spec`, `analysis`, `instruments`, `presets`. Built into the program. |
 | `duck-echo schema [song]` | The JSON Schema for recipes, or for songs, with descriptions and defaults. |
 | `duck-echo commands [--json]` | The named commands that change a project: make, copy, rename and delete files, set a field, add a layer, effect, track or note, place a pattern, undo and redo. The Studio's buttons and the MCP server use the same ones. |
 | `duck-echo do <command> ['{json}'] [--root DIR] [--by person\|agent]` | Run one command, such as `duck-echo do sound_set '{"file": "coin.toml", "path": "layers[0].volume", "value": 0.6}'`, then `duck-echo do edit_undo` to take it back. Prints JSON. |
@@ -132,7 +133,7 @@ them: start from a preset or instrument, change one thing, render, read
 the numbers, compare.
 
 `duck-echo-mcp` serves the Duck Echo tools over the Model Context Protocol:
-`get_schema`, `list_presets`, `get_preset`, `list_instruments`,
+`get_guide` (the agent guide and reference pages, built in), `get_schema`, `list_presets`, `get_preset`, `list_instruments`,
 `get_instrument`, `list_files`, `validate`,
 `create`, `edit`, `render`, `analyze`, `compare` and `variations`, plus
 one tool for each command of `duck-echo commands` (`sound_set`,

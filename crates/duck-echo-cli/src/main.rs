@@ -123,6 +123,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Print the agent guide, or a reference page: recipe_spec, song_spec,
+    /// analysis, instruments or presets.
+    Guide {
+        /// Which page. Default `guide`.
+        #[arg(default_value = "guide")]
+        topic: String,
+    },
     /// List the named commands that change a project (the same ones the
     /// Studio's buttons and the MCP server use).
     Commands {
@@ -343,6 +350,13 @@ fn main() -> ExitCode {
             output_dir,
             json,
         } => variations(&recipe, count, variation, output_dir.as_deref(), json),
+        Command::Guide { topic } => match duck_echo_tools::guide::page(&topic, "topic") {
+            Ok(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => tool_error(e, false),
+        },
         Command::Commands { json } => list_commands(json),
         Command::Do {
             name,

@@ -127,8 +127,82 @@ pub struct Analysis {
     /// of new spectral energy, each with the dominant frequency and level
     /// of the stretch up to the next onset. Uses the mean of the channels.
     pub onsets: Vec<Onset>,
+    /// Whether the file ends cleanly or with a click. A player stops after
+    /// the last sample, so a sound that has not faded out by then jumps
+    /// to silence, which is heard as a click. For a loop, read the song's
+    /// `loop_seam` instead: a loop never stops.
+    #[serde(default)]
+    pub ending: Ending,
     /// Threshold used for the silence measurements, in dBFS.
     pub silence_threshold_dbfs: f32,
+}
+
+/// How a sound ends: the click check for one-shot sounds.
+///
+/// When playback stops, the wave jumps from the last sample to silence.
+/// That jump is a click unless the sound is already near silence, or the
+/// jump is no bigger than the steps the sound itself makes just before
+/// the end (a sound that is all sharp steps, such as loud noise, cannot
+/// click against itself).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct Ending {
+    /// The jump to silence after the last sample: the size of the last
+    /// sample, largest of the channels, linear (1.0 is full scale).
+    pub jump: f32,
+    /// The largest step between neighbouring samples in the last
+    /// [`ENDING_WINDOW_SECONDS`] before the end, largest of the channels.
+    pub largest_step_near_end: f32,
+    /// The RMS level of the last [`ENDING_WINDOW_SECONDS`], in dBFS
+    /// (`None` when they are silent).
+    pub last_level_dbfs: Option<f32>,
+    /// True when `jump` is at or below [`ENDING_QUIET_LINEAR`] (-50 dBFS)
+    /// or no larger than `largest_step_near_end`.
+    pub clean: bool,
+}
+
+/// How much of the end the click check looks at: 5 ms.
+pub const ENDING_WINDOW_SECONDS: f64 = 0.005;
+
+/// A jump to silence this small (-50 dBFS) is not heard as a click. The
+/// renderer trims a sound's tail once it falls below the silence
+/// threshold (-60 dBFS), so every rendered sound that fades out ends
+/// below this.
+pub const ENDING_QUIET_LINEAR: f32 = 0.003_162_278;
+
+/// Measure how interleaved samples end.
+pub fn ending(samples: &[f32], sample_rate: u32, channels: u16) -> Ending {
+    let ch = channels.max(1) as usize;
+    let frames = samples.len() / ch;
+    if frames == 0 {
+        return Ending {
+            jump: 0.0,
+            largest_step_near_end: 0.0,
+            last_level_dbfs: None,
+            clean: true,
+        };
+    }
+    let window = ((ENDING_WINDOW_SECONDS * sample_rate as f64).round() as usize).clamp(1, frames);
+    let start = frames - window;
+    let mut jump = 0.0f32;
+    let mut largest_step = 0.0f32;
+    let mut sum_sq = 0.0f64;
+    for c in 0..ch {
+        let at = |f: usize| samples[f * ch + c];
+        jump = jump.max(at(frames - 1).abs());
+        for f in start..frames {
+            sum_sq += (at(f) as f64) * (at(f) as f64);
+            if f > 0 {
+                largest_step = largest_step.max((at(f) - at(f - 1)).abs());
+            }
+        }
+    }
+    let rms = (sum_sq / (window * ch) as f64).sqrt() as f32;
+    Ending {
+        jump,
+        largest_step_near_end: largest_step,
+        last_level_dbfs: to_dbfs(rms),
+        clean: jump <= ENDING_QUIET_LINEAR || jump <= largest_step,
+    }
 }
 
 /// Level of one channel.
@@ -294,10 +368,68 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
         pitch_track: spectral.track,
         energy_over_time,
         onsets,
+        ending: ending(samples, sample_rate, channels),
         silence_threshold_dbfs: SILENCE_THRESHOLD_DBFS,
     };
     analysis.summary = features::summary(&analysis);
     analysis
+}
+
+#[cfg(test)]
+mod ending_tests {
+    use super::*;
+
+    fn sine(frames: usize, amp: f32, fade: bool) -> Vec<f32> {
+        (0..frames)
+            .map(|i| {
+                let g = if fade {
+                    1.0 - i as f32 / frames as f32
+                } else {
+                    1.0
+                };
+                amp * g * (i as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_tone_cut_off_loud_clicks_and_a_faded_one_does_not() {
+        // 0.1 s of a loud sine, cut where the wave is far from zero.
+        let cut = sine(4_805, 0.5, false);
+        let e = ending(&cut, 48_000, 1);
+        assert!(!e.clean, "{e:?}");
+        assert!(
+            e.jump > 0.1 && e.jump > 3.0 * e.largest_step_near_end,
+            "{e:?}"
+        );
+        let a = analyze(&cut, 48_000, 1);
+        assert!(a.summary.contains("ENDS WITH A CLICK"), "{}", a.summary);
+        // The same tone faded to nothing.
+        let faded = sine(4_805, 0.5, true);
+        let e = ending(&faded, 48_000, 1);
+        assert!(e.clean, "{e:?}");
+        assert!(analyze(&faded, 48_000, 1).summary.contains("ends cleanly"));
+    }
+
+    #[test]
+    fn loud_noise_cannot_click_against_itself_and_stereo_takes_the_worst_channel() {
+        // Steps as big as the last sample: no click.
+        let noise: Vec<f32> = (0..2_000)
+            .map(|i| if i % 2 == 0 { 0.4 } else { -0.4 })
+            .collect();
+        assert!(ending(&noise, 48_000, 1).clean);
+        // Left fades out, right is cut: the right channel decides.
+        let left = sine(4_805, 0.5, true);
+        let right = sine(4_805, 0.5, false);
+        let stereo: Vec<f32> = left
+            .iter()
+            .zip(&right)
+            .flat_map(|(l, r)| [*l, *r])
+            .collect();
+        assert!(!ending(&stereo, 48_000, 2).clean);
+        // Nothing at all ends cleanly.
+        assert!(ending(&[], 48_000, 1).clean);
+    }
 }
 
 /// Audio EQ Cookbook biquad in f64, used only for measurement.

@@ -419,20 +419,27 @@ Progress:
   check ignores a pitch that was already sounding before an onset (a
   resonant filter sweeping past), tested on the agent's own tune.
 
-Bigger confusions, for Phase 2:
+Bigger confusions, for Phase 2 (the first four done in Phase 2 step 2):
 
-* Copying a preset means pasting the whole recipe back into `create`.
-  Allow `create` from `preset:NAME` or `instrument:NAME`, or `edit` with a
-  new output path, and clear the copied `name` and `description`.
-* A song's summary uses sound-effect words ("pitch rising from 110 to
-  784 Hz", an onset count that changes with a track's volume). Give songs
-  their own summary: key-free facts such as bars, loop, notes heard,
-  loudest and quietest track.
-* A number for a click at the end of a one-shot sound, as `loop_seam`
-  does for loops.
-* The guide and the specs cannot be read through the MCP server. A
-  `get_guide` (or `get_doc`) tool would serve agents outside the
-  repository.
+* [x] Copying a preset means pasting the whole recipe back into `create`.
+  Now `create` takes `from` (`preset:NAME`, `instrument:NAME` or a file),
+  which runs the `file_copy_from` command: the copy is named after its
+  file, its description says "Copy of the coin preset.", and its comments
+  are kept.
+* [x] A song's summary uses sound-effect words ("pitch rising from 110 to
+  784 Hz", an onset count that changes with a track's volume). Songs now
+  have their own summary: shape, length, loudness, clipping, the loop
+  join or the ending, notes heard, and the loudest and quietest track.
+* [x] A number for a click at the end of a one-shot sound, as `loop_seam`
+  does for loops. Now `ending` (`jump`, `largest_step_near_end`,
+  `last_level_dbfs`, `clean`), and "ends cleanly" or "ENDS WITH A CLICK"
+  in the summary. Analysis only: no render changes. Every preset and
+  example ends cleanly.
+* [x] The guide and the specs cannot be read through the MCP server. Now
+  `get_guide` (and `duck-echo guide`) returns the guide and the pages
+  `recipe_spec`, `song_spec`, `analysis`, `instruments` and `presets`,
+  compiled in from the repository's own files. The server's instructions
+  say to call it first.
 * A playtest that starts from broken files, to try the error reports and
   the `missing`, `quiet`, `wrong_pitch` and `uncertain` statuses, which
   this one never met.
@@ -570,6 +577,27 @@ Lessons for the next builder:
   text. Step 6 adds `toml_edit` to keep comments on every edit.
 * **Errors keep the field path but drop line numbers** when the text was
   made by a command, since nobody has seen those lines.
+
+Phase 2 step 2 (the four playtest-2 items, listed under task 10 above)
+is done. Lessons for the next builder:
+
+* **The renderer stops a fading tail at -60 dBFS**, so "near silence" for
+  the click check had to be above that: -50 dBFS. At -60 dBFS half the
+  presets read as clicks that nobody can hear.
+* **A click test needs a cut at the top of a wave.** A 220 Hz tone cut
+  at exactly 0.1 s ends on a zero crossing and is clean; the test cuts a
+  quarter wave later. A square wave or loud noise never reads as a
+  click, because its own steps are as big as the cut: that is the rule
+  the design chose, and `ANALYSIS.md` says so.
+* **A loop's `ending` is not its click check.** Its last sample leads
+  into its first, so `loop_seam` decides, and a loop's summary never says
+  "ENDS WITH A CLICK". The `ending` field stays, measured truthfully.
+* **One spec file, two pages.** `get_guide` splits `RECIPE_SPEC.md` at
+  its "Songs" heading, and a test checks the two parts add up to the
+  whole file, so nothing is lost or doubled when the spec grows.
+* **Changing summary words means changing the guide.** The guide said
+  to check "the summary's brightness word" for a song; songs no longer
+  have one, so it now says `spectral_centroid_hz`.
 
 ## Phase 3: link with Duck Forge
 

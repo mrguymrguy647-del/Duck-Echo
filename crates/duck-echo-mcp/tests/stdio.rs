@@ -100,7 +100,7 @@ fn started(root: &Path) -> Session {
     let instructions = init["result"]["instructions"].as_str().unwrap();
     assert!(instructions.contains("preset:NAME"));
     // The instructions point an agent at the guide before anything else.
-    assert!(instructions.contains("docs/AGENT_GUIDE.md"));
+    assert!(instructions.contains("Call get_guide first"));
     s.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
     s
 }
@@ -118,8 +118,9 @@ fn create_edit_render_analyze_loop() {
         .map(|t| t["name"].as_str().unwrap())
         .collect();
     assert_eq!(
-        names[..13],
+        names[..14],
         [
+            "get_guide",
             "get_schema",
             "list_presets",
             "get_preset",
@@ -138,7 +139,7 @@ fn create_edit_render_analyze_loop() {
     // Then one tool per command, with the command's own name.
     let command_names: Vec<String> = duck_echo_tools::commands::names();
     assert_eq!(
-        names[13..],
+        names[14..],
         command_names.iter().map(String::as_str).collect::<Vec<_>>()
     );
     for t in tools["result"]["tools"].as_array().unwrap() {
@@ -1502,4 +1503,88 @@ fn drive_letters_inside_a_path_cannot_leave_the_root() {
         .collect();
     assert_eq!(after, before_root, "a refused call wrote something");
     assert!(!outside.join("evil.wav").exists());
+}
+
+/// Phase 2 step 2: the guide is built in, and `create` copies a preset.
+#[test]
+fn get_guide_and_create_from_a_preset() {
+    let root = fresh_root("mcp_guide_from");
+    let mut s = started(&root);
+
+    // The guide, then a reference page, then a typo.
+    let (guide, err) = s.call("get_guide", json!({}));
+    assert!(!err);
+    assert_eq!(guide["topic"], "guide");
+    assert!(guide["text"]
+        .as_str()
+        .unwrap()
+        .starts_with("# Duck Echo agent guide"));
+    let (spec, err) = s.call("get_guide", json!({"topic": "song_spec"}));
+    assert!(!err);
+    assert!(spec["text"].as_str().unwrap().starts_with("## Songs"));
+    let (bad, err) = s.call("get_guide", json!({"topic": "songs"}));
+    assert!(err);
+    assert_eq!(bad["errors"][0]["path"], "arguments.topic");
+    assert!(bad["errors"][0]["allowed"]["options"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("song_spec")));
+
+    // A copy of a preset, named after its file, comments kept.
+    let (made, err) = s.call(
+        "create",
+        json!({"path": "sfx/my_coin.toml", "from": "preset:coin"}),
+    );
+    assert!(!err, "{made}");
+    assert_eq!(made["path"], "sfx/my_coin.toml");
+    assert_eq!(made["kind"], "recipe");
+    let text = std::fs::read_to_string(root.join("sfx/my_coin.toml")).unwrap();
+    assert!(text.contains("name = \"my_coin\""), "{text}");
+    assert!(
+        text.contains("description = \"Copy of the coin preset.\""),
+        "{text}"
+    );
+    assert!(text.contains('#'), "comments are kept: {text}");
+
+    // It exists now: refused at `overwrite`, then replaced when asked.
+    let (again, err) = s.call(
+        "create",
+        json!({"path": "sfx/my_coin.toml", "from": "preset:laser"}),
+    );
+    assert!(err);
+    assert_eq!(again["errors"][0]["path"], "arguments.overwrite");
+    let (_, err) = s.call(
+        "create",
+        json!({"path": "sfx/my_coin.toml", "from": "preset:laser", "overwrite": true}),
+    );
+    assert!(!err);
+    assert!(std::fs::read_to_string(root.join("sfx/my_coin.toml"))
+        .unwrap()
+        .contains("Copy of the laser preset."));
+
+    // A bad source is reported at `from`; `recipe` and `from` together, or
+    // neither, are refused.
+    let (bad, err) = s.call(
+        "create",
+        json!({"path": "sfx/x.toml", "from": "preset:coinn"}),
+    );
+    assert!(err);
+    assert_eq!(bad["errors"][0]["path"], "arguments.from");
+    assert_eq!(bad["errors"][0]["suggestion"], "coin");
+    let (bad, err) = s.call(
+        "create",
+        json!({"path": "sfx/x.toml", "from": "preset:coin", "recipe": {"version": 0}}),
+    );
+    assert!(err);
+    assert_eq!(bad["errors"][0]["path"], "arguments.from");
+    let (bad, err) = s.call("create", json!({"path": "sfx/x.toml"}));
+    assert!(err);
+    assert_eq!(bad["errors"][0]["path"], "arguments.recipe");
+
+    // Both copies are Undo steps: undoing twice leaves no file.
+    for _ in 0..2 {
+        let (_, err) = s.call("edit_undo", json!({}));
+        assert!(!err);
+    }
+    assert!(!root.join("sfx/my_coin.toml").exists());
 }

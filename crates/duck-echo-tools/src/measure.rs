@@ -537,27 +537,17 @@ pub fn measure_song(
         full
     };
     let mut analysis = crate::analyze_buffer(&buffer);
-    let mut head = facts.summary();
-    if extras.isolates {
-        head.push_str(&format!(" ({} heard)", extras.heard.len()));
-    }
-    analysis.summary = format!("{head}; {}", analysis.summary);
     let loop_seam = song.loop_.then(|| loop_seam(&buffer));
-    if let Some(seam) = &loop_seam {
-        analysis.summary.push_str(if seam.clean {
-            ", loop joins cleanly"
-        } else {
-            ", LOOP CLICKS AT THE JOIN"
-        });
-    }
     // Each heard track alone, when something needs it. One render per
     // track serves both the per-track analysis and the note check.
     let mut tracks = extras.per_track.then(Vec::new);
     let mut checks = extras.check_notes.then(Vec::new);
+    let mut track_levels: Vec<(String, Option<f32>)> = Vec::new();
     if extras.per_track || extras.check_notes {
         for &i in &extras.heard {
             let alone = render_song_tracks(song, arrangement, &[i], &mastering);
             let track_analysis = crate::analyze_buffer(&alone);
+            track_levels.push((song.tracks[i].name.clone(), track_analysis.loudness_lufs));
             if let Some(checks) = &mut checks {
                 checks.push(check_track(
                     song,
@@ -580,13 +570,14 @@ pub fn measure_song(
         }
     }
     let note_check = checks.map(NoteCheck::of);
-    if let Some(check) = &note_check {
-        analysis.summary.push_str(", ");
-        analysis.summary.push_str(&check.summary());
-    }
-    if facts.tracks > 1 && !extras.per_track && extras.heard.len() > 1 {
-        analysis.summary.push_str("; per_track describes each");
-    }
+    analysis.summary = song_summary(
+        facts,
+        extras,
+        &analysis,
+        loop_seam.as_ref(),
+        note_check.as_ref(),
+        &track_levels,
+    );
 
     // The picture of a song has a line at the start of each bar.
     let (picture, png) = if extras.picture {
@@ -627,6 +618,90 @@ pub fn measure_song(
             png,
         },
     })
+}
+
+/// A song's summary line, in the words that matter for a mix:
+///
+/// `8 bars looping at 140 BPM, 4 tracks; 13.71 s, -18.0 LUFS, no clipping,
+/// loop joins cleanly, 155 of 155 notes heard; loudest track lead (-22.1
+/// LUFS), quietest drums (-27.4 LUFS)`
+///
+/// A sound effect's words (brightness, attack, pitch, onsets) say little
+/// about a whole mix, so they are left out; the fields are all still in
+/// the analysis. `track_levels` holds each track heard alone, when the
+/// tracks were rendered alone (for the note check or `per_track`).
+fn song_summary(
+    facts: &SongFacts,
+    extras: &SongExtras,
+    analysis: &Analysis,
+    loop_seam: Option<&LoopSeam>,
+    note_check: Option<&NoteCheck>,
+    track_levels: &[(String, Option<f32>)],
+) -> String {
+    let mut head = facts.summary();
+    if extras.isolates {
+        head.push_str(&format!(" ({} heard)", extras.heard.len()));
+    }
+    if analysis.is_silent {
+        return format!("{head}; {:.2} s, silent", analysis.duration_seconds);
+    }
+    let mut parts = vec![format!("{:.2} s", analysis.duration_seconds)];
+    if let Some(l) = analysis.loudness_lufs {
+        let approx = if analysis.loudness_method
+            == Some(duck_echo_analyze::LoudnessMethod::KWeightedUngated)
+        {
+            "~"
+        } else {
+            ""
+        };
+        parts.push(format!("{approx}{l:.1} LUFS"));
+    }
+    if analysis.clipping.clipped {
+        parts.push(format!(
+            "CLIPPING ({} samples)",
+            analysis.clipping.clipped_samples
+        ));
+    } else {
+        parts.push("no clipping".into());
+    }
+    match loop_seam {
+        Some(seam) if seam.clean => parts.push("loop joins cleanly".into()),
+        Some(_) => parts.push("LOOP CLICKS AT THE JOIN".into()),
+        None => parts.push(duck_echo_analyze::features::ending_words(analysis).into()),
+    }
+    if let Some(check) = note_check {
+        parts.push(check.summary());
+    }
+    let mut line = format!("{head}; {}", parts.join(", "));
+    let heard: Vec<(&str, f32)> = track_levels
+        .iter()
+        .filter_map(|(name, l)| l.map(|l| (name.as_str(), l)))
+        .collect();
+    let loudest = heard
+        .iter()
+        .copied()
+        .fold(None, |best: Option<(&str, f32)>, t| match best {
+            Some(b) if b.1 >= t.1 => Some(b),
+            _ => Some(t),
+        });
+    let quietest = heard
+        .iter()
+        .copied()
+        .fold(None, |best: Option<(&str, f32)>, t| match best {
+            Some(b) if b.1 <= t.1 => Some(b),
+            _ => Some(t),
+        });
+    match (loudest, quietest) {
+        (Some(lo), Some(qu)) if heard.len() >= 2 => line.push_str(&format!(
+            "; loudest track {} ({:.1} LUFS), quietest {} ({:.1} LUFS)",
+            lo.0, lo.1, qu.0, qu.1
+        )),
+        _ if facts.tracks > 1 && !extras.per_track && extras.heard.len() > 1 => {
+            line.push_str("; per_track describes each")
+        }
+        _ => {}
+    }
+    line
 }
 
 /// How the end of a looping file joins its start, so an agent can check a

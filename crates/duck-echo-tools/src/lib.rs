@@ -10,6 +10,7 @@ use std::path::Path;
 
 pub mod commands;
 pub mod files;
+pub mod guide;
 pub mod history;
 pub mod instruments;
 pub mod measure;
