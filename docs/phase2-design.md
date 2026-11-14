@@ -188,7 +188,9 @@ The rules, in plain words:
    undone first, whoever made it. The History panel shows who made each
    step, so a person can see they are undoing the agent's step.
 5. **A slider drag is one step.** Edits with the same "stroke" number
-   (one press of the mouse) join the last step, as in Duck Forge.
+   (one press of the mouse) join the last step, as in Duck Forge. The
+   Studio saves a drag at most about 5 times a second and once more on
+   release, so a synced Documents folder is not flooded (step 6).
 6. **A change made outside both** (a text editor, a git pull) becomes a
    step called "Changed outside the Studio" the next time either program
    looks at the file. Undo never jumps over it by surprise.
@@ -686,6 +688,15 @@ words differ a little between desktops). Then double-click it.
 
 * The text with inline errors, sliders made from the schema, the picture,
   the summary line, Play, Loop and Stop, and the History panel.
+* **A drag never floods the disk.** The Documents folder is often synced
+  by OneDrive (or Dropbox, or a Linux sync tool), and every save is an
+  upload. While a slider is dragged, the sound you hear changes at once
+  (through the live player), but the file and its Undo step are saved at
+  most about 5 times a second, and once more when the mouse is released,
+  so the file always ends at the value you let go on. All the saves of
+  one drag share a stroke number, so they make one Undo step. A test
+  drags a slider through 200 values in one second and counts at most 6
+  saves and exactly one Undo step, ending at the last value.
 
 **What you test on Windows:**
 
