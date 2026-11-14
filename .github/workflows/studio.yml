@@ -221,8 +221,13 @@ jobs:
           $out = & "$app\DuckEchoStudio.exe" --play coin 2>&1 | Out-String
           $out
           # 0: it played. 3: no speakers, said plainly. Anything else fails.
-          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3) { throw "--play ended with $LASTEXITCODE" }
-          if ($LASTEXITCODE -eq 3 -and $out -notmatch 'No speakers were found') { throw "no plain message" }
+          $code = $LASTEXITCODE
+          if ($code -ne 0 -and $code -ne 3) { throw "--play ended with $code" }
+          if ($code -eq 3 -and $out -notmatch 'No speakers were found') { throw "no plain message" }
+          if ($code -eq 3) { "No speakers on this machine, and the Studio said so plainly." }
+          # (PowerShell would otherwise pass the program's 3 on as the
+          # step's result.)
+          exit 0
 
       - name: A newer installer over the top keeps my sounds and settings
         shell: pwsh
