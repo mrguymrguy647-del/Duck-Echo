@@ -91,3 +91,70 @@ fn audio_rates_are_for_volume_and_pitch_only() {
     )
     .is_err());
 }
+
+/// Item 6: a recipe says what it should be, and analyze checks each line.
+#[test]
+fn expect_lines_pass_or_fail_against_the_analysis() {
+    let growl = "version = 0\nexpect = { roughness = \"high\", boom = \"low\", loudness_lufs = [-30, -5], duration_seconds = [0.9, 1.2] }\n[[layers]]\nsource = \"sine\"\npitch = { start = 300 }\nenvelope = { attack = 0.02, hold = 0.9, decay = 0.1 }\nlfo = { target = \"volume\", rate = 70, depth = 1 }\n";
+    let loaded = load_str(growl, Format::Toml).unwrap();
+    let m = duck_echo_tools::measure::measure_recipe(&loaded.recipe, &[], &Default::default())
+        .unwrap()
+        .measured;
+    let e = m.expect.expect("checked");
+    assert!(e.pass, "{e:?}");
+    assert_eq!(e.lines.len(), 4);
+    assert!(
+        m.analysis.summary.ends_with("expect: all 4 met"),
+        "{}",
+        m.analysis.summary
+    );
+    assert!(
+        m.analysis.summary.contains("rough"),
+        "{}",
+        m.analysis.summary
+    );
+
+    // The same tone with no wobble is not rough: that line fails, and the
+    // summary says which.
+    let smooth = growl.replace("lfo = { target = \"volume\", rate = 70, depth = 1 }\n", "");
+    let loaded = load_str(&smooth, Format::Toml).unwrap();
+    let m = duck_echo_tools::measure::measure_recipe(&loaded.recipe, &[], &Default::default())
+        .unwrap()
+        .measured;
+    let e = m.expect.unwrap();
+    assert!(!e.pass);
+    assert_eq!(e.met, 3);
+    let line = e.lines.iter().find(|l| l.what == "roughness").unwrap();
+    assert!(!line.pass && line.got.as_deref().unwrap().starts_with("low"));
+    assert!(
+        m.analysis
+            .summary
+            .contains("EXPECT: 3 of 4 met (roughness is low, wanted high)"),
+        "{}",
+        m.analysis.summary
+    );
+
+    // A range written the wrong way round, or not as two numbers, is an
+    // error at its path.
+    let report = load_str(
+        "version = 0\nexpect = { loudness_lufs = [-16, -20] }\n[[layers]]\n",
+        Format::Toml,
+    )
+    .unwrap_err();
+    assert_eq!(report.errors[0].path, "expect.loudness_lufs");
+    assert_eq!(report.errors[0].suggestion.as_deref(), Some("[-20, -16]"));
+    let report = load_str(
+        "version = 0\nexpect = { peak_dbfs = [-1] }\n[[layers]]\n",
+        Format::Toml,
+    )
+    .unwrap_err();
+    assert_eq!(report.errors[0].path, "expect.peak_dbfs");
+    // An unknown line is an error with a suggestion, like any field.
+    let report = load_str(
+        "version = 0\nexpect = { roughnes = \"high\" }\n[[layers]]\n",
+        Format::Toml,
+    )
+    .unwrap_err();
+    assert_eq!(report.errors[0].path, "expect.roughnes");
+    assert_eq!(report.errors[0].suggestion.as_deref(), Some("roughness"));
+}

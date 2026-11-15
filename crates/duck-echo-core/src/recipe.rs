@@ -115,6 +115,12 @@ pub struct Recipe {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 
+    /// What the sound should measure as: `analyze` (and `render`) report
+    /// pass or fail for each line. Not used by the renderer. For example
+    /// `expect = { roughness = "high", loudness_lufs = [-20, -16] }`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Expect>,
+
     /// Random seed. Same recipe + same seed = byte-identical audio.
     /// Drives the noise source and the `variation` jitter. Default `0`.
     #[serde(default)]
@@ -151,6 +157,59 @@ pub struct Recipe {
     /// Master effect chain, applied in order to the mixed layers.
     #[serde(default)]
     pub effects: Vec<Effect>,
+}
+
+/// How much of something a sound has, as `analyze` measures it (its
+/// `feel`): see `docs/ANALYSIS.md` for each measure's thresholds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Amount {
+    /// Little or none.
+    Low,
+    /// Some.
+    Medium,
+    /// A lot.
+    High,
+}
+
+impl Amount {
+    /// The word: `low`, `medium` or `high`.
+    pub fn word(self) -> &'static str {
+        match self {
+            Amount::Low => "low",
+            Amount::Medium => "medium",
+            Amount::High => "high",
+        }
+    }
+}
+
+/// What a sound should measure as. Not used by the renderer: `analyze`
+/// and `render` check each line that is written and report pass or fail.
+/// Ranges are `[lowest, highest]`, both included.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Expect {
+    /// Fast loudness wobble (growls, screams): `low`, `medium` or `high`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roughness: Option<Amount>,
+    /// Energy around 2 to 5 kHz (harsh, piercing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharpness: Option<Amount>,
+    /// Energy below 80 Hz.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boom: Option<Amount>,
+    /// How much the sound changes over time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub movement: Option<Amount>,
+    /// Loudness in LUFS, `[lowest, highest]`, such as `[-20, -16]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loudness_lufs: Option<Vec<f32>>,
+    /// Peak in dBFS, `[lowest, highest]`, such as `[-6, -1]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peak_dbfs: Option<Vec<f32>>,
+    /// Length in seconds, `[shortest, longest]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<Vec<f32>>,
 }
 
 /// Master output stage.
@@ -729,6 +788,7 @@ impl Recipe {
             name: None,
             description: None,
             tags: Vec::new(),
+            expect: None,
             seed: 0,
             sample_rate: DEFAULT_SAMPLE_RATE,
             channels: 1,

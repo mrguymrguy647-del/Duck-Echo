@@ -10,6 +10,7 @@ use std::path::Path;
 
 pub mod commands;
 pub mod examples;
+pub mod expect;
 pub mod files;
 pub mod guide;
 pub mod history;
@@ -258,6 +259,9 @@ pub struct Rendered {
     /// The picture as PNG bytes, not serialized.
     #[serde(skip)]
     pub png: Option<Vec<u8>>,
+    /// For a recipe with `expect`: each line, checked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expect: Option<expect::Expected>,
 }
 
 /// Render a validated recipe to a WAV file, optionally overriding the
@@ -304,6 +308,7 @@ fn rendered(output: &Path, seed: u64, measured: Measured) -> Rendered {
         note_check: measured.note_check,
         picture: measured.picture,
         png: measured.png,
+        expect: measured.expect,
     }
 }
 

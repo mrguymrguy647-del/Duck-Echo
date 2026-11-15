@@ -15,6 +15,26 @@
         }
       ]
     },
+    "Amount": {
+      "description": "How much of something a sound has, as `analyze` measures it (its\n`feel`): see `docs/ANALYSIS.md` for each measure's thresholds.",
+      "oneOf": [
+        {
+          "const": "low",
+          "description": "Little or none.",
+          "type": "string"
+        },
+        {
+          "const": "medium",
+          "description": "Some.",
+          "type": "string"
+        },
+        {
+          "const": "high",
+          "description": "A lot.",
+          "type": "string"
+        }
+      ]
+    },
     "Arpeggio": {
       "additionalProperties": false,
       "description": "Stepped pitch offsets, the classic chiptune arpeggio.",
@@ -308,6 +328,90 @@
           "maximum": 30,
           "minimum": 0,
           "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "Expect": {
+      "additionalProperties": false,
+      "description": "What a sound should measure as. Not used by the renderer: `analyze`\nand `render` check each line that is written and report pass or fail.\nRanges are `[lowest, highest]`, both included.",
+      "properties": {
+        "boom": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Amount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Energy below 80 Hz."
+        },
+        "duration_seconds": {
+          "description": "Length in seconds, `[shortest, longest]`.",
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "loudness_lufs": {
+          "description": "Loudness in LUFS, `[lowest, highest]`, such as `[-20, -16]`.",
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "movement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Amount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How much the sound changes over time."
+        },
+        "peak_dbfs": {
+          "description": "Peak in dBFS, `[lowest, highest]`, such as `[-6, -1]`.",
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "roughness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Amount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Fast loudness wobble (growls, screams): `low`, `medium` or `high`."
+        },
+        "sharpness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Amount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Energy around 2 to 5 kHz (harsh, piercing)."
         }
       },
       "type": "object"
@@ -954,6 +1058,17 @@
             "$ref": "#/$defs/Effect"
           },
           "type": "array"
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the sound should measure as: `analyze` (and `render`) report\npass or fail for each line. Not used by the renderer. For example\n`expect = { roughness = \"high\", loudness_lufs = [-20, -16] }`."
         },
         "layers": {
           "default": [],

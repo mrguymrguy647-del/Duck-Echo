@@ -30,6 +30,7 @@ which renders a 0.205 s square-wave blip at 440 Hz.
 | `name` | string | none | | For humans and agents; ignored by the renderer. |
 | `description` | string | none | | One sentence for humans and agents; ignored by the renderer. |
 | `tags` | array of strings | `[]` | | Search tags such as `["pickup", "bright"]`; ignored by the renderer. Presets put their category first. |
+| `expect` | table | none | | What the sound should measure as; `analyze` and `render` check each line and report pass or fail (see `expect`). Ignored by the renderer. |
 | `seed` | integer | `0` | 0..2^63 | Drives the noise source and `variation`. Same recipe and seed give identical audio. |
 | `sample_rate` | integer | `44100` | 8000..192000 | Output rate in Hz. |
 | `channels` | integer | `1` | 1..2 | `1` mono, `2` stereo (see Stereo). |
@@ -146,6 +147,12 @@ segments are linear. The layer's length is the sum of the five times.
 A zero-length envelope is an error. `sustain > 0` with no `sustain_time`
 and no `release` gives a warning because the sound stops abruptly.
 
+A layer may last as long as a whole recipe: its `offset` plus its
+envelope's length may be up to 60 s (each time above is up to 30 s). A
+longer layer is an error at `layers[n].envelope`, unless `duration` is
+set, which cuts the sound on purpose. (Before, layers were cut at 30 s
+without a word.)
+
 ### `layers[].pitch`
 
 | Field | Type | Default | Range | Meaning |
@@ -196,6 +203,29 @@ clamped below 45% of the sample rate.
 Cutoff is clamped to 45% of the sample rate. Coefficients update every 16
 samples, which is inaudible for sweeps but means the filter is not sample
 accurate.
+
+### `expect`
+
+What the sound should be, written down so `analyze` (and `render`) can
+check it. The renderer ignores it. Each line that is written is checked;
+the result's `expect` lists them with `wanted`, `got` and `pass`, and the
+summary ends with "expect: all 3 met" or "EXPECT: 2 of 3 met (roughness is
+low, wanted high)". A solo or mute hears only part of the sound, so it
+is not checked then.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `roughness`, `sharpness`, `boom`, `movement` | `"low"`, `"medium"` or `"high"` | The analysis's `feel` (see `docs/ANALYSIS.md`, How it feels). |
+| `loudness_lufs` | `[lowest, highest]` | Loudness. |
+| `peak_dbfs` | `[lowest, highest]` | Peak. |
+| `duration_seconds` | `[shortest, longest]` | Length. |
+
+A range is two numbers, lowest first; anything else is an error at its
+path, with the fix as a suggestion.
+
+```toml
+expect = { roughness = "high", loudness_lufs = [-20, -16] }   # a scream
+```
 
 ### `layers[].lfo`
 

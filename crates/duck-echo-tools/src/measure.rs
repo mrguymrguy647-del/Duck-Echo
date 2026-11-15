@@ -158,6 +158,10 @@ pub struct Measured {
     /// The picture as PNG bytes; not serialized.
     #[serde(skip)]
     pub png: Option<Vec<u8>>,
+    /// For a recipe with `expect`: each line, checked against this
+    /// analysis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expect: Option<crate::expect::Expected>,
 }
 
 /// A measured recipe and the audio that was measured.
@@ -187,6 +191,7 @@ pub fn measure_audio(buffer: &AudioBuffer, extras: &Extras) -> Result<Measured, 
         note_check: None,
         picture,
         png,
+        expect: None,
     })
 }
 
@@ -232,9 +237,21 @@ pub fn measure_recipe(
         None
     };
     let (picture, png) = picture_of(&buffer, &analysis, extras);
+    // What the recipe says it should be, checked. (A solo or mute hears
+    // only part of the sound, so it is not checked then.)
+    let expect = recipe
+        .expect
+        .as_ref()
+        .filter(|_| !extras.isolates())
+        .map(|e| crate::expect::check(e, &analysis));
+    if let Some(e) = &expect {
+        analysis.summary.push_str(", ");
+        analysis.summary.push_str(&crate::expect::summary_words(e));
+    }
     Ok(RecipeMeasurement {
         buffer,
         measured: Measured {
+            expect,
             analysis,
             warnings,
             heard_layers: extras.isolates().then_some(heard),
@@ -616,6 +633,7 @@ pub fn measure_song(
             note_check,
             picture,
             png,
+            expect: None,
         },
     })
 }

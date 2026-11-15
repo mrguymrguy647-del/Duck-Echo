@@ -124,6 +124,41 @@ impl Validator {
                 .one_of([CURRENT_VERSION.to_string()]),
             );
         }
+        if let Some(e) = &r.expect {
+            for (field, pair) in [
+                ("loudness_lufs", &e.loudness_lufs),
+                ("peak_dbfs", &e.peak_dbfs),
+                ("duration_seconds", &e.duration_seconds),
+            ] {
+                let Some(pair) = pair else { continue };
+                let path = format!("expect.{field}");
+                let ok = pair.len() == 2 && pair[0].is_finite() && pair[1].is_finite();
+                if !ok {
+                    self.report.push(
+                        Issue::error(
+                            Code::Invalid,
+                            &path,
+                            format!(
+                                "`{field}` is two numbers, the lowest and the highest: [-20, -16]"
+                            ),
+                        )
+                        .suggest("[-20, -16]"),
+                    );
+                } else if pair[0] > pair[1] {
+                    self.report.push(
+                        Issue::error(
+                            Code::Invalid,
+                            &path,
+                            format!(
+                                "the lowest ({}) is above the highest ({}); write them the other way round",
+                                pair[0], pair[1]
+                            ),
+                        )
+                        .suggest(format!("[{}, {}]", pair[1], pair[0])),
+                    );
+                }
+            }
+        }
         self.check("sample_rate", r.sample_rate as f32, ranges::SAMPLE_RATE);
         self.check("channels", r.channels as f32, ranges::CHANNELS);
         self.check("variation", r.variation, ranges::VARIATION);
