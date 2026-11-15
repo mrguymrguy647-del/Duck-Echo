@@ -885,6 +885,14 @@ this tests the same sharing with a text editor, and the Copy button:
    History shows "Changed outside the Studio".
 4. Press **Ctrl+Z** in the Studio. The coin is back as it was.
 
+**As built** (step 10): the note and History are as designed, in the
+sound editor and the song timeline; History marks the assistant's steps
+in cyan. Playtest 3 (`docs/playtest-3.md`) ran the real MCP server
+against the Studio code with no window, as a test that CI repeats.
+Two things it found are fixed: typing could be saved over an
+assistant's change (now Keep mine or Use theirs), and a step that took
+an undone step's number went unnoticed.
+
 ---
 
 ## 10. Risks and open questions

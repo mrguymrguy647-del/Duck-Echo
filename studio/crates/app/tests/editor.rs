@@ -284,3 +284,55 @@ fn export_wav_writes_exactly_what_render_writes() {
     assert!(editor::export_place(&root, "coin.toml").ends_with("exports/coin 2.wav"));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn typing_never_saves_over_a_change_made_meanwhile() {
+    let (dir, root) = project("conflict");
+    let before = file(&dir);
+    let mut editor = Editor::open(&root, "coin.toml").unwrap();
+    let start = Instant::now();
+    // The person types...
+    editor.text = before.replace("decay = 0.25", "decay = 0.6");
+    editor.typed(start);
+    // ...and meanwhile an AI assistant changes the volume.
+    let command = commands::parse(
+        "sound_set",
+        &json!({"file": "coin.toml", "path": "layers[0].duty", "value": 0.3}),
+        "",
+    )
+    .unwrap();
+    commands::run(&Project::new(&root), command, Who::Agent, None, "").unwrap();
+    let theirs = file(&dir);
+    // The typing is not saved over it: the person is asked.
+    let said = editor.tick(&root, start + TYPING_PAUSE * 2);
+    assert!(said.is_some_and(|s| s.contains("Keep mine")));
+    assert_eq!(file(&dir), theirs);
+    assert!(editor.conflict.is_some());
+    assert!(
+        editor
+            .visit
+            .as_ref()
+            .is_some_and(|v| v.text.starts_with("AI assistant"))
+    );
+    // Use theirs: the file as it is, the typing dropped.
+    editor.use_theirs(&root);
+    assert_eq!(editor.text, theirs);
+    // Again, and this time Keep mine: the typing is saved over theirs,
+    // and their change is still in the History.
+    editor.text = theirs.replace("decay = 0.25", "decay = 0.6");
+    editor.typed(start);
+    let command = commands::parse(
+        "sound_set",
+        &json!({"file": "coin.toml", "path": "layers[0].duty", "value": 0.4}),
+        "",
+    )
+    .unwrap();
+    commands::run(&Project::new(&root), command, Who::Agent, None, "").unwrap();
+    assert!(editor.tick(&root, start + TYPING_PAUSE * 2).is_some());
+    editor.keep_mine(&root).unwrap();
+    assert!(file(&dir).contains("decay = 0.6"));
+    let steps = Project::new(&root).history_list(5).unwrap().steps;
+    assert_eq!(steps[0].who, "You");
+    assert_eq!(steps[1].who, "AI assistant");
+    std::fs::remove_dir_all(&dir).ok();
+}

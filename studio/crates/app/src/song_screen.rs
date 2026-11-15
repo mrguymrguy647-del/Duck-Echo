@@ -12,6 +12,7 @@ use crate::app::StudioApp;
 use crate::song_edit::{self, Edit};
 use crate::song_view::{Block, ClipDrag, Lane, NoteDrag, SongView, shown_beat};
 use crate::theme;
+use crate::together;
 
 /// The width of the track names on the left.
 const HEADER: f32 = 200.0;
@@ -163,6 +164,7 @@ impl StudioApp {
         let mut play = None;
         let mut stop = false;
         let mut actions = Vec::new();
+        let mut undo_visit = false;
 
         egui::Panel::top("song bar").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -184,6 +186,7 @@ impl StudioApp {
                 if ui.button("Stop").clicked() {
                     stop = true;
                 }
+                ui.toggle_value(&mut view.history_open, "History");
                 if playing_here && self.speakers.song_getting_ready() {
                     ui.spinner();
                     ui.label(RichText::new("Getting the song ready...").weak());
@@ -217,6 +220,13 @@ impl StudioApp {
                     );
                 }
             });
+            if let Some(visit) = view.visit.as_ref().filter(|v| v.shows(Instant::now())) {
+                if together::note(ui, visit) {
+                    undo_visit = true;
+                }
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(200));
+            }
             if view.gone {
                 ui.label(
                     RichText::new(format!(
@@ -263,6 +273,12 @@ impl StudioApp {
             ui.add_space(2.0);
         });
 
+        if view.history_open {
+            egui::Panel::right("song history")
+                .default_size(250.0)
+                .show(ui, |ui| together::history(ui, &view.history));
+        }
+
         egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::both()
                 .auto_shrink(false)
@@ -306,6 +322,12 @@ impl StudioApp {
         }
         if stop {
             self.stop();
+        }
+        if undo_visit {
+            if let Some(view) = &mut self.song_view {
+                view.visit = None;
+            }
+            self.undo();
         }
         if back {
             self.close_song();

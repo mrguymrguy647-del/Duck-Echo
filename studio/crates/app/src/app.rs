@@ -128,6 +128,8 @@ pub struct StudioApp {
     pub about_open: bool,
     /// The Settings window is open.
     pub settings_open: bool,
+    /// Copy was pressed in Settings > Connect an AI assistant.
+    pub connect_copied: bool,
     /// The Linux app-menu entry.
     pub app_menu: AppMenu,
     /// The level and length each built-in sound's rendered file has,
@@ -180,6 +182,7 @@ impl StudioApp {
             note_is_problem: false,
             about_open: false,
             settings_open: false,
+            connect_copied: false,
             app_menu,
             masterings: BTreeMap::new(),
             smoke_test: std::env::var_os("DUCK_ECHO_STUDIO_SMOKE_TEST").map(PathBuf::from),
@@ -397,10 +400,25 @@ impl StudioApp {
     fn settings_window(&mut self, ctx: &egui::Context) {
         let mut close = false;
         egui::Modal::new(egui::Id::unique("settings")).show(ctx, |ui| {
-            ui.set_width(460.0);
+            ui.set_width(520.0);
             ui.heading("Settings");
             ui.add_space(6.0);
+            egui::ScrollArea::vertical()
+                .max_height(560.0)
+                .show(ui, |ui| self.settings_body(ui));
+            ui.add_space(10.0);
+            if ui.add(theme::primary_button("Close")).clicked() {
+                close = true;
+            }
+        });
+        if close {
+            self.settings_open = false;
+        }
+    }
 
+    /// What Settings holds, inside its scroll area.
+    fn settings_body(&mut self, ui: &mut egui::Ui) {
+        {
             ui.label(RichText::new("Your sounds and songs").strong());
             ui.label(self.project.display().to_string());
             if ui.button("Open the folder").clicked() {
@@ -462,13 +480,49 @@ impl StudioApp {
                     }
                 }
             }
-            ui.add_space(10.0);
-            if ui.add(theme::primary_button("Close")).clicked() {
-                close = true;
-            }
-        });
-        if close {
-            self.settings_open = false;
+            ui.add_space(8.0);
+            self.connect_section(ui);
+        }
+    }
+
+    /// Settings > Connect an AI assistant: the lines to paste, and Copy.
+    fn connect_section(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new("Connect an AI assistant").strong());
+        ui.label(
+            "An AI assistant such as Claude Desktop can make and change your sounds and songs \
+             with Duck Echo's tools. It works on this same folder and shares your Undo \
+             history, so you see its changes here, and Ctrl+Z takes them back.",
+        );
+        let server = crate::connect::server(&self.project, self.app_menu.appimage.as_deref());
+        let text = crate::connect::config_text(&server);
+        if !server.found {
+            ui.label(
+                RichText::new(format!(
+                    "Duck Echo's MCP server was not found at {}. The installer and the AppImage \
+                     include it; a Studio built from source needs it built next to it.",
+                    server.command.display()
+                ))
+                .color(theme::LOOK),
+            );
+        }
+        let mut shown = text.clone();
+        ui.add(
+            egui::TextEdit::multiline(&mut shown)
+                .code_editor()
+                .desired_rows(7)
+                .desired_width(f32::INFINITY)
+                .interactive(false),
+        );
+        if ui.add(theme::primary_button("Copy")).clicked() {
+            ui.ctx().copy_text(text);
+            self.say("Copied. Paste it into your AI assistant's settings.".into());
+            self.connect_copied = true;
+        }
+        if self.connect_copied {
+            ui.label(RichText::new("Copied.").color(theme::ECHO_CYAN));
+        }
+        for step in crate::connect::steps() {
+            ui.label(RichText::new(*step).small());
         }
     }
 

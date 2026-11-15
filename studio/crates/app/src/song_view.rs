@@ -413,6 +413,14 @@ pub struct SongView {
     /// Where a right-click on a lane happened: its track and beat (for
     /// "Place pattern" in the menu that opens).
     pub menu_at: Option<(usize, f64)>,
+    /// The History panel is open.
+    pub history_open: bool,
+    /// The steps of the shared history, newest first.
+    pub history: Vec<duck_echo_tools::project::HistoryLine>,
+    /// What the timeline has seen of the shared history.
+    watch: crate::together::Watch,
+    /// Someone else's change to this song, for the three-second note.
+    pub visit: Option<crate::together::Visit>,
 }
 
 /// A note being dragged: moved (in time and pitch) or stretched.
@@ -478,6 +486,10 @@ impl SongView {
             clip_drag: None,
             volume_drag: None,
             menu_at: None,
+            history_open: false,
+            history: Vec::new(),
+            watch: crate::together::Watch::new(root),
+            visit: None,
         };
         view.take(root, text);
         Ok(view)
@@ -493,6 +505,9 @@ impl SongView {
     /// Show `text`, the file's text now, and check its notes.
     fn take(&mut self, root: &Root, text: String) {
         self.text = text;
+        if let Ok(list) = duck_echo_tools::project::Project::new(root).history_list(50) {
+            self.history = list.steps;
+        }
         match library::load_song(root, library::folder_of(&self.rel), &self.text) {
             Ok((song, arrangement)) => {
                 self.lanes = lanes(&song, &arrangement);
@@ -539,6 +554,9 @@ impl SongView {
             Ok(text) => {
                 self.gone = false;
                 if text != self.text {
+                    if let Some(visit) = self.watch.changed(root, &self.rel, now) {
+                        self.visit = Some(visit);
+                    }
                     self.take(root, text);
                     return self.loaded.is_some();
                 }

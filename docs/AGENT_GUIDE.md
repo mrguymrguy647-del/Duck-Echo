@@ -22,6 +22,9 @@ Never write a sound from nothing, and never change many things at once.
 3. **Change one thing.** `edit` with one op, for example
    `{"path": "layers[0].pitch.start", "value": "C6"}`. Only that value
    changes in the file: a person's comments and layout stay.
+   A person may have the same file open in Duck Echo Studio: they see
+   your change within a second, with your step's title, and can undo it.
+   `edit_history` shows their steps as "You".
 4. **Render.** `render` with an `output` such as `sfx/coin.wav`. The
    result already holds the analysis.
 5. **Read the numbers.** Start with `summary`. Then look at the one field

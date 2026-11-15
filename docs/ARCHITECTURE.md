@@ -60,6 +60,10 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
                            (editor.rs for its state, saves and renders,
                            controls.rs for the sliders made from the
                            schema, sound_screen.rs to draw it), the
+                           a person and an AI assistant together
+                           (together.rs: notes about others' changes,
+                           the History panel; connect.rs: Settings >
+                           Connect an AI assistant), the
                            song timeline (song_view.rs for its lanes,
                            mute, solo and note check, song_edit.rs for
                            the commands its edits run, song_screen.rs to
@@ -606,6 +610,22 @@ each; a drag runs its command once, on release. A test makes a song with
 these commands and checks it renders the same WAV bytes as the same song
 written by hand. The screen counts beats from 1; files and commands
 count from 0.
+
+**A person and an agent together** (`together.rs`). The Studio and the
+MCP server share only the project folder: its files and its history. The
+editor and the timeline look at the open file twice a second; when it
+changed, `Project::notice_outside` first records a change no Duck Echo
+program made ("Changed outside Duck Echo", by `outside`), then the
+newest steps someone else made to that file give the three-second note,
+with Undo. Steps are known by number, time and title, since an Undo
+frees its number for the next step. Typed text is saved whole, so before
+saving it the editor checks the file still holds what the typing started
+from; if not, the person chooses Keep mine or Use theirs. Settings >
+Connect an AI assistant (`connect.rs`) writes the lines for Claude
+Desktop: `duck-echo-mcp` next to the Studio (or the AppImage with `mcp`)
+and `--root` set to the sounds folder. The test
+`studio/crates/app/tests/together.rs` runs the real MCP server and the
+Studio code on one sound (playtest 3, `docs/playtest-3.md`).
 
 **Home runs commands, nothing else.** Every button on Home that changes a
 file (New sound, New song, Make a copy, Rename, Duplicate, Delete, Undo,

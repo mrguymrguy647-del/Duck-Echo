@@ -24,7 +24,10 @@ a file stay, whatever changes it. Click a song to see it in the song
 timeline: a lane per track with its notes and patterns, the bars, the
 loop and the play head, with Mute and Solo for each track. Double-click
 to add a note, drag notes and pattern clips about, and change a track's
-instrument and volume; Ctrl+Z takes any of it back.
+instrument and volume; Ctrl+Z takes any of it back. Settings > Connect
+an AI assistant gives the lines to paste into Claude Desktop; then you
+and the assistant work on the same sounds, you see its changes within a
+second with a note saying so, and History shows who did what.
 
 * **Windows:** download `DuckEchoStudioSetup.exe` from the
   [Releases page](https://github.com/mrguymrguy647-del/Duck-Echo/releases)

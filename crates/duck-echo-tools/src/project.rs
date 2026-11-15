@@ -224,6 +224,22 @@ impl<'r> Project<'r> {
         }
     }
 
+    /// Look at `rel` now, and if it was changed outside Duck Echo (a text
+    /// editor, a sync tool) since the history last saw it, record that as
+    /// a step of its own ("Changed outside Duck Echo"), so it shows in the
+    /// History and Undo never jumps over it. The Studio calls this when it
+    /// sees a file it has open change on disk. Returns true when a step
+    /// was added.
+    pub fn notice_outside(&self, rel: &str) -> Result<bool, ToolError> {
+        let history = self.history();
+        let _lock = self.lock()?;
+        let before = history.steps()?.first().map(|s| s.number);
+        let now = read_text(&self.full(rel))?;
+        self.note_outside(&history, rel, &now)?;
+        let after = history.steps()?.first().map(|s| s.number);
+        Ok(after != before)
+    }
+
     /// Note any change made outside Duck Echo to `rel`, whose text is now
     /// `now`, as a step of its own. Call with the lock held.
     fn note_outside(
@@ -668,6 +684,31 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "two");
         p.undo(Who::Person).unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "one");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_change_made_outside_is_noticed_as_a_step_of_its_own() {
+        let dir = project_dir("notice");
+        let root = Root::new(&dir).unwrap();
+        let project = Project::new(&root);
+        project
+            .apply(&["a.toml".to_string()], Who::Agent, None, |_| {
+                Ok(Plan {
+                    title: "Make a".into(),
+                    writes: vec![("a.toml".into(), Some("version = 0\n".into()))],
+                })
+            })
+            .unwrap();
+        // Nothing changed outside: no step.
+        assert!(!project.notice_outside("a.toml").unwrap());
+        std::fs::write(dir.join("a.toml"), "version = 0\n# by hand\n").unwrap();
+        assert!(project.notice_outside("a.toml").unwrap());
+        let steps = project.history_list(5).unwrap().steps;
+        assert_eq!(steps[0].by, Who::Outside);
+        assert_eq!(steps[0].title, "Changed outside Duck Echo: a.toml");
+        // Seen once is enough.
+        assert!(!project.notice_outside("a.toml").unwrap());
         std::fs::remove_dir_all(&dir).ok();
     }
 

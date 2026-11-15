@@ -8,6 +8,7 @@
 
 pub mod app;
 pub mod app_menu;
+pub mod connect;
 pub mod controls;
 pub mod editor;
 pub mod home;
@@ -19,6 +20,7 @@ pub mod song_view;
 pub mod sound_screen;
 pub mod speaker;
 pub mod theme;
+pub mod together;
 pub mod update;
 pub mod update_banner;
 

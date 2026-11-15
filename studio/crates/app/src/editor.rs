@@ -221,6 +221,14 @@ pub struct Editor {
     pub play_when_ready: Option<bool>,
     /// The recipe of the newest text that works.
     recipe: Option<Recipe>,
+    /// What the editor has seen of the shared history.
+    watch: crate::together::Watch,
+    /// Someone else's change to this file, for the three-second note.
+    pub visit: Option<crate::together::Visit>,
+    /// The file's text when someone else changed it while the person was
+    /// typing: the typing is not saved over it until the person chooses
+    /// (see [`Editor::keep_mine`] and [`Editor::use_theirs`]).
+    pub conflict: Option<String>,
     /// What the speakers play, kept in step with each edit.
     pub live: Live,
 }
@@ -253,6 +261,9 @@ impl Editor {
             play_when_ready: None,
             recipe: None,
             live: Live::default(),
+            watch: crate::together::Watch::new(root),
+            visit: None,
+            conflict: None,
         };
         editor.check_text(true);
         editor.read_history(root);
@@ -375,8 +386,23 @@ impl Editor {
             return Ok(());
         }
         self.typed_at = None;
-        if self.text == self.saved {
+        if self.text == self.saved || self.conflict.is_some() {
             return Ok(());
+        }
+        // Saving the whole text over a file someone else changed meanwhile
+        // would quietly undo their change. Ask first.
+        if let Ok(disk) = read(root, &self.rel)
+            && disk != self.saved
+        {
+            self.conflict = Some(disk);
+            if let Some(visit) = self.watch.changed(root, &self.rel, Instant::now()) {
+                self.visit = Some(visit);
+            }
+            return Err(
+                "The file changed while you typed (an AI assistant or another program). \
+                 Choose Keep mine or Use theirs."
+                    .into(),
+            );
         }
         let text = self.text.clone();
         self.run(
@@ -548,14 +574,46 @@ impl Editor {
         match read(root, &self.rel) {
             Ok(text) => {
                 self.gone = false;
-                if text != self.saved && self.typed_at.is_none() && self.drag.is_none() {
+                if text != self.saved
+                    && self.typed_at.is_none()
+                    && self.drag.is_none()
+                    && self.conflict.is_none()
+                {
                     self.saved = text.clone();
                     self.text = text;
                     self.check_text(true);
+                    // Who changed it? An AI assistant or another program
+                    // gets the three-second note.
+                    if let Some(visit) = self.watch.changed(root, &self.rel, Instant::now()) {
+                        self.visit = Some(visit);
+                    }
                     self.read_history(root);
                 }
             }
             Err(_) => self.gone = true,
+        }
+    }
+
+    /// After a conflict: save the person's text over the file. The other
+    /// change stays in the History, so Undo can still bring it back.
+    pub fn keep_mine(&mut self, root: &Root) -> Result<(), String> {
+        let Some(theirs) = self.conflict.take() else {
+            return Ok(());
+        };
+        self.saved = theirs;
+        self.typed_at = Some(Instant::now());
+        self.save_typing(root)
+    }
+
+    /// After a conflict: drop the person's typing and take the file as it
+    /// is now.
+    pub fn use_theirs(&mut self, root: &Root) {
+        if let Some(theirs) = self.conflict.take() {
+            self.saved = theirs.clone();
+            self.text = theirs;
+            self.typed_at = None;
+            self.check_text(true);
+            self.read_history(root);
         }
     }
 
@@ -578,6 +636,10 @@ impl Editor {
     /// Before an Undo or Redo: save what waits. If the typed text has a
     /// mistake, Undo takes the typing back instead: returns true then.
     pub fn before_undo(&mut self, root: &Root, now: Instant) -> bool {
+        if self.conflict.is_some() {
+            // Keep mine or Use theirs first; Undo would only confuse it.
+            return true;
+        }
         let _ = self.release(root, now);
         if self.typed_at.is_some() || self.text != self.saved {
             if self.works() {

@@ -991,7 +991,8 @@ fn settings_add_and_remove_the_app_menu_entry() {
     let mut harness = harness(app(&dir, linux_app_menu(&dir, false)), true);
     harness.run_steps(2);
     harness.get_by_label("Settings").click();
-    harness.run_steps(3);
+    // Let the window size and centre itself before clicking in it.
+    harness.run_steps(30);
     harness.get_by_label("Duck Echo Studio is not in your app menu.");
     harness.get_by_label("Add to app menu").click();
     harness.run_steps(3);

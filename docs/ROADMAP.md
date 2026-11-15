@@ -22,7 +22,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 |---|---|---|
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
 | 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops, the agent guide | done |
-| 2 | Duck Echo Studio: an app for people, with no terminal | |
+| 2 | Duck Echo Studio: an app for people, with no terminal | done |
 | 3 | Link with Duck Forge, the game engine | |
 | 4 | Duck Ear: listening models | |
 | 5 | Voices made from math only | |
@@ -775,6 +775,18 @@ Lessons for the next builder:
   slightly different `got`, and pruned the value. It now reads the
   schema without ranges; the published schema adds them.
 
+Lessons for the next builder (step 7):
+
+* **A normalized sound fights a volume slider.** Turning a layer up
+  makes `normalize` turn the whole sound down, so the speakers would be
+  louder than the file. The live volume change is followed, when the
+  render arrives, by a slide of the level to the file's new gain.
+* **Only the newest render plays.** A drag asks for many renders; an
+  older one arriving late would undo the live changes for a moment.
+* **Name every control, or the screen tests fail.** egui_kittest checks
+  that every widget has a name. A slider's own number box cannot be
+  named, so the panel draws its own number box beside the slider.
+
 ### 24. Song timeline [done: Phase 2 steps 8 and 9]
 
 * Tracks as lanes, notes as blocks, patterns as reusable clips, a play
@@ -869,7 +881,7 @@ Lessons for the next builder (step 9):
 * **Hearing a note is a help, not the change.** With no speakers the
   note is still added and said; only Play says why nothing is heard.
 
-### 25. Every button is a command, with Undo [command layer done: step 1]
+### 25. Every button is a command, with Undo [done: Phase 2 steps 1 to 10]
 
 * Each action in the Studio is a named command (for example
   `set_layer_volume`, `add_note`) with arguments, recorded on an undo
@@ -906,8 +918,71 @@ Done in Phase 2 step 1 (see `docs/phase2-design.md`, section 3):
   exactly; the real CLI and the real MCP server add 40 layers each to one
   file at the same moment and none is lost; retry-then-refuse; a stale
   lock; Undo after an outside change.
-* [ ] The Studio's buttons (steps 3 to 8 of the design) build these
-  commands.
+* [x] The Studio's buttons build these commands (steps 5 to 9): Home,
+  the sound editor and the song timeline run them as the person.
+
+Done in Phase 2 step 10 (a person and an agent together):
+
+* [x] The Studio notices an AI assistant's change to the open sound or
+  song (it looks twice a second), and a note says so for three seconds,
+  with Undo right there: "AI assistant: Set layers[0].envelope.decay to
+  0.5 in coin.toml" (`studio/crates/app/src/together.rs`).
+* [x] A change made by a program that is not Duck Echo (a text editor, a
+  sync tool) is recorded as its own step, "Changed outside Duck Echo",
+  when the Studio sees it (`Project::notice_outside`), noted the same
+  way, and undoable.
+* [x] History lists every step with "You", "AI assistant" or "Outside
+  Duck Echo", in the sound editor and now in the song timeline too.
+* [x] Settings > Connect an AI assistant: the lines for Claude Desktop's
+  config (the MCP server next to the Studio on Windows, the AppImage with
+  `mcp` on Linux, `--root` set to the sounds folder), a Copy button and
+  the steps (`studio/crates/app/src/connect.rs`).
+* [x] Playtest 3 (`docs/playtest-3.md`): the real MCP server and the real
+  Studio code on one sound and one song; scripted in
+  `studio/crates/app/tests/together.rs`, so CI plays it on Windows and
+  Linux.
+* [x] Found in the playtest and fixed: typing saved over an assistant's
+  change made meanwhile (now **Keep mine** or **Use theirs**); a new step
+  after an Undo was not noticed (steps are now known by number, time and
+  title).
+
+Lessons for the next builder (step 10):
+
+* **Step numbers come back after an Undo.** The next new step takes the
+  undone step's number. Anything that remembers "the steps I have seen"
+  must remember more than the number.
+* **Whole-text saves need a look first.** `file_set_text` writes the
+  text it is given; a command that changes data merges by itself, but
+  typed text does not. Check the file still holds what the typing
+  started from.
+* **A new window settles over its first frames.** egui sizes and centres
+  a window over a few frames; a test (or a very quick person) clicking
+  at once can miss. The tests let it settle for half a second.
+* **Test with the real other program.** The playtest found both bugs
+  only because the MCP server ran as its own process on the same folder.
+
+### Phase 2 is done
+
+The Studio: install on Windows (setup) or Linux (AppImage), Home with
+your sounds and the gallery, the sound editor (text, sliders from the
+schema, live sound, Export WAV), the song timeline (look, play, edit),
+one Undo history shared with AI assistants, and Connect an AI
+assistant. Every change is a named command that agents have too.
+
+Lessons for Phase 3, from the whole of Phase 2:
+
+* **Build the shared layer first.** The command layer (step 1) made
+  every later screen small: each button is a command, Undo and agent
+  access came free.
+* **Every screen gets a screen test that walks its checklist**, with the
+  mouse where it can, and pictures in CI. Most bugs of Phase 2 were found
+  there, not by hand.
+* **egui is quick to build with, but check what it does by itself**:
+  rounding slider values, selectable labels, triple clicks, settling
+  windows. Each cost an hour once.
+* **What you hear must be the file.** Every preview, slider and song
+  edit plays the render the file makes; tests compare samples. Keep that
+  rule when the game engine plays these files.
 
 Lessons for the next builder:
 
@@ -953,18 +1028,6 @@ is done. Lessons for the next builder:
   have one, so it now says `spectral_centroid_hz`.
 
 ## Phase 3: link with Duck Forge
-
-Lessons for the next builder (step 7):
-
-* **A normalized sound fights a volume slider.** Turning a layer up
-  makes `normalize` turn the whole sound down, so the speakers would be
-  louder than the file. The live volume change is followed, when the
-  render arrives, by a slide of the level to the file's new gain.
-* **Only the newest render plays.** A drag asks for many renders; an
-  older one arriving late would undo the live changes for a moment.
-* **Name every control, or the screen tests fail.** egui_kittest checks
-  that every widget has a name. A slider's own number box cannot be
-  named, so the panel draws its own number box beside the slider.
 
 ### 13. Save into a game, with live reload
 

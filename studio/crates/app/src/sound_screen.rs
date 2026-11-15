@@ -12,6 +12,7 @@ use eframe::egui::{self, RichText};
 use crate::app::StudioApp;
 use crate::editor::{self, Arrival, Editor, Heard};
 use crate::theme;
+use crate::together;
 
 /// A live voice of a render: it plays exactly the file's samples, and a
 /// slider can change it while it plays.
@@ -194,6 +195,8 @@ impl StudioApp {
         let mut play = None;
         let mut stop = false;
         let mut export = None;
+        let mut undo_visit = false;
+        let mut conflict: Option<bool> = None;
         let playing_here = self.playing.as_deref() == Some(key_of(&editor.rel).as_str());
 
         egui::Panel::top("sound bar").show(ui, |ui| {
@@ -233,6 +236,38 @@ impl StudioApp {
                     ui.toggle_value(&mut editor.history_open, "History");
                 });
             });
+            if editor.conflict.is_some() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new(
+                            "While you typed, the file changed (an AI assistant or another \
+                             program). Your text is not saved yet.",
+                        )
+                        .color(theme::LOOK),
+                    );
+                    if ui
+                        .button("Keep mine")
+                        .on_hover_text("Save your text over theirs. Their change stays in History.")
+                        .clicked()
+                    {
+                        conflict = Some(true);
+                    }
+                    if ui
+                        .button("Use theirs")
+                        .on_hover_text("Drop your typing and show the file as it is now")
+                        .clicked()
+                    {
+                        conflict = Some(false);
+                    }
+                });
+            }
+            if let Some(visit) = editor.visit.as_ref().filter(|v| v.shows(now)) {
+                if together::note(ui, visit) {
+                    undo_visit = true;
+                }
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(200));
+            }
             if editor.gone {
                 ui.label(
                     RichText::new(format!(
@@ -290,33 +325,7 @@ impl StudioApp {
         if editor.history_open {
             egui::Panel::right("history")
                 .default_size(250.0)
-                .show(ui, |ui| {
-                    ui.label(
-                        RichText::new("HISTORY")
-                            .small()
-                            .strong()
-                            .color(theme::NIGHT_INDIGO_TEXT),
-                    );
-                    ui.label(
-                        RichText::new("Newest first. Undo takes back the top one.")
-                            .small()
-                            .weak(),
-                    );
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        if editor.history.is_empty() {
-                            ui.label(RichText::new("No changes yet.").weak());
-                        }
-                        let now = duck_echo_tools::history::now_seconds();
-                        for step in &editor.history {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new(step.who).strong());
-                                ui.label(RichText::new(ago(now, step.time)).small().weak());
-                            });
-                            ui.label(&step.title);
-                            ui.add_space(4.0);
-                        }
-                    });
-                });
+                .show(ui, |ui| together::history(ui, &editor.history));
         }
 
         let mut edits = Vec::new();
@@ -393,30 +402,23 @@ impl StudioApp {
         if let Some(ask) = export {
             self.export(&rel, ask);
         }
+        if let (Some(keep), Some(editor), Some(root)) = (conflict, &mut self.editor, &self.root) {
+            if keep {
+                if let Err(why) = editor.keep_mine(root) {
+                    self.warn(why);
+                }
+            } else {
+                editor.use_theirs(root);
+            }
+        }
+        if undo_visit {
+            if let Some(editor) = &mut self.editor {
+                editor.visit = None;
+            }
+            self.undo();
+        }
         if back {
             self.close_editor();
         }
-    }
-}
-
-/// "just now", "3 min ago", "2 h ago", "4 days ago".
-fn ago(now: u64, then: u64) -> String {
-    let s = now.saturating_sub(then);
-    match s {
-        0..=59 => "just now".into(),
-        60..=3599 => format!("{} min ago", s / 60),
-        3600..=86_399 => format!("{} h ago", s / 3600),
-        _ => format!("{} days ago", s / 86_400),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn times_read_plainly() {
-        assert_eq!(super::ago(100, 90), "just now");
-        assert_eq!(super::ago(1000, 100), "15 min ago");
-        assert_eq!(super::ago(10_000, 0), "2 h ago");
-        assert_eq!(super::ago(200_000, 0), "2 days ago");
     }
 }
