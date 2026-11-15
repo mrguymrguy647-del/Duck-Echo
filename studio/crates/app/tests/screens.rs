@@ -42,6 +42,9 @@ fn harness(app: StudioApp, dark: bool) -> Harness<'static, StudioApp> {
     let builder = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
         .with_pixels_per_point(1.0)
+        // A frame a sixtieth of a second, as on a real screen, so a
+        // double-click (two clicks within 0.3 s) is one.
+        .with_step_dt(1.0 / 60.0)
         .with_context_setup(theme::apply_brand);
     let builder = if render { builder.wgpu() } else { builder };
     let harness = builder.build_eframe(|_| app);
@@ -465,7 +468,7 @@ fn open_a_song_in_the_timeline_as_the_checklist_does() {
         button_on(&harness, track, "Solo");
     }
     // 5. Hover over a note: its name, bar and beat show.
-    let note = harness.get_by_label("keys: E5, bar 1, beat 0");
+    let note = harness.get_by_label("keys: E5, bar 1, beat 1");
     note.hover();
     // A tooltip waits half a second.
     harness.run_steps(60);
@@ -526,6 +529,214 @@ fn open_a_song_in_the_timeline_as_the_checklist_does() {
     harness.get_by_label("< Home").click();
     harness.run_steps(2);
     assert!(harness.state().song_view.is_none());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Press and let go of the mouse at `at`, `times` times (2 is a
+/// double-click).
+fn click_at(harness: &mut Harness<'static, StudioApp>, at: egui::Pos2, times: usize) {
+    harness.hover_at(at);
+    // Half a second first: two quick clicks soon after an earlier click
+    // count as a triple-click, not a double-click.
+    harness.run_steps(30);
+    for _ in 0..times {
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+    }
+    harness.run_steps(1);
+    harness.run_steps(2);
+}
+
+/// Drag with the mouse from `from` to `to`, in small moves.
+fn drag(harness: &mut Harness<'static, StudioApp>, from: egui::Pos2, to: egui::Pos2) {
+    harness.hover_at(from);
+    harness.run_steps(1);
+    harness.drag_at(from);
+    harness.run_steps(1);
+    for step in 1..=10 {
+        let at = from + (to - from) * (step as f32 / 10.0);
+        harness.hover_at(at);
+        harness.run_steps(1);
+    }
+    harness.drop_at(to);
+    harness.run_steps(3);
+}
+
+fn song_text(dir: &Path) -> String {
+    std::fs::read_to_string(dir.join("Duck Echo").join("duck_craft_day.toml")).unwrap()
+}
+
+#[test]
+fn edit_the_song_in_the_timeline_as_the_checklist_does() {
+    let dir = folder("song-edit");
+    let mut harness = harness(app(&dir, AppMenu::none()), true);
+    harness.run_steps(2);
+    harness.get_by_label("Example songs").click();
+    harness.run_steps(2);
+    button_on(&harness, "duck_craft_day", "Make a copy").click();
+    harness.run_steps(2);
+    harness.state_mut().open_song("duck_craft_day.toml");
+    harness.run_steps(3);
+    let before = song_text(&dir);
+    let keys_before = {
+        let view = harness.state().song_view.as_ref().unwrap();
+        view.lanes[2].blocks.len()
+    };
+
+    // 1. Double-click an empty spot in the keys lane: a note appears.
+    // The lane's bottom row (two below its lowest note) is empty.
+    let lane = harness.get_by_label("keys lane").rect();
+    let (x0, beat_px) = {
+        let first = harness.get_by_label("keys: E5, bar 1, beat 1").rect();
+        let second = harness.get_by_label("keys: G5, bar 1, beat 2").rect();
+        (first.left() - 1.0, second.left() - first.left())
+    };
+    let spot = egui::pos2(x0 + beat_px * 5.0 + 3.0, lane.bottom() - 11.0);
+    click_at(&mut harness, spot, 2);
+    let added = song_text(&dir);
+    assert_ne!(
+        added,
+        before,
+        "a double-click adds a note: {:?}",
+        harness.state().note
+    );
+    harness.get_by_label_contains("Added");
+    let view = harness.state().song_view.as_ref().unwrap();
+    assert_eq!(view.lanes[2].blocks.len(), keys_before + 1);
+    // The bottom row is A#4, two below the tune's lowest note.
+    let new_note = view.lanes[2]
+        .blocks
+        .iter()
+        .find(|b| b.bar == 2 && b.beat_in_bar == 1.0 && b.label == "A#4")
+        .expect("the new A#4 is at bar 2, beat 2")
+        .clone();
+    assert_eq!(new_note.length, 1.0);
+    shoot(&mut harness, "09-a-note-added");
+
+    // 2. Drag the note up three rows: a higher pitch.
+    let name = studio_app::song_screen::note_name("keys", &new_note);
+    let block = harness.get_by_label(&name).rect();
+    let row_px = 7.0;
+    drag(
+        &mut harness,
+        block.left_center() + egui::vec2(4.0, 0.0),
+        block.left_center() + egui::vec2(4.0, -3.0 * row_px),
+    );
+    let moved = song_text(&dir);
+    assert_ne!(moved, added, "the drag moved the note");
+    let view = harness.state().song_view.as_ref().unwrap();
+    // Three rows up: A#4 to C#5, still at bar 2, beat 2.
+    let higher = view.lanes[2]
+        .blocks
+        .iter()
+        .find(|b| b.bar == 2 && b.beat_in_bar == 1.0 && b.label == "C#5")
+        .expect("the note is C#5 now")
+        .clone();
+    assert!(!view.lanes[2].blocks.iter().any(|b| b.label == "A#4"));
+
+    // 3. Drag its right edge: it gets longer.
+    let name = studio_app::song_screen::note_name("keys", &higher);
+    let block = harness.get_by_label(&name).rect();
+    drag(
+        &mut harness,
+        block.right_center() - egui::vec2(2.0, 0.0),
+        block.right_center() + egui::vec2(beat_px, 0.0),
+    );
+    let view = harness.state().song_view.as_ref().unwrap();
+    let longer = view.lanes[2]
+        .blocks
+        .iter()
+        .find(|b| b.label == "C#5")
+        .unwrap();
+    assert_eq!(longer.length, 2.0);
+
+    // Move a bass clip from bar 3 to bar 4... bar 4 has one; to bar 1?
+    // Bar 3's clip is alone in its placement, so move it to bar 3's
+    // neighbour that its placement does not have: the placement is
+    // [3], so any bar works. Drag it one bar to the right.
+    let clip = harness.get_by_label("bass: root_and_fifth at bar 3").rect();
+    drag(
+        &mut harness,
+        clip.center(),
+        clip.center() + egui::vec2(beat_px * 4.0, 0.0),
+    );
+    harness.get_by_label_contains("Moved root_and_fifth on bass to bar 4");
+    assert!(
+        harness
+            .query_by_label("bass: root_and_fifth at bar 3")
+            .is_none()
+    );
+
+    // The track volume: type a new one.
+    let edits_before = song_text(&dir);
+    harness.state_mut().run_command(
+        "song_set",
+        serde_json::json!({"file": "duck_craft_day.toml", "path": "tracks[0].volume", "value": 0.5}),
+    );
+    harness.state_mut().song_after_edit();
+    harness.run_steps(2);
+    assert_ne!(song_text(&dir), edits_before);
+    assert_eq!(
+        harness.state().song_view.as_ref().unwrap().lanes[0].volume,
+        0.5
+    );
+
+    // 5. Ctrl+Z until the note is gone: every change was one step.
+    for _ in 0..5 {
+        harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        harness.run_steps(3);
+    }
+    assert_eq!(song_text(&dir), before);
+    let view = harness.state().song_view.as_ref().unwrap();
+    assert_eq!(view.lanes[2].blocks.len(), keys_before);
+
+    // Click a note, press Delete: it goes. Ctrl+Z: it is back.
+    let first = harness.get_by_label("keys: E5, bar 1, beat 1").rect();
+    click_at(&mut harness, first.center(), 1);
+    harness.key_press(egui::Key::Delete);
+    harness.run_steps(3);
+    assert!(harness.query_by_label("keys: E5, bar 1, beat 1").is_none());
+    harness.get_by_label_contains("Deleted the note");
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run_steps(3);
+    harness.get_by_label("keys: E5, bar 1, beat 1");
+
+    // Right-click an empty spot of the keys lane at bar 3: place a
+    // pattern there. (Every bar of the bass is a clip already.)
+    let lane = harness.get_by_label("keys lane").rect();
+    let at = egui::pos2(x0 + beat_px * 9.0 + 3.0, lane.bottom() - 11.0);
+    harness.hover_at(at);
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    harness.run_steps(3);
+    harness.get_by_label("Place a pattern at bar 3").click();
+    harness.run_steps(3);
+    harness.get_by_label("root_and_fifth").click();
+    harness.run_steps(3);
+    harness.get_by_label_contains("Placed root_and_fifth on keys at bar 3");
+    assert!(song_text(&dir).contains("bars = [3]"));
+
+    // The keys played by another instrument.
+    harness.get_by_label("keys instrument").click();
+    harness.run_steps(2);
+    harness.get_by_label("chip_lead").click();
+    harness.run_steps(3);
+    harness.get_by_label_contains("keys is played by chip_lead now");
+    assert!(song_text(&dir).contains("instrument = \"chip_lead\""));
+    shoot(&mut harness, "10-song-edited");
     std::fs::remove_dir_all(&dir).ok();
 }
 

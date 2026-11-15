@@ -209,6 +209,7 @@ impl StudioApp {
         if let (Some(editor), Some(root)) = (&mut self.editor, &self.root) {
             editor.reload(root);
         }
+        self.song_after_edit();
     }
 
     /// Undo the newest step, whoever made it.

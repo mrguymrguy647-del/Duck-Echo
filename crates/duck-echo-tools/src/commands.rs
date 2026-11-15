@@ -748,13 +748,12 @@ pub fn run(
             if let Some(velocity) = a.velocity {
                 note.insert("velocity".into(), json!(velocity));
             }
-            let title = format!(
-                "Add note {} to {}, bar {} beat {}",
-                compact(&a.note),
-                a.track,
-                a.bar.unwrap_or(1),
-                a.beat
-            );
+            // The bar, not the beat: the file counts beats from 0 and a
+            // person from 1, and a title is read by both.
+            let title = match a.bar {
+                Some(bar) => format!("Add note {} to {} in bar {bar}", compact(&a.note), a.track),
+                None => format!("Add note {} to {}", compact(&a.note), a.track),
+            };
             r.edit_doc(&a.file, Kind::Song, title, |doc| {
                 let notes = track_list(doc, &a.track, "notes")?;
                 notes.push(Value::Object(note.clone()));

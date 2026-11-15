@@ -846,6 +846,13 @@ opens by clicking its card on Home.
 
 **What you test on Linux:** the same five steps.
 
+**As built** (step 9): asked for on approval of step 8, beats are shown
+counted from 1 (the file still counts from 0), and lanes are as tall as
+their notes need, with a Height slider. Notes written in a pattern are
+edited in the text for now; the timeline moves, places and removes whole
+clips. "Delete" is a right-click menu item and the Delete key on a
+clicked note.
+
 ### Step 10: a person and an agent together (task 25, finished)
 
 * The Studio notices an agent's changes to the open file, shows the

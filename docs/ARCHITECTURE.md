@@ -61,7 +61,8 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
                            controls.rs for the sliders made from the
                            schema, sound_screen.rs to draw it), the
                            song timeline (song_view.rs for its lanes,
-                           mute, solo and note check, song_screen.rs to
+                           mute, solo and note check, song_edit.rs for
+                           the commands its edits run, song_screen.rs to
                            draw it), the
                            speakers (tinyaudio + duck-echo-live),
                            settings, the update check, the Linux app-menu
@@ -598,7 +599,13 @@ Loop use the background song player; Mute and Solo play the stem of the
 tracks heard at their level in the full mix (`SongPlayback::set_heard`,
 the same stem as `render --solo`). The note check runs on a background
 thread with `measure_song` and outlines the notes it finds a problem
-with.
+with. Its edits (add, move, stretch and delete notes; place, move and
+take off clips; a track's instrument and volume) are built as the shared
+song commands in `song_edit.rs` and run as the person, one Undo step
+each; a drag runs its command once, on release. A test makes a song with
+these commands and checks it renders the same WAV bytes as the same song
+written by hand. The screen counts beats from 1; files and commands
+count from 0.
 
 **Home runs commands, nothing else.** Every button on Home that changes a
 file (New sound, New song, Make a copy, Rename, Duplicate, Delete, Undo,

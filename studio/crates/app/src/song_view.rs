@@ -37,20 +37,36 @@ pub struct Block {
     /// How long it is held, in beats (a drum hit is drawn a quarter beat
     /// long).
     pub length: f64,
-    /// Where it sits in its lane, from 0 (bottom) to 1 (top).
-    pub height: f32,
+    /// Its row in the lane, from 0 at the bottom: semitones above the
+    /// lane's lowest row, or the kit piece's row.
+    pub row: f32,
     /// What it plays: `E5`, `440 Hz` or `kick`.
     pub label: String,
     /// The field it is written in: `tracks[2].notes[0]`, or
     /// `patterns.walk.notes[1]` for a note a pattern adds.
     pub path: String,
-    /// The bar it starts in (from 1) and the beat in that bar (from 0),
-    /// as a person reads the file.
+    /// The note's number in its track's `notes`, when it is written there
+    /// (a pattern's notes are changed in the pattern, not here).
+    pub index: Option<usize>,
+    /// The bar it starts in, counted from 1.
     pub bar: u32,
-    /// The beat in that bar.
+    /// The beat in that bar as the file writes it, counted from 0. The
+    /// Studio shows it counted from 1, like bars (see [`shown_beat`]).
     pub beat_in_bar: f64,
     /// How hard it is played, 0 to 1.
     pub velocity: f32,
+}
+
+/// A beat as the Studio shows it: counted from 1, like bars. The file
+/// counts beats from 0 (`beat = 0` is on the bar line), so `0` shows as
+/// `1` and `2.5` as `3.5`.
+pub fn shown_beat(beat_in_bar: f64) -> String {
+    let b = beat_in_bar + 1.0;
+    if b.fract() == 0.0 {
+        format!("{}", b as i64)
+    } else {
+        format!("{b}")
+    }
 }
 
 /// One placed pattern.
@@ -64,6 +80,10 @@ pub struct Clip {
     pub length: f64,
     /// Semitones it is moved by.
     pub transpose: i32,
+    /// The placement's number in the track's `play`.
+    pub placement: usize,
+    /// The bar it starts at (one of the placement's `bars`).
+    pub bar: u32,
 }
 
 /// One track's lane.
@@ -77,10 +97,36 @@ pub struct Lane {
     pub volume: f32,
     /// True for a drum kit (rows are pieces, not pitches).
     pub kit: bool,
+    /// For a kit: its pieces, one row each, bottom first.
+    pub pieces: Vec<String>,
+    /// For pitched notes: the note number (69 is A4) of the bottom row.
+    pub low: i32,
+    /// How many rows the lane has.
+    pub rows: u32,
     /// The notes.
     pub blocks: Vec<Block>,
     /// The placed patterns.
     pub clips: Vec<Clip>,
+}
+
+/// Rows of room kept above and below a lane's notes, so a note can be
+/// added or moved a little higher or lower than the others.
+const ROOM: i32 = 2;
+
+/// The note number (69 is A4) of a pitch in Hz, with its fraction.
+pub fn note_number(hz: f32) -> f32 {
+    69.0 + 12.0 * (hz / 440.0).log2()
+}
+
+impl Lane {
+    /// What row `row` of this lane plays: a note name, or a kit piece.
+    pub fn note_at(&self, row: i32) -> Option<String> {
+        if self.kit {
+            self.pieces.get(usize::try_from(row).ok()?).cloned()
+        } else {
+            duck_echo_core::note::note_name(self.low + row)
+        }
+    }
 }
 
 /// Every lane of a song, from its arrangement.
@@ -89,58 +135,61 @@ pub fn lanes(song: &Song, arrangement: &Arrangement) -> Vec<Lane> {
     song.tracks
         .iter()
         .zip(&arrangement.tracks)
-        .map(|(track, plan)| {
-            let kit = matches!(plan.instrument, duck_echo_core::Instrument::Kit(_));
-            // Rows: kit pieces in name order, or the pitch range.
-            let pieces: BTreeSet<&str> = plan
+        .enumerate()
+        .map(|(t, (track, plan))| {
+            // A kit has a row for every piece it has, used or not, so a
+            // piece can be added on its row.
+            let (kit, pieces): (bool, Vec<String>) = match &plan.instrument {
+                duck_echo_core::Instrument::Kit(map) => (true, map.keys().cloned().collect()),
+                duck_echo_core::Instrument::Sound(_) => (false, Vec::new()),
+            };
+            let numbers: Vec<f32> = plan
                 .events
                 .iter()
                 .filter_map(|e| match &e.sound {
-                    Sound::Piece(name) => Some(name.as_str()),
-                    Sound::Pitch { .. } => None,
-                })
-                .collect();
-            let pieces: Vec<&str> = pieces.into_iter().collect();
-            let hz: Vec<f32> = plan
-                .events
-                .iter()
-                .filter_map(|e| match &e.sound {
-                    Sound::Pitch { hz, .. } => Some(*hz),
+                    Sound::Pitch { hz, .. } => Some(note_number(*hz)),
                     Sound::Piece(_) => None,
                 })
                 .collect();
-            let low = hz.iter().copied().fold(f32::INFINITY, f32::min);
-            let high = hz.iter().copied().fold(0.0f32, f32::max);
+            let (low, high) = if numbers.is_empty() {
+                (60 - 6, 60 + 6)
+            } else {
+                let low = numbers.iter().copied().fold(f32::INFINITY, f32::min);
+                let high = numbers.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                (low.floor() as i32 - ROOM, high.ceil() as i32 + ROOM)
+            };
+            let rows = if kit {
+                pieces.len().max(1) as u32
+            } else {
+                (high - low + 1) as u32
+            };
+            let prefix = format!("tracks[{t}].notes[");
             let blocks = plan
                 .events
                 .iter()
                 .map(|e| {
-                    let (height, label, length) = match &e.sound {
+                    let (row, label, length) = match &e.sound {
                         Sound::Pitch { hz, name } => {
-                            let height = if high > low {
-                                ((hz / low).ln() / (high / low).ln()).clamp(0.0, 1.0)
-                            } else {
-                                0.5
-                            };
                             let label = name.clone().unwrap_or_else(|| format!("{hz:.0} Hz"));
-                            (height, label, e.length)
+                            (note_number(*hz) - low as f32, label, e.length)
                         }
                         Sound::Piece(piece) => {
                             let row = pieces.iter().position(|p| p == piece).unwrap_or(0);
-                            let height = if pieces.len() > 1 {
-                                row as f32 / (pieces.len() - 1) as f32
-                            } else {
-                                0.5
-                            };
-                            (height, piece.clone(), 0.25)
+                            (row as f32, piece.clone(), 0.25)
                         }
                     };
+                    let index = e
+                        .path
+                        .strip_prefix(&prefix)
+                        .and_then(|rest| rest.strip_suffix(']'))
+                        .and_then(|n| n.parse().ok());
                     Block {
                         beat: e.beat,
                         length,
-                        height,
+                        row,
                         label,
                         path: e.path.clone(),
+                        index,
                         bar: e.bar,
                         beat_in_bar: e.beat_in_bar,
                         velocity: e.velocity,
@@ -150,7 +199,8 @@ pub fn lanes(song: &Song, arrangement: &Arrangement) -> Vec<Lane> {
             let clips = track
                 .play
                 .iter()
-                .flat_map(|placement| {
+                .enumerate()
+                .flat_map(|(placement_index, placement)| {
                     let notes = song
                         .patterns
                         .get(&placement.pattern)
@@ -166,6 +216,8 @@ pub fn lanes(song: &Song, arrangement: &Arrangement) -> Vec<Lane> {
                         beat: f64::from(bar.saturating_sub(1)) * per_bar,
                         length,
                         transpose: placement.transpose,
+                        placement: placement_index,
+                        bar: *bar,
                     })
                 })
                 .collect();
@@ -174,6 +226,9 @@ pub fn lanes(song: &Song, arrangement: &Arrangement) -> Vec<Lane> {
                 instrument: track.instrument.clone(),
                 volume: track.volume,
                 kit,
+                pieces,
+                low,
+                rows,
                 blocks,
                 clips,
             }
@@ -341,6 +396,61 @@ pub struct SongView {
     looked_at: Instant,
     /// True when the file is no longer there.
     pub gone: bool,
+    /// How tall the rows are: 1 is the normal height (the "Height"
+    /// slider).
+    pub zoom: f32,
+    /// The grid notes snap to, in beats.
+    pub snap: f64,
+    /// The note picked by a click: its track and its number in the
+    /// track's `notes`. Delete takes it out.
+    pub selected: Option<(usize, usize)>,
+    /// A note being dragged.
+    pub note_drag: Option<NoteDrag>,
+    /// A clip being dragged.
+    pub clip_drag: Option<ClipDrag>,
+    /// A track volume being dragged: the track and the value shown.
+    pub volume_drag: Option<(usize, f32)>,
+    /// Where a right-click on a lane happened: its track and beat (for
+    /// "Place pattern" in the menu that opens).
+    pub menu_at: Option<(usize, f64)>,
+}
+
+/// A note being dragged: moved (in time and pitch) or stretched.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteDrag {
+    /// Its track.
+    pub track: usize,
+    /// Its number in the track's `notes`.
+    pub index: usize,
+    /// True when its right edge is dragged (it gets longer or shorter).
+    pub stretch: bool,
+    /// Where the pointer was pressed.
+    pub origin: (f32, f32),
+    /// Its start and length before the drag, in beats.
+    pub beat: f64,
+    /// Its length before the drag.
+    pub length: f64,
+    /// Its row before the drag.
+    pub row: f32,
+    /// Where it is now: start, length and rows moved.
+    pub new_beat: f64,
+    /// Its length now.
+    pub new_length: f64,
+    /// Rows moved up (down when negative).
+    pub rows: i32,
+}
+
+/// A clip being dragged to another bar.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClipDrag {
+    /// Its track.
+    pub track: usize,
+    /// The clip.
+    pub clip: Clip,
+    /// Where the pointer was pressed (x).
+    pub origin: f32,
+    /// The bar it would start at now.
+    pub to_bar: u32,
 }
 
 impl SongView {
@@ -361,6 +471,13 @@ impl SongView {
             checker: Checker::new(),
             looked_at: Instant::now(),
             gone: false,
+            zoom: 1.0,
+            snap: 0.5,
+            selected: None,
+            note_drag: None,
+            clip_drag: None,
+            volume_drag: None,
+            menu_at: None,
         };
         view.take(root, text);
         Ok(view)
@@ -432,6 +549,49 @@ impl SongView {
                 false
             }
         }
+    }
+
+    /// Read the file now (after an edit, an Undo or a Redo). Returns true
+    /// when the song changed.
+    pub fn reload(&mut self, root: &Root) -> bool {
+        match read(root, &self.rel) {
+            Ok(text) if text != self.text => {
+                self.take(root, text);
+                self.selected = None;
+                self.loaded.is_some()
+            }
+            Ok(_) => false,
+            Err(_) => {
+                self.gone = true;
+                false
+            }
+        }
+    }
+
+    /// A one-note song: track `track` playing `what` (a note name or a kit
+    /// piece) once, for hearing a note as it is added or moved. It is
+    /// rendered with the same code as the song, so it sounds as it will
+    /// in the song.
+    pub fn one_note(&self, root: &Root, track: usize, what: &str) -> Option<(Song, Arrangement)> {
+        let (song, _) = self.loaded.as_ref()?;
+        let mut alone = song.clone();
+        let mut t = song.tracks.get(track)?.clone();
+        t.notes = vec![duck_echo_core::song::Note {
+            bar: None,
+            beat: 0.0,
+            note: duck_echo_core::NoteValue::One(duck_echo_core::NotePitch::Name(what.into())),
+            length: Some(1.0),
+            velocity: 1.0,
+        }];
+        t.play.clear();
+        alone.tracks = vec![t];
+        alone.bars = None;
+        alone.loop_ = false;
+        alone.master = Default::default();
+        let files = root.song_files(library::folder_of(&self.rel).to_string());
+        let (_, arrangement) =
+            duck_echo_core::arrange(&alone, &duck_echo_tools::song::Library::new(&files));
+        Some((alone, arrangement?))
     }
 
     /// True while the notes are being checked.
@@ -530,10 +690,14 @@ mod tests {
         let first: Vec<&Block> = pad.blocks.iter().filter(|b| b.beat == 0.0).collect();
         assert_eq!(first.len(), 3);
         assert!(first.iter().all(|b| b.length == 4.0 && b.bar == 1));
-        // Higher notes sit higher.
+        // Higher notes sit higher: a row per semitone, so a chord's notes
+        // never share a row.
         let c4 = first.iter().find(|b| b.label == "C4").unwrap();
         let g4 = first.iter().find(|b| b.label == "G4").unwrap();
-        assert!(g4.height > c4.height);
+        assert_eq!(g4.row - c4.row, 7.0);
+        assert_eq!(pad.note_at(c4.row as i32).as_deref(), Some("C4"));
+        // Written notes know their number in the track.
+        assert!(pad.blocks.iter().all(|b| b.index.is_some()));
         // The bass is clips of its one-bar pattern: bars 1 to 8.
         let bass = &lanes[1];
         assert!(bass.blocks.iter().all(|b| b.path.starts_with("patterns.")));
@@ -552,5 +716,19 @@ mod tests {
         // The drums are a kit: rows are pieces.
         let drums = lanes.iter().find(|l| l.kit).expect("a kit lane");
         assert!(drums.blocks.iter().any(|b| b.label == "kick"));
+        // A row for every piece of the kit, used or not.
+        for piece in ["kick", "snare", "hat", "clap"] {
+            assert!(drums.pieces.iter().any(|p| p == piece), "{piece}");
+        }
+        assert_eq!(drums.rows as usize, drums.pieces.len());
+        // Pattern notes are not written on the track.
+        assert!(drums.blocks.iter().all(|b| b.index.is_none()));
+    }
+
+    #[test]
+    fn beats_are_shown_counted_from_one() {
+        assert_eq!(shown_beat(0.0), "1");
+        assert_eq!(shown_beat(2.5), "3.5");
+        assert_eq!(shown_beat(3.0), "4");
     }
 }

@@ -775,7 +775,7 @@ Lessons for the next builder:
   slightly different `got`, and pruned the value. It now reads the
   schema without ranges; the published schema adds them.
 
-### 24. Song timeline [to look at and play: done in Phase 2 step 8]
+### 24. Song timeline [done: Phase 2 steps 8 and 9]
 
 * Tracks as lanes, notes as blocks, patterns as reusable clips, a play
   head, and loop markers; edits change the song document.
@@ -808,7 +808,42 @@ Done in Phase 2 step 8 (to look at and play):
   how hard it is played.
 * [x] The file is read again twice a second, so an agent's change shows
   (and is heard, if it plays).
-* [ ] Editing in the timeline: step 9.
+* [x] Editing in the timeline: step 9, below.
+
+Done in Phase 2 step 9 (editing the song):
+
+* [x] Double-click an empty spot of a lane: a note there, a beat long,
+  on the row's pitch (or kit piece), and you hear it.
+* [x] Drag a note to move it in time and pitch (you hear each new
+  pitch as it moves; a chord moves together); drag its right edge to
+  make it longer; click it and press Delete, or right-click > Delete
+  note.
+* [x] Drag a pattern clip to another bar; right-click it > Take this
+  clip off; right-click an empty spot > Place a pattern at bar N.
+* [x] Each track's instrument (a drop-down of the built-in instruments
+  and the song's own) and its volume (drag or type).
+* [x] Every change is one named command run as the person
+  (`song_add_note`, `song_move_note`, `song_resize_note`,
+  `song_remove_note`, `song_place_pattern`, `song_move_pattern`,
+  `song_remove_pattern`, `song_set`), built in
+  `studio/crates/app/src/song_edit.rs`, so each is one Undo step shared
+  with agents, and a playing song is heard with the change at the play
+  head.
+* [x] "A song made in the timeline renders the same bytes as the same
+  song written as text": `studio/crates/app/tests/song_edit.rs` makes a
+  song with the timeline's commands and compares its WAV bytes with a
+  hand-written one.
+* [x] From the approval of step 8: beats are shown counted from 1, like
+  bars ("bar 1, beat 1"), in labels, tooltips and messages; the file
+  keeps counting from 0. A lane is as tall as its notes need: a row per
+  semitone (with two spare rows above and below), and on a kit a row
+  per piece of the kit, named. The Height slider makes the rows taller
+  or shorter, and Snap sets the grid (1, 1/2 or 1/4 beat).
+* [x] The add-note command's title no longer names a beat ("Add note E5
+  to keys in bar 3"), since people and the file count beats
+  differently and both read titles.
+* [ ] Notes inside a pattern are changed in the pattern's text for now;
+  the timeline moves and places whole clips.
 
 Lessons for the next builder (step 8):
 
@@ -821,6 +856,18 @@ Lessons for the next builder (step 8):
   0", so a test can hover it and a screen reader can read it.
 * **A tooltip waits half a second.** A test that hovers must let that
   much time pass before it looks.
+
+Lessons for the next builder (step 9):
+
+* **A drag starts a few pixels after the press.** Measure it from
+  `pointer.press_origin()`, not from where egui says the drag started, or
+  every move comes out a row short.
+* **egui counts three quick clicks as a triple-click**, even when the
+  first was elsewhere moments before; a test that double-clicks lets
+  half a second pass first. egui_kittest moves its clock a quarter of a
+  second a frame unless told otherwise (`with_step_dt`).
+* **Hearing a note is a help, not the change.** With no speakers the
+  note is still added and said; only Play says why nothing is heard.
 
 ### 25. Every button is a command, with Undo [command layer done: step 1]
 
