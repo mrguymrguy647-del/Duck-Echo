@@ -1,5 +1,6 @@
 //! The window: a bar along the top (Undo, Redo, Settings, Theme, Help), the
-//! new-version banner, Home (see [`crate::home`]) and a status line.
+//! new-version banner, Home (see [`crate::home`]) or the sound editor (see
+//! [`crate::sound_screen`]), and a status line.
 //!
 //! Everything a sound does comes from the Duck Echo libraries; this file
 //! only draws and turns clicks into calls.
@@ -13,6 +14,7 @@ use duck_echo_tools::root::Root;
 use eframe::egui::{self, RichText};
 
 use crate::app_menu;
+use crate::editor::Editor;
 use crate::library::{MyFile, Shelf, Thumbs};
 use crate::settings::{self, Settings};
 use crate::speaker::Speakers;
@@ -102,6 +104,8 @@ pub struct StudioApp {
     pub category: &'static str,
     /// The search box's words.
     pub search: String,
+    /// The sound open in the editor, if one is.
+    pub editor: Option<Editor>,
     /// The Rename window, when it is open: the file and the name typed.
     pub rename: Option<(String, String)>,
     /// What Undo and Redo would do now (the steps' titles).
@@ -162,6 +166,7 @@ impl StudioApp {
             shelf: Shelf::Presets,
             category: "pickup",
             search: String::new(),
+            editor: None,
             rename: None,
             undo_title: None,
             redo_title: None,
@@ -226,7 +231,11 @@ impl StudioApp {
         }
         self.status_line(ui);
         self.shortcuts(&ctx);
-        egui::CentralPanel::default().show(ui, |ui| self.home(ui));
+        if self.editor.is_some() {
+            egui::CentralPanel::default().show(ui, |ui| self.editor_screen(ui));
+        } else {
+            egui::CentralPanel::default().show(ui, |ui| self.home(ui));
+        }
         self.dialogs(&ctx);
 
         self.frames += 1;

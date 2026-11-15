@@ -1,7 +1,9 @@
 //! The look of the app: dark or light, with a light touch of the brand
 //! colours, the same as Duck Quill and Duck Forge Studio.
 
-use eframe::egui::{self, Button, Color32, RichText, Stroke, Theme, ThemePreference};
+use eframe::egui::{
+    self, Button, Color32, FontFamily, FontId, RichText, Stroke, TextStyle, Theme, ThemePreference,
+};
 
 /// Night indigo: what is chosen.
 pub const NIGHT_INDIGO: Color32 = Color32::from_rgb(0x55, 0x46, 0xD0);
@@ -17,13 +19,23 @@ pub const ECHO_CYAN: Color32 = Color32::from_rgb(0x46, 0xD6, 0xFF);
 /// "Needs a look", and a warning.
 pub const LOOK: Color32 = Color32::from_rgb(0xF0, 0xA0, 0x30);
 
-/// Give both the dark and the light look the brand's selection colour.
-/// Done once at start: egui keeps a style for each theme.
+/// The size of small text (descriptions, notes under a card), in points.
+/// egui's own small size is 9, which is too small to read; 12 is the
+/// size of egui's other secondary text.
+pub const SMALL_TEXT: f32 = 12.0;
+
+/// Give both the dark and the light look the brand's selection colour, and
+/// small text that can be read. Done once at start: egui keeps a style for
+/// each theme.
 pub fn apply_brand(ctx: &egui::Context) {
     for theme in [Theme::Dark, Theme::Light] {
         ctx.style_mut_of(theme, |style| {
             style.visuals.selection.bg_fill = NIGHT_INDIGO;
             style.visuals.selection.stroke = Stroke::new(1.0, Color32::WHITE);
+            style.text_styles.insert(
+                TextStyle::Small,
+                FontId::new(SMALL_TEXT, FontFamily::Proportional),
+            );
         });
     }
 }

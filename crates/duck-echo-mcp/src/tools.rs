@@ -887,7 +887,10 @@ fn run(
                             ops.len(),
                             if ops.len() == 1 { "" } else { "s" }
                         ),
-                        writes: vec![(rel.clone(), Some(edit::document_text(p, &edited)?))],
+                        writes: vec![(
+                            rel.clone(),
+                            Some(edit::document_text_from(p, text, &edited)?),
+                        )],
                     })
                 })?;
                 doc = edited;

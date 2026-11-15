@@ -107,6 +107,23 @@ pub fn draw_with_bars(
     onsets: &[f64],
     bar_lines: &[f64],
 ) -> Picture {
+    let (info, image) = draw_image(samples, sample_rate, channels, onsets, bar_lines);
+    Picture {
+        png: encode(&image),
+        info,
+    }
+}
+
+/// [`draw_with_bars`], as the palette image itself rather than PNG bytes,
+/// for a program that shows the picture on screen (Duck Echo Studio). The
+/// pixels are exactly the ones the PNG holds.
+pub fn draw_image(
+    samples: &[f32],
+    sample_rate: u32,
+    channels: u16,
+    onsets: &[f64],
+    bar_lines: &[f64],
+) -> (PictureInfo, Indexed) {
     let ch = channels.max(1) as usize;
     let frames = samples.len() / ch;
     let seconds = frames as f64 / sample_rate as f64;
@@ -295,10 +312,7 @@ pub fn draw_with_bars(
         ),
         bar_lines: drawn_bars,
     };
-    Picture {
-        png: encode(&c.into_image()),
-        info,
-    }
+    (info, c.into_image())
 }
 
 /// Frames covered by pixel column `x`: at least one, so short sounds

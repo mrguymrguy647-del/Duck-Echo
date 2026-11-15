@@ -188,10 +188,39 @@ impl StudioApp {
         }
     }
 
+    /// Before Undo or Redo with a sound open: save what waits. Returns
+    /// true when the Undo was used up taking back typing that has a
+    /// mistake (it was never saved).
+    fn editor_before_undo(&mut self) -> bool {
+        match (&mut self.editor, &self.root) {
+            (Some(editor), Some(root)) => {
+                let took_back = editor.before_undo(root, Instant::now());
+                if took_back {
+                    self.say("Took back the typing.".into());
+                }
+                took_back
+            }
+            _ => false,
+        }
+    }
+
+    /// After Undo or Redo: the open sound shows the file as it is now.
+    fn editor_after_undo(&mut self) {
+        if let (Some(editor), Some(root)) = (&mut self.editor, &self.root) {
+            editor.reload(root);
+        }
+    }
+
     /// Undo the newest step, whoever made it.
     pub fn undo(&mut self) {
+        if self.editor_before_undo() {
+            return;
+        }
+        self.rescan();
         let title = self.undo_title.clone();
-        if self.run_command("edit_undo", json!({})).is_some() {
+        let done = self.run_command("edit_undo", json!({}));
+        self.editor_after_undo();
+        if done.is_some() {
             self.say(match title {
                 Some(t) => format!("Undid: {t}."),
                 None => "Undone.".into(),
@@ -201,8 +230,14 @@ impl StudioApp {
 
     /// Redo the step undone last.
     pub fn redo(&mut self) {
+        if self.editor_before_undo() {
+            return;
+        }
+        self.rescan();
         let title = self.redo_title.clone();
-        if self.run_command("edit_redo", json!({})).is_some() {
+        let done = self.run_command("edit_redo", json!({}));
+        self.editor_after_undo();
+        if done.is_some() {
             self.say(match title {
                 Some(t) => format!("Redid: {t}."),
                 None => "Redone.".into(),
@@ -290,10 +325,12 @@ impl StudioApp {
         self.speakers.play(sound, false)
     }
 
-    /// Ctrl+Z and Ctrl+Y (or Ctrl+Shift+Z), unless a text box is being
-    /// typed in (it has its own Undo).
+    /// Ctrl+Z and Ctrl+Y (or Ctrl+Shift+Z). On Home they wait while the
+    /// search box is typed in (it has its own Undo). In the sound editor
+    /// they always undo a step of the shared history, even while the text
+    /// is typed in, so the text box's own Undo never disagrees with it.
     pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() && self.editor.is_none() {
             return;
         }
         let undo = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Z);
@@ -411,15 +448,50 @@ impl StudioApp {
         let playing = self.playing.as_deref() == Some(key.as_str());
         let project = self.project.clone();
         let thumb = self.thumbs.get(&project, file).cloned();
+        // The whole card is clickable; its buttons, drawn on top, keep
+        // their own clicks.
+        let card = ui
+            .scope_builder(egui::UiBuilder::new().sense(Sense::click()), |ui| {
+                // Words on the card are not selectable, so a click on the
+                // name opens the card rather than selecting the name.
+                ui.style_mut().interaction.selectable_labels = false;
+                self.my_card_inside(ui, file, &key, playing, thumb.as_ref())
+            })
+            .response;
+        let card = card.on_hover_cursor(egui::CursorIcon::PointingHand);
+        let card = match file.kind {
+            Kind::Sound => card.on_hover_text("Click to open it"),
+            Kind::Song => card.on_hover_text("Songs open in the song timeline, which comes next"),
+        };
+        if card.clicked() {
+            match file.kind {
+                Kind::Sound => self.open_sound(&file.rel),
+                Kind::Song => self.say(
+                    "Songs open in the song timeline, which comes in a later version. For now, \
+                     play it here, or edit its text in a text editor."
+                        .into(),
+                ),
+            }
+        }
+    }
+
+    fn my_card_inside(
+        &mut self,
+        ui: &mut egui::Ui,
+        file: &MyFile,
+        key: &str,
+        playing: bool,
+        thumb: Option<&library::Thumb>,
+    ) {
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_width(CARD_WIDTH);
             ui.push_id(&file.rel, |ui| {
                 ui.vertical(|ui| {
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(CARD_WIDTH, 38.0), Sense::hover());
-                    draw_levels(ui, rect, thumb.as_ref().map(|t| t.levels.as_slice()));
+                    draw_levels(ui, rect, thumb.map(|t| t.levels.as_slice()));
                     ui.label(RichText::new(&file.name).strong());
-                    match &thumb {
+                    match thumb {
                         Some(t) if t.problem.is_some() => {
                             ui.label(
                                 RichText::new(t.problem.clone().unwrap_or_default())
@@ -444,9 +516,23 @@ impl StudioApp {
                                 self.stop();
                             }
                         } else if ui.button("Play").clicked() {
-                            self.play(&key);
+                            self.play(key);
                         }
                         ui.menu_button("...", |ui| {
+                            if file.kind == Kind::Sound {
+                                if ui.button("Open").clicked() {
+                                    self.open_sound(&file.rel);
+                                    ui.close();
+                                }
+                                if ui.button("Export WAV...").clicked() {
+                                    ui.close();
+                                    self.export(&file.rel, true);
+                                }
+                                if ui.button("Export WAV to my Duck Echo folder").clicked() {
+                                    ui.close();
+                                    self.export(&file.rel, false);
+                                }
+                            }
                             if ui.button("Rename...").clicked() {
                                 self.rename = Some((file.rel.clone(), file.name.clone()));
                                 ui.close();

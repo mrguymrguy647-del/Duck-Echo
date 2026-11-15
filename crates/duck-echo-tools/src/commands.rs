@@ -22,7 +22,7 @@
 //! `^[a-zA-Z0-9_-]{1,128}$`, and one name for the button, the script and
 //! the tool matters more than looking like Duck Forge's `level.paint`.
 
-use crate::edit::{apply_edits, document_text, parse_document, EditOp};
+use crate::edit::{apply_edits, document_text, document_text_from, parse_document, EditOp};
 use crate::history::Who;
 use crate::instruments::{self, INSTRUMENT_PREFIX};
 use crate::project::{Done, Plan, Project};
@@ -1475,7 +1475,7 @@ impl Runner<'_, '_> {
                     }
                     e
                 })?;
-                let new_text = document_text(Path::new(&rel), &doc)?;
+                let new_text = document_text_from(Path::new(&rel), text, &doc)?;
                 self.check(&rel, &new_text).map_err(|mut e| {
                     // Lines of a text nobody has seen would only confuse:
                     // the field path says where the problem is.

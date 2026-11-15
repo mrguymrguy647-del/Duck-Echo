@@ -8,9 +8,12 @@
 
 pub mod app;
 pub mod app_menu;
+pub mod controls;
+pub mod editor;
 pub mod home;
 pub mod library;
 pub mod settings;
+pub mod sound_screen;
 pub mod speaker;
 pub mod theme;
 pub mod update;

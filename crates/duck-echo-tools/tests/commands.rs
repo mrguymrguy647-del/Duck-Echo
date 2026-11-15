@@ -209,8 +209,20 @@ fn every_command_undone_and_redone_gives_back_the_exact_files() {
         coin.contains("description = \"Copy of the coin preset.\""),
         "{coin}"
     );
+    // `sound_set` changed the coin, and its comments stayed.
+    assert!(coin.contains("volume = 0.4"), "{coin}");
+    let preset = duck_echo_tools::presets::get("coin").unwrap().source;
+    let first_comment = preset.lines().find(|l| l.starts_with('#')).unwrap();
+    assert!(coin.contains(first_comment), "{coin}");
     let tune = std::fs::read_to_string(dir.join("music/tune.toml")).unwrap();
     assert!(tune.contains("loop = true"), "{tune}");
+    // The song's own comments survived eleven song commands.
+    let example = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs/four_bars.toml"),
+    )
+    .unwrap();
+    let comment = example.lines().find(|l| l.starts_with('#')).unwrap();
+    assert!(tune.contains(comment), "{tune}");
 
     let history = commands::run(
         &project,

@@ -20,7 +20,8 @@ Never write a sound from nothing, and never change many things at once.
    named after its file, its description says what it was copied from,
    and its comments are kept. Edit its `tags` if they no longer fit.
 3. **Change one thing.** `edit` with one op, for example
-   `{"path": "layers[0].pitch.start", "value": "C6"}`.
+   `{"path": "layers[0].pitch.start", "value": "C6"}`. Only that value
+   changes in the file: a person's comments and layout stay.
 4. **Render.** `render` with an `output` such as `sfx/coin.wav`. The
    result already holds the analysis.
 5. **Read the numbers.** Start with `summary`. Then look at the one field

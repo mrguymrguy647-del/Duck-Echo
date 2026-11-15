@@ -766,6 +766,17 @@ card, and Export WAV in its `...` menu, come with the sound editor in step
    "Save As" window opens. Save it in your Music folder, then play the
    file there with your usual music player.
 
+**As built** (step 6): the sliders are made from the schema with no
+recipe field named in their code, layers first, then the master, its
+effects and the whole sound's settings. A problem's message sits in a
+light band under its line. Every change is heard through a new render
+with a 10 ms cross-fade; `ParamUpdate` for volume, cutoff and gain comes
+in step 7. Export WAV also offers "Export WAV to my Duck Echo folder"
+(`exports/` in the project), which needs no Save As window (risk 15).
+`toml_edit` came with this step, so comments stay on every command (risk
+14). Songs open in the timeline from step 8; until then a song's card
+says so.
+
 ### Step 7: smooth live changes (task 12)
 
 * `ParamUpdate` from the volume, cutoff and gain sliders; the cross-fade

@@ -132,6 +132,25 @@ impl Speakers {
             .map_err(|error| error.to_string())
     }
 
+    /// Swap `sound` in for the sound playing in the preview slot: it
+    /// takes over at the same place with a 10 ms cross-fade, and keeps
+    /// repeating if the old one did. This is how an edit is heard while
+    /// the sound plays. If nothing plays, nothing starts.
+    pub fn replace(&mut self, sound: Sound) -> Result<(), String> {
+        let Some(speaker) = self.speaker.as_mut() else {
+            return Ok(());
+        };
+        if speaker.sample_rate() != sound.sample_rate()
+            || !speaker.player.status().is_playing(PREVIEW)
+        {
+            return Ok(());
+        }
+        speaker
+            .player()
+            .replace(PREVIEW, sound)
+            .map_err(|error| error.to_string())
+    }
+
     /// Play a song: it is rendered in the background (the same render as
     /// its file) and starts when that is ready. A sound that plays stops.
     pub fn play_song(&mut self, song: Song, arrangement: Arrangement) -> Result<(), String> {

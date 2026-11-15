@@ -574,8 +574,8 @@ Done in Phase 2 step 5:
   the history; New sound, New song, Duplicate, Search; instruments and
   example songs copied. `--play` takes songs, and CI plays two into ALSA's
   null device.
-* [ ] Clicking a card opens it, and Export WAV in `...`: step 6, with the
-  sound editor.
+* [x] Clicking a card opens it, and Export WAV in `...`: done in step 6,
+  with the sound editor.
 
 Lessons for the next builder:
 
@@ -591,7 +591,7 @@ Lessons for the next builder:
 * **Good news is not a warning.** The status line shows problems in
   orange and everything else plainly (`say` and `warn`).
 
-### 11. Sliders that change the sound while it plays [mixer and ranges done: step 3]
+### 11. Sliders that change the sound while it plays [done: Phase 2 steps 3 and 6]
 
 * A recipe editor with sliders made from the JSON Schema, next to the text
   with validation messages inline, plus waveform and spectrogram views and
@@ -621,7 +621,77 @@ playback"):
   `maximum` for every number, ready for sliders.
 * [x] The background song player (`SongPlayback`): plays the song's
   render, and swaps in a new render at the play head after an edit.
-* [ ] The window: sliders, text, pictures, Play (steps 4 to 6).
+* [x] The window: sliders, text, pictures, Play (step 6, below).
+
+Done in Phase 2 step 6 (the sound editor):
+
+* [x] Click a sound's card (or `...` > Open) to open it: the text on the
+  left with line numbers, the sliders on the right, the picture and the
+  summary line below, and Play, Loop, Stop, History and `...` along the
+  top.
+* [x] **Sliders made from the schema** (`studio/crates/app/src/controls.rs`):
+  each number with a range is a slider with that range (times and Hz move
+  by ratio), fixed choices are drop-downs, a pitch is a slider in Hz with
+  a note picker, yes-or-no fields are tick boxes, a table that may be left
+  out (`filter`, `lfo`, `vibrato`, `arpeggio`) has "+" and "x" buttons,
+  and layers and effects have add and remove buttons. Nothing in it names
+  a recipe field, so a new field appears by itself.
+* [x] **The text and the sliders always agree**: both change the one file
+  through commands (`sound_set`, `file_set_text`, `sound_add_layer`...).
+  Typing is saved 0.6 s after the last key, and only when the text works;
+  a slider shows its value in the text at once. The editor reads the file
+  again twice a second, so an Undo, an agent or a text editor shows up.
+* [x] **Problems under their line**, in a light band, with the suggestion
+  as a button ("Use `volume`").
+* [x] **A drag never floods the disk**: while a slider is held the file is
+  saved at most every 200 ms and once more on release, all as one stroke
+  (one Undo step). A test drags through 200 values in one second: at most
+  6 saves, one Undo step, the file ends at the last value, and only that
+  number changed.
+* [x] **What you hear is the file**: each change is rendered on a
+  background thread (the newest change wins), and the new sound takes
+  over from the one playing at the same place with the mixer's 10 ms
+  cross-fade (`Player::replace`). The same render draws the analyze
+  picture and the summary line.
+* [x] **Ctrl+Z in the editor** undoes a step of the shared history even
+  while the text box is in use, so the text box's own Undo never
+  disagrees with it. Typing with a mistake (never saved) is taken back
+  instead.
+* [x] **History panel**: every step, newest first, with "You" or "AI
+  assistant" and how long ago.
+* [x] **Export WAV** (`...` in the editor and on a card): the system's
+  Save As window (`rfd`), opening in Music; or "Export WAV to my Duck Echo
+  folder", which needs no window (`exports/` in the project). The bytes
+  are exactly what `duck-echo render` writes, through the path rules of
+  the chosen folder and a one-step write.
+* [x] **Comments survive every command** (`toml_edit`, in
+  `duck-echo-tools/src/edit.rs`): a command changes only the values that
+  changed, inside the text. The result is read back and must be exactly
+  the new data, else the file is written whole as before. This also
+  fixed `to_toml_document` writing an empty list (`effects = []`) after a
+  `[table]`, where it belonged to that table.
+* [ ] `ParamUpdate` for the volume, cutoff and gain sliders: step 7. In
+  step 6 every change is a new render with a cross-fade.
+
+Lessons for the next builder (step 6):
+
+* **egui may "change" a slider by drawing it.** A slider rounds its value
+  to the decimals it shows and reports a change: opening the coin turned
+  `start = "B5"` into `987.8`. The panel only counts a change while the
+  person drags, clicks or has focus on the slider, and a screen test
+  opens every preset and instrument and checks no file changed.
+* **egui draws an underline in the wrong place on a tall line**, and a
+  newline's line height is ignored. The problem band and its underline are
+  painted by hand.
+* **A label takes the click.** egui's labels are selectable, so a click on
+  a card's name selected the name instead of opening the card. Card words
+  are not selectable.
+* **Run the keys before the text box.** Ctrl+Z is taken from the input
+  before the text box draws, or the text box's own Undo would run too.
+* **The libraries' Rust 1.80 promise is not checked.** `toml` 1.2 and
+  `toml_parser` in the lock file already need Rust 1.85, and so does
+  `toml_edit` 0.25.18. CI builds with the newest Rust only. Either raise
+  `rust-version` to 1.85 or add a CI job on 1.80 and pin older versions.
 
 ### 12. Smooth live changes [done without a window: step 3]
 
@@ -750,7 +820,7 @@ Lessons for the next builder:
   and `wait()` then hangs.
 * **Commands rewrite a file from its data, so `#` comments go** (as the
   `edit` tool always did). `file_set_text` and `file_copy_from` keep the
-  text. Step 6 adds `toml_edit` to keep comments on every edit.
+  text. Step 6 added `toml_edit`, so comments now stay on every edit.
 * **Errors keep the field path but drop line numbers** when the text was
   made by a command, since nobody has seen those lines.
 

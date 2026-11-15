@@ -15,7 +15,12 @@ and songs as cards (each with a small picture of its level, its length and
 Play) and a gallery to start from: the 30 built-in sounds by category, the
 instruments and the example songs, each with Play and **Make a copy**. New
 sound, New song, Rename, Duplicate, Delete, Search, and Undo and Redo
-(Ctrl+Z, Ctrl+Y) shared with an AI assistant. Editing a sound comes next.
+(Ctrl+Z, Ctrl+Y) shared with an AI assistant. Click a sound to open it
+in the sound editor: its text on the left, sliders on the right, a picture
+of the sound below, and Play and Loop, so you hear each slider move. The
+text and the sliders always agree, a mistake shows under its line with a
+fix to click, and Export WAV saves the sound for a game. Your comments in
+a file stay, whatever changes it.
 
 * **Windows:** download `DuckEchoStudioSetup.exe` from the
   [Releases page](https://github.com/mrguymrguy647-del/Duck-Echo/releases)

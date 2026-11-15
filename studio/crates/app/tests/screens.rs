@@ -101,8 +101,9 @@ fn until(harness: &mut Harness<'static, StudioApp>, what: &str, done: impl Fn(&S
     let started = std::time::Instant::now();
     while !done(harness.state()) {
         assert!(
-            started.elapsed().as_secs() < 120,
-            "waited too long for {what}"
+            started.elapsed().as_secs() < 30,
+            "waited too long for {what}; the status line says {:?}",
+            harness.state().note
         );
         std::thread::sleep(std::time::Duration::from_millis(20));
         harness.state_mut().last_scan = None;
@@ -246,6 +247,219 @@ fn make_a_copy_rename_delete_and_undo_as_the_checklist_does() {
         })
         .count();
     assert_eq!(history, 3, "copy, rename and delete");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn small_text_is_big_enough_to_read() {
+    let ctx = egui::Context::default();
+    theme::apply_brand(&ctx);
+    for t in [egui::Theme::Dark, egui::Theme::Light] {
+        let size = ctx.style_of(t).text_styles[&egui::TextStyle::Small].size;
+        assert_eq!(size, theme::SMALL_TEXT);
+        assert!(size >= 12.0, "small text is {size} px");
+    }
+}
+
+/// Wait until the open sound's newest render has arrived.
+fn heard(harness: &mut Harness<'static, StudioApp>) {
+    until(harness, "the sound's render", |app| {
+        app.editor
+            .as_ref()
+            .is_some_and(|e| e.heard.is_some() && !e.rendering())
+    });
+}
+
+#[test]
+fn open_a_sound_and_edit_it_as_the_checklist_does() {
+    let dir = folder("editor");
+    let project = dir.join("Duck Echo");
+    let mut harness = harness(app(&dir, AppMenu::none()), true);
+    harness.run_steps(3);
+    button_on(&harness, "coin", "Make a copy").click();
+    harness.run_steps(2);
+    let before = std::fs::read_to_string(project.join("coin.toml")).unwrap();
+
+    // 1. Open your coin: click its card. The text is on the left and the
+    // sliders, made from the schema, on the right.
+    let mine = harness
+        .query_all_by_label("coin")
+        .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()).reverse())
+        .unwrap();
+    mine.click();
+    harness.run_steps(3);
+    assert!(
+        harness.state().editor.is_some(),
+        "the card opens the editor: {:?}",
+        harness.state().note
+    );
+    for label in [
+        "< Home",
+        "coin.toml",
+        "Play",
+        "Loop",
+        "Stop",
+        "History",
+        "TEXT",
+        "SOUND",
+        "MASTER",
+        "LAYER 1  square",
+        "decay",
+        "attack",
+        "volume",
+        "duty",
+        "+ Add a layer",
+        "WHAT IT SOUNDS LIKE",
+    ] {
+        harness.get_by_label(label);
+    }
+    heard(&mut harness);
+    harness.get_by_label_contains("0.31 s,");
+    shoot(&mut harness, "05-sound-editor");
+
+    // 4. In the text, change the decay to 0.6: it is saved after a
+    // moment, and the slider reads it.
+    let changed = before.replace("decay = 0.25", "decay = 0.6");
+    {
+        let app = harness.state_mut();
+        let editor = app.editor.as_mut().unwrap();
+        editor.text = changed.clone();
+        editor.typed(std::time::Instant::now());
+    }
+    until(&mut harness, "the typing to be saved", |_| {
+        std::fs::read_to_string(project.join("coin.toml")).unwrap() == changed
+    });
+    let doc = harness
+        .state()
+        .editor
+        .as_ref()
+        .unwrap()
+        .doc()
+        .unwrap()
+        .clone();
+    assert_eq!(
+        doc["layers"][0]["envelope"]["decay"],
+        serde_json::json!(0.6)
+    );
+
+    // 5. Misspell volume: the message is under the line, with the button.
+    let wrong = changed.replace("source = ", "volme = 0.8\nsource = ");
+    {
+        let app = harness.state_mut();
+        let editor = app.editor.as_mut().unwrap();
+        editor.text = wrong;
+        editor.typed(std::time::Instant::now());
+    }
+    harness.run_steps(3);
+    harness.get_by_label_contains("volme");
+    let button = harness.get_by_label("Use `volume`");
+    // The message is in the text, not in a list somewhere else: below the
+    // TEXT heading and left of the sliders. (The screenshot shows it right
+    // under its line.)
+    let text = harness.get_by_label("TEXT").rect();
+    let sliders = harness.get_by_label("SOUND").rect();
+    assert!(
+        button.rect().top() > text.bottom() + 100.0,
+        "{:?}",
+        button.rect()
+    );
+    assert!(
+        button.rect().right() < sliders.left(),
+        "{:?}",
+        button.rect()
+    );
+    shoot(&mut harness, "06-a-problem-under-its-line");
+    harness.get_by_label("Use `volume`").click();
+    harness.run_steps(2);
+    let fixed = changed.replace("source = ", "volume = 0.8\nsource = ");
+    until(&mut harness, "the fixed text to be saved", |_| {
+        std::fs::read_to_string(project.join("coin.toml")).unwrap() == fixed
+    });
+
+    // 7. History lists every change with "You".
+    harness.get_by_label("History").click();
+    harness.run_steps(2);
+    harness.get_by_label("HISTORY");
+    assert!(harness.query_all_by_label("You").count() >= 3);
+    assert_eq!(
+        harness
+            .query_all_by_label_contains("Edit the text of coin.toml")
+            .count(),
+        2,
+        "the decay typed, and the volume fixed"
+    );
+    shoot(&mut harness, "07-history");
+
+    // 6. Ctrl+Z takes the changes back one at a time, even with the text
+    // box in use.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run_steps(3);
+    assert_eq!(
+        std::fs::read_to_string(project.join("coin.toml")).unwrap(),
+        changed
+    );
+    assert_eq!(harness.state().editor.as_ref().unwrap().text, changed);
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run_steps(3);
+    assert_eq!(
+        std::fs::read_to_string(project.join("coin.toml")).unwrap(),
+        before
+    );
+
+    // Export WAV to the Duck Echo folder, from the ... menu.
+    harness.get_by_label("...").click();
+    harness.run_steps(2);
+    harness.get_by_label("Export WAV...");
+    harness
+        .get_by_label("Export WAV to my Duck Echo folder")
+        .click();
+    harness.run_steps(2);
+    assert!(project.join("exports").join("coin.wav").is_file());
+    harness.get_by_label_contains("Exported");
+
+    // Back to Home.
+    harness.get_by_label("< Home").click();
+    harness.run_steps(2);
+    assert!(harness.state().editor.is_none());
+    harness.get_by_label("My sounds and songs");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn every_preset_and_instrument_gets_its_sliders() {
+    let dir = folder("all-sliders");
+    let mut harness = harness(app(&dir, AppMenu::none()), true);
+    harness.run_steps(1);
+    let mut sources: Vec<String> = duck_echo_tools::presets::PRESETS
+        .iter()
+        .map(|p| format!("preset:{}", p.name))
+        .collect();
+    sources.extend(
+        duck_echo_tools::instruments::list()
+            .unwrap()
+            .into_iter()
+            .filter(|i| i.kind != "kit")
+            .map(|i| format!("instrument:{}", i.name)),
+    );
+    for source in sources {
+        let name = source.split_once(':').unwrap().1.to_string();
+        let rel = format!("{name}.toml");
+        harness.state_mut().make_copy(&source, &name);
+        let copied = std::fs::read_to_string(dir.join("Duck Echo").join(&rel)).unwrap();
+        harness.state_mut().open_sound(&rel);
+        harness.run_steps(4);
+        assert!(harness.state().editor.is_some(), "{source} opens");
+        // Opening a sound never changes it.
+        assert_eq!(
+            std::fs::read_to_string(dir.join("Duck Echo").join(&rel)).unwrap(),
+            copied,
+            "opening {source} changed it"
+        );
+        harness.get_by_label_contains("LAYER 1");
+        harness.get_by_label("+ Add a layer");
+        harness.state_mut().close_editor();
+        harness.run_steps(1);
+    }
     std::fs::remove_dir_all(&dir).ok();
 }
 

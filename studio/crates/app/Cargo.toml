@@ -18,6 +18,7 @@ duck-echo-audio = { path = "../../../crates/duck-echo-audio" }
 duck-echo-synth = { path = "../../../crates/duck-echo-synth" }
 duck-echo-tools = { path = "../../../crates/duck-echo-tools" }
 duck-echo-live = { path = "../../../crates/duck-echo-live" }
+duck-echo-analyze = { path = "../../../crates/duck-echo-analyze" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The window and everything in it: the same library as Duck Quill and Duck
@@ -31,6 +32,10 @@ tinyaudio = "2"
 # (OneDrive often moves Documents) and the XDG folders on Linux, with no
 # unsafe code of ours.
 dirs = "6"
+# The system's own "Save As" window, for Export WAV: Windows' standard
+# one, and on Linux the desktop's own through the XDG portal (no extra
+# system library).
+rfd = "0.18"
 # Checks a downloaded update against the release's SHA-256 list before it
 # runs, as Duck Quill does.
 sha2 = "0.10"

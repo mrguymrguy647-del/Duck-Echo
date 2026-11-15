@@ -56,9 +56,13 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
                            1.95 for egui; the libraries above stay at 1.80):
   crates/app/              DuckEchoStudio: the window, Home (home.rs, with
                            library.rs for the files, thumbnails and
-                           gallery without a window), the speakers
-                           (tinyaudio + duck-echo-live), settings, the
-                           update check, the Linux app-menu entry.
+                           gallery without a window), the sound editor
+                           (editor.rs for its state, saves and renders,
+                           controls.rs for the sliders made from the
+                           schema, sound_screen.rs to draw it), the
+                           speakers (tinyaudio + duck-echo-live),
+                           settings, the update check, the Linux app-menu
+                           entry.
   brand/                   the Duck Echo icon (SVG sources, PNGs, .ico).
   release/                 DuckEchoStudio.iss (the Windows installer),
                            READ ME FIRST.txt, linux/ (AppRun, the menu entry,
@@ -514,8 +518,12 @@ song commands (`song_add_note`, `song_place_pattern`, `song_set_loop`...)
 and `edit_undo`, `edit_redo`, `edit_history`. A command checks its result
 (a recipe, or a song with its instruments) before it writes; an invalid
 result changes nothing and returns the usual report. Commands that change
-data rewrite the file from its data, so `#` comments go, as with `edit`
-(the design keeps `toml_edit` for step 6); `file_set_text` and
+data (and the MCP `edit` tool) change only the values that changed,
+inside the file's text (`edit::document_text_from`, with `toml_edit`), so
+`#` comments, blank lines and inline tables stay as written. The new text
+is read back and must hold exactly the new data; if it does not (or the
+old text does not parse), the file is written whole from its data, as
+before. JSON files are always written whole. `file_set_text` and
 `file_copy_from` keep the text as written.
 
 **History on disk** (`history.rs`). Undo cannot live in one program's
@@ -554,6 +562,21 @@ song (`example:NAME`, the files of `examples/songs` compiled into the tools
 crate by `examples.rs`), or a file in the project, so the Studio's **Make a
 copy** is one command and one Undo step for every kind of starting point,
 and agents can copy an example song the same way.
+
+**The sound editor runs commands too.** A slider runs `sound_set`, typing
+runs `file_set_text` (0.6 s after the last key, and only when the text
+works), and the "+" and "x" buttons run `sound_add_layer`,
+`sound_remove`, `sound_add_effect` and the rest. While a slider is held,
+the editor saves at most every 200 ms and once more on release, all with
+one stroke number (one Undo step), because the Documents folder is often
+synced by OneDrive and every save is an upload. The sliders are made from
+`recipe_schema()` (`controls.rs`), so they have the ranges validation
+enforces. Each change is rendered on a background thread with the same
+code as `render` (the newest change wins); the finished sound takes over
+from the one playing at the same place with the mixer's cross-fade, and
+the same render draws the analyze picture (`picture::draw_image`, the
+pixels of the PNG agents get) and the summary line. Export WAV writes the
+bytes `render` writes, through `Root::write` in the chosen folder.
 
 **Home runs commands, nothing else.** Every button on Home that changes a
 file (New sound, New song, Make a copy, Rename, Duplicate, Delete, Undo,
@@ -674,6 +697,8 @@ output is one line per issue in the same order.
 | tinyaudio 2 | studio | Plays the mixer's blocks through the speakers: DirectSound on Windows, ALSA on Linux, linked in the normal way (ALSA reaches PipeWire and PulseAudio too), with no `unsafe` code of ours. The lightest crate that does it, and Duck Forge's choice. Building on Linux needs `libasound2-dev`. |
 | dirs 6 | studio | Where Documents and the settings folder really are: Windows' own answer (OneDrive often moves Documents), the XDG folders on Linux. The design named `windows-sys` for this, as Duck Forge uses; `windows-sys` would need `unsafe` code of ours to call Windows, and would leave Linux to us, so `dirs` (which wraps the same Windows call) does both. |
 | sha2 0.10 | studio | The SHA-256 fingerprint of a downloaded update, checked against the release's `SHA256SUMS` before it is used, as Duck Quill does. |
+| rfd 0.18 | studio | The system's own Save As window for Export WAV: Windows' standard one, and on Linux the desktop's own through the XDG portal (spoken to over D-Bus in Rust, no system library; the AppImage still links only ALSA). Without a portal, "Export WAV to my Duck Echo folder" needs no window. |
+| toml_edit 0.25 | tools | Changes values inside a TOML file's text, so a person's comments and layout survive every command and the `edit` tool. It shares its parser and writer crates (`toml_parser`, `toml_writer`, `toml_datetime`) with `toml`, so it adds one crate. |
 | winresource 0.1 | studio (build only) | Puts the icon and the version into `DuckEchoStudio.exe`, as both siblings do. |
 | assert_no_alloc | live (tests only) | Replaces the test program's allocator and counts every allocation and free inside a marked section, so a test fails if the audio block touches the allocator. Its default features switch the check off in release builds; here they are off and the counting ones are on, so it always runs. |
 
@@ -688,9 +713,9 @@ library. The Studio checks for new versions with the system's own `curl`
 (Windows 10 and later have it; so does nearly every Linux), as Duck Forge
 does: no web library.
 
-The MCP server and the tools crate add no external dependencies: the
-protocol layer is plain `serde_json` (see above), and `toml` writes edited
-recipes. Pictures add none either: `analyze::png` is a small PNG encoder
+The MCP server and the tools crate add no external dependencies beyond
+`toml_edit`: the protocol layer is plain `serde_json` (see above), and
+`toml` and `toml_edit` write edited recipes. Pictures add none either: `analyze::png` is a small PNG encoder
 (palette image, zlib with fixed-Huffman deflate and LZ77, CRC-32 and
 Adler-32, about 240 lines plus a test-only inflater that proves round
 trips), and the server's base64 is twenty lines. An image crate would pull
