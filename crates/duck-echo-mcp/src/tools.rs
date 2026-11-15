@@ -265,11 +265,11 @@ fn original_definitions() -> Vec<Value> {
         tool(
             "create",
             "Create a recipe file",
-            "Validate a recipe or a song and save it as a file (.toml or .json by extension) relative to the server root, creating folders as needed. Give the document as `recipe`, or give `from` (preset:NAME, instrument:NAME or a file) to save a copy of it: the copy is named after its new file and its description says what it was copied from, and a TOML copy keeps its comments. Refuses an invalid document (returning its report) and refuses to replace an existing file unless `overwrite` is true. The save is one step of the project's Undo history (edit_undo takes it back).",
+            "Validate a recipe or a song and save it as a file (.toml or .json by extension) relative to the server root, creating folders as needed. Give the document as `recipe`, or give `from` (preset:NAME, instrument:NAME, example:NAME or a file) to save a copy of it: the copy is named after its new file and its description says what it was copied from, and a TOML copy keeps its comments. Refuses an invalid document (returning its report) and refuses to replace an existing file unless `overwrite` is true. The save is one step of the project's Undo history (edit_undo takes it back).",
             json!({
                 "path": { "type": "string", "description": "File to write, ending in .toml or .json." },
                 "recipe": { "type": "object", "description": "The recipe or song as a JSON object. Give this or `from`." },
-                "from": { "type": "string", "description": "Copy this instead: preset:NAME, instrument:NAME, or a recipe or song file relative to the server root. Give this or `recipe`." },
+                "from": { "type": "string", "description": "Copy this instead: preset:NAME, instrument:NAME, example:NAME (an example song: duck_craft_day, duck_craft_night or four_bars), or a recipe or song file relative to the server root. Give this or `recipe`." },
                 "overwrite": { "type": "boolean", "description": "Replace an existing file. Default false." }
             }),
             &["path"],

@@ -728,6 +728,11 @@ workflow** button appears once the workflow is on the main branch).
 5. Open `Documents/Duck Echo` in your file manager. Your coin is a
    `.toml` file there.
 
+**As built** (step 5): Make a copy of an example song needed a source
+that is not a file, so `file_copy_from` gained `example:NAME`. Clicking a
+card, and Export WAV in its `...` menu, come with the sound editor in step
+6, where there is something to open and a sound to export.
+
 ### Step 6: the sound editor (task 11)
 
 * The text with inline errors, sliders made from the schema, the picture,

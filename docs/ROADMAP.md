@@ -545,12 +545,51 @@ Lessons for the next builder:
   branch.** Until this is merged, the installer and the AppImage are
   downloads on each run's page.
 
-### 23. Home screen
+### 23. Home screen [done: Phase 2 step 5]
 
 * Sound cards for the user's recipes and songs (name, length, a small
   picture, a play button) and a gallery of presets and instruments to
   start from.
 * Accept: a new user can find, play and copy a preset in under a minute.
+
+Done in Phase 2 step 5:
+
+* [x] "My sounds and songs": a card per recipe and song in the project
+  folder, with a picture of its level over time (the same render and
+  `energy_over_time` agents read, made on a background thread and kept
+  until the file changes), its length or bars, Play, and `...` with
+  Rename, Duplicate and Delete. The folder is read again every second, so
+  an agent's new file appears by itself.
+* [x] The gallery: Presets (by category: Pickup, Impact, Weapon, Alert,
+  Movement, UI, Ambient), Instruments (and the drum kit) and Example songs,
+  each with Play and **Make a copy**. Songs play from a background render.
+* [x] New sound, New song, Search, and Undo and Redo (buttons with the
+  step's title, Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z). Every change is a named
+  command run as the person: one step of the shared history each.
+* [x] `example:NAME` for `file_copy_from` and the MCP `create`'s `from`:
+  the example songs, compiled into the tools crate.
+* [x] Screen tests walk the checklist: Impact, Make a copy of coin with
+  its picture and length, Rename to "my coin" (the `name` field follows),
+  Delete, Ctrl+Z brings it back, Redo deletes it again, and three steps in
+  the history; New sound, New song, Duplicate, Search; instruments and
+  example songs copied. `--play` takes songs, and CI plays two into ALSA's
+  null device.
+* [ ] Clicking a card opens it, and Export WAV in `...`: step 6, with the
+  sound editor.
+
+Lessons for the next builder:
+
+* **egui's wrapping row does not wrap a framed card.** The cards ran off
+  the right edge of the window, where they cannot be clicked; a screen
+  test caught it because the test clicked a card that was off screen.
+  Home makes its own rows (`cards_per_row`).
+* **Thirty buttons are all called "Play".** The screen tests find a
+  card's button by its position: the nearest one below the card's name
+  (`button_on`).
+* **A looping song never ends.** `--play` stops a loop after it has gone
+  round once.
+* **Good news is not a warning.** The status line shows problems in
+  orange and everything else plainly (`say` and `warn`).
 
 ### 11. Sliders that change the sound while it plays [mixer and ranges done: step 3]
 

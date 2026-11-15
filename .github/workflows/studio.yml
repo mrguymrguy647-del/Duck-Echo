@@ -397,6 +397,11 @@ jobs:
           dist/DuckEchoStudio.AppImage --play coin | tee played.txt
           grep -q "Played coin through the speakers" played.txt
           dist/DuckEchoStudio.AppImage --play wind | tee -a played.txt
+          # A song, from its background render as Home plays it, and a
+          # looping one (once round).
+          dist/DuckEchoStudio.AppImage --play example:four_bars | tee -a played.txt
+          grep -q "Played the song example:four_bars" played.txt
+          dist/DuckEchoStudio.AppImage --play example:duck_craft_day | tee -a played.txt
           rm ~/.asoundrc
 
       - name: The update check, with curl and pretend release lists

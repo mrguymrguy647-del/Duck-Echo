@@ -68,30 +68,280 @@ fn shoot(harness: &mut Harness<'static, StudioApp>, name: &str) {
     println!("saved {}", path.display());
 }
 
+/// The button labelled `button` on the card whose name is `card`: of all
+/// such buttons, the nearest one below the name. (Every card has its own
+/// "Play", so a button is found by its card.)
+fn button_on<'h>(
+    harness: &'h Harness<'static, StudioApp>,
+    card: &'h str,
+    button: &'h str,
+) -> egui_kittest::Node<'h> {
+    let names: Vec<_> = harness.query_all_by_label(card).collect();
+    assert!(!names.is_empty(), "no card named {card}");
+    let mut best = None;
+    for name in &names {
+        let at = name.rect().center();
+        for node in harness.query_all_by_label(button) {
+            let to = node.rect().center();
+            let below = to.y - at.y;
+            if below > 0.0 && (to.x - at.x).abs() < 220.0 {
+                let distance = below + (to.x - at.x).abs();
+                if best.as_ref().is_none_or(|(d, _)| distance < *d) {
+                    best = Some((distance, node));
+                }
+            }
+        }
+    }
+    best.unwrap_or_else(|| panic!("no {button} on the card {card}"))
+        .1
+}
+
+/// Draw frames until `done`, waiting for the background thumbnails.
+fn until(harness: &mut Harness<'static, StudioApp>, what: &str, done: impl Fn(&StudioApp) -> bool) {
+    let started = std::time::Instant::now();
+    while !done(harness.state()) {
+        assert!(
+            started.elapsed().as_secs() < 120,
+            "waited too long for {what}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        harness.state_mut().last_scan = None;
+        harness.run_steps(1);
+    }
+    harness.run_steps(2);
+}
+
 #[test]
-fn the_first_screen_lists_the_built_in_sounds_with_play() {
-    let dir = folder("first");
+fn home_shows_my_sounds_and_the_gallery_with_its_categories() {
+    let dir = folder("home");
     let mut harness = harness(app(&dir, AppMenu::none()), true);
     harness.run_steps(3);
-    harness.get_by_label("Duck Echo Studio");
-    harness.get_by_label("Built-in sounds");
-    harness.get_by_label("Settings");
-    harness.get_by_label("Theme");
-    harness.get_by_label("Help");
-    // Every preset under its category, each with its own Play button.
-    for name in ["coin", "explosion", "laser", "wind", "ui_click"] {
-        harness.get_by_label(name);
+    for label in [
+        "Duck Echo Studio",
+        "Undo",
+        "Redo",
+        "New sound",
+        "New song",
+        "Search:",
+        "My sounds and songs",
+        "Start from",
+        "Presets",
+        "Instruments",
+        "Example songs",
+    ] {
+        harness.get_by_label(label);
     }
-    harness.get_by_label("Pickups");
-    harness.get_by_label("Impacts");
-    assert_eq!(harness.query_all_by_label("Play").count(), 30);
+    for category in [
+        "Pickup", "Impact", "Weapon", "Alert", "Movement", "UI", "Ambient",
+    ] {
+        harness.get_by_label(category);
+    }
+    // Pickups first: coin is there, explosion is not.
+    harness.get_by_label("coin");
+    harness.get_by_label("Classic coin pickup.");
+    assert!(harness.query_by_label("explosion").is_none());
+    harness.get_by_label_contains("Nothing here yet.");
     // The project folder was made, and the status line says where it is.
     assert!(dir.join("Duck Echo").is_dir());
     harness.get_by_label(&format!(
         "Your sounds and songs: {}",
         dir.join("Duck Echo").display()
     ));
-    shoot(&mut harness, "01-first-screen-dark");
+    shoot(&mut harness, "01-home-empty");
+    // Impact shows the impacts.
+    harness.get_by_label("Impact").click();
+    harness.run_steps(2);
+    harness.get_by_label("explosion");
+    harness.get_by_label("big_explosion");
+    assert!(harness.query_by_label("coin").is_none());
+    button_on(&harness, "explosion", "Play");
+    button_on(&harness, "explosion", "Make a copy");
+    shoot(&mut harness, "02-home-impact");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn make_a_copy_rename_delete_and_undo_as_the_checklist_does() {
+    let dir = folder("copy");
+    let project = dir.join("Duck Echo");
+    let mut harness = harness(app(&dir, AppMenu::none()), true);
+    harness.run_steps(3);
+    // Make a copy of coin: it appears under My sounds and songs, with its
+    // picture and length.
+    button_on(&harness, "coin", "Make a copy").click();
+    harness.run_steps(2);
+    assert!(project.join("coin.toml").is_file());
+    let text = std::fs::read_to_string(project.join("coin.toml")).unwrap();
+    assert!(
+        text.contains("description = \"Copy of the coin preset.\""),
+        "{text}"
+    );
+    harness.get_by_label_contains("Made a copy of coin");
+    until(&mut harness, "the coin's picture", |app| !app.thumbs.busy());
+    harness.get_by_label("sound, 0.31 s");
+    assert_eq!(
+        harness.query_all_by_label("coin").count(),
+        2,
+        "the gallery's and mine"
+    );
+    harness.get_by_label("Undo");
+    shoot(&mut harness, "03-home-a-copy-of-coin");
+
+    // Rename it to "my coin" through its ... menu.
+    let mine = harness
+        .query_all_by_label("...")
+        .next()
+        .expect("my card's ... menu");
+    mine.click();
+    harness.run_steps(2);
+    harness.get_by_label("Duplicate");
+    harness.get_by_label("Delete");
+    harness.get_by_label("Rename...").click();
+    harness.run_steps(2);
+    harness.get_by_label("Rename coin");
+    harness.state_mut().rename = Some(("coin.toml".into(), "my coin".into()));
+    harness.run_steps(1);
+    shoot(&mut harness, "04-rename");
+    harness.get_by_label("Rename").click();
+    harness.run_steps(3);
+    assert!(project.join("my coin.toml").is_file());
+    assert!(!project.join("coin.toml").exists());
+    let text = std::fs::read_to_string(project.join("my coin.toml")).unwrap();
+    assert!(
+        text.contains("name = \"my coin\""),
+        "the name follows: {text}"
+    );
+    harness.get_by_label("my coin");
+
+    // Delete it: it goes. Ctrl+Z: it comes back. Redo: it goes again.
+    harness.query_all_by_label("...").next().unwrap().click();
+    harness.run_steps(2);
+    harness.get_by_label("Delete").click();
+    harness.run_steps(3);
+    assert!(!project.join("my coin.toml").exists());
+    assert!(harness.query_by_label("my coin").is_none());
+    harness.get_by_label_contains("Deleted my coin.");
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run_steps(3);
+    assert!(
+        project.join("my coin.toml").is_file(),
+        "Ctrl+Z brings it back"
+    );
+    harness.get_by_label("my coin");
+    harness.get_by_label("Redo").click();
+    harness.run_steps(3);
+    assert!(
+        !project.join("my coin.toml").exists(),
+        "Redo deletes it again"
+    );
+    // Every step was the person's, in the shared history.
+    let history = std::fs::read_dir(project.join(".duck-echo").join("history"))
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|x| x == "json")
+        })
+        .count();
+    assert_eq!(history, 3, "copy, rename and delete");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn new_sound_new_song_duplicate_and_search() {
+    let dir = folder("new");
+    let project = dir.join("Duck Echo");
+    let mut harness = harness(app(&dir, AppMenu::none()), true);
+    harness.run_steps(2);
+    harness.get_by_label("New sound").click();
+    harness.run_steps(2);
+    harness.get_by_label("New sound").click();
+    harness.run_steps(2);
+    harness.get_by_label("New song").click();
+    harness.run_steps(2);
+    assert!(project.join("new sound.toml").is_file());
+    assert!(project.join("new sound 2.toml").is_file());
+    assert!(project.join("new song.toml").is_file());
+    until(&mut harness, "the pictures", |app| !app.thumbs.busy());
+    harness.get_by_label("song, 4 bars");
+    assert_eq!(harness.query_all_by_label("sound, 0.31 s").count(), 2);
+    // Duplicate the song.
+    let song = button_on(&harness, "new song", "...");
+    song.click();
+    harness.run_steps(2);
+    harness.get_by_label("Duplicate").click();
+    harness.run_steps(2);
+    assert!(project.join("new song copy.toml").is_file());
+
+    // Search: only what matches, in both halves.
+    harness.get_by_label("Search:").focus();
+    harness.run_steps(1);
+    harness.get_by_label("Search:").type_text("song");
+    harness.run_steps(3);
+    harness.get_by_label("new song");
+    harness.get_by_label("new song copy");
+    assert!(harness.query_by_label("new sound").is_none());
+    harness.state_mut().search = "explo".into();
+    harness.run_steps(3);
+    harness.get_by_label("explosion");
+    harness.get_by_label("big_explosion");
+    harness.get_by_label("None of your sounds or songs match the search.");
+    shoot(&mut harness, "05-search");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn instruments_and_example_songs_can_be_copied_too() {
+    let dir = folder("shelves");
+    let project = dir.join("Duck Echo");
+    let mut harness = harness(app(&dir, AppMenu::none()), true);
+    harness.run_steps(2);
+    harness.get_by_label("Instruments").click();
+    harness.run_steps(2);
+    for name in [
+        "piano",
+        "pad",
+        "bass",
+        "chip_lead",
+        "kick",
+        "snare",
+        "hat",
+        "clap",
+        "drums",
+    ] {
+        harness.get_by_label(name);
+    }
+    harness.get_by_label("Play its pieces: kick, snare, hat and clap.");
+    shoot(&mut harness, "06-instruments");
+    button_on(&harness, "piano", "Make a copy").click();
+    harness.run_steps(2);
+    assert!(
+        project.join("piano.toml").is_file(),
+        "{:?} {:?}",
+        harness.state().note,
+        std::fs::read_dir(&project)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect::<Vec<_>>()
+    );
+
+    harness.get_by_label("Example songs").click();
+    harness.run_steps(2);
+    for name in ["duck_craft_day", "duck_craft_night", "four_bars"] {
+        harness.get_by_label(name);
+    }
+    button_on(&harness, "four_bars", "Make a copy").click();
+    harness.run_steps(2);
+    let text = std::fs::read_to_string(project.join("four_bars.toml")).unwrap();
+    assert!(
+        text.contains("Copy of the four_bars example song."),
+        "{text}"
+    );
+    until(&mut harness, "the song's picture", |app| !app.thumbs.busy());
+    harness.get_by_label("song, 4 bars");
+    shoot(&mut harness, "07-example-songs");
     std::fs::remove_dir_all(&dir).ok();
 }
 

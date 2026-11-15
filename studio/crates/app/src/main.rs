@@ -2,10 +2,11 @@
 //!
 //!   DuckEchoStudio                       opens the Studio
 //!   DuckEchoStudio --version             says which version this is
-//!   DuckEchoStudio --play coin           plays a built-in sound (or a
-//!                                        recipe file) through the speakers
-//!                                        and waits for it to end, with no
-//!                                        window
+//!   DuckEchoStudio --play coin           plays a built-in sound, a recipe
+//!                                        or song file, or an example song
+//!                                        (example:four_bars) through the
+//!                                        speakers and waits for it to end,
+//!                                        with no window
 //!   DuckEchoStudio --check-for-updates   says whether a newer Studio is out
 //!                                        (as the window does when it starts)
 
@@ -82,6 +83,53 @@ fn play(what: Option<&str>) -> i32 {
         eprintln!("usage: DuckEchoStudio --play coin (or a recipe file)");
         return 2;
     };
+    // A song (an example song, or a song file) plays from its background
+    // render, as Home plays it.
+    let song_text = match what.strip_prefix("example:") {
+        Some(name) => duck_echo_tools::examples::get(name)
+            .ok()
+            .map(|e| e.source.to_string()),
+        None => std::fs::read_to_string(what).ok().filter(|text| {
+            duck_echo_core::document_kind(text, duck_echo_core::Format::from_path(Path::new(what)))
+                == duck_echo_core::DocumentKind::Song
+        }),
+    };
+    if let Some(text) = song_text {
+        let folder = Path::new(what)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        let files = duck_echo_tools::song::files_next_to(&folder.join("song.toml"));
+        let loaded = duck_echo_core::load_song_str(
+            &text,
+            duck_echo_core::Format::Toml,
+            &duck_echo_tools::song::Library::new(&files),
+        );
+        let loaded = match loaded {
+            Ok(loaded) => loaded,
+            Err(report) => {
+                eprintln!("Could not read {what}:\n{report}");
+                return 2;
+            }
+        };
+        return match speaker::play_song_to_the_end(
+            loaded.song,
+            loaded.arrangement,
+            Duration::from_secs(120),
+        ) {
+            Ok(played) => {
+                println!(
+                    "Played the song {what} through the speakers; the sound card took {} frames.",
+                    played.frames
+                );
+                0
+            }
+            Err(why) => {
+                eprintln!("{why}");
+                3
+            }
+        };
+    }
     let recipe = if Path::new(what).is_file() {
         duck_echo_core::load_path(Path::new(what))
             .map(|l| l.recipe)

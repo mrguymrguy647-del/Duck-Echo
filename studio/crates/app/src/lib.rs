@@ -8,6 +8,8 @@
 
 pub mod app;
 pub mod app_menu;
+pub mod home;
+pub mod library;
 pub mod settings;
 pub mod speaker;
 pub mod theme;

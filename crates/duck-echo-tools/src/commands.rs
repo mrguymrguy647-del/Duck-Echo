@@ -63,8 +63,9 @@ pub struct FileToArgs {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CopyFromArgs {
-    /// What to copy: `preset:NAME`, `instrument:NAME`, or a file in the
-    /// project.
+    /// What to copy: `preset:NAME`, `instrument:NAME`, `example:NAME` (an
+    /// example song: `duck_craft_day`, `duck_craft_night`, `four_bars`), or
+    /// a file in the project.
     pub from: String,
     /// The new file, relative to the project folder, ending in `.toml` or
     /// `.json`. It must not exist yet, unless `overwrite` is true.
@@ -453,7 +454,7 @@ pub const TABLE: &[Entry] = &[
     Entry { name: "file_new_song", changes_files: true, schema: schema_of::<FileArgs>,
         description: "Make a new song: 120 BPM, 4 bars, one piano track with one note, named after the file. Refuses a file that exists." },
     Entry { name: "file_copy_from", changes_files: true, schema: schema_of::<CopyFromArgs>,
-        description: "Make a new file as a copy of a preset (`preset:coin`), a built-in instrument (`instrument:piano`) or a file in the project. The copy is named after its new file and its description says what it was copied from, so nothing stale is left. A TOML copy keeps its comments." },
+        description: "Make a new file as a copy of a preset (`preset:coin`), a built-in instrument (`instrument:piano`), an example song (`example:duck_craft_day`) or a file in the project. The copy is named after its new file and its description says what it was copied from, so nothing stale is left. A TOML copy keeps its comments." },
     Entry { name: "file_rename", changes_files: true, schema: schema_of::<FileToArgs>,
         description: "Give a file a new name (or folder). Its `name` field follows." },
     Entry { name: "file_duplicate", changes_files: true, schema: schema_of::<FileToArgs>,
@@ -1253,6 +1254,14 @@ impl Runner<'_, '_> {
                 p.source.to_string(),
                 Format::Toml,
                 format!("the {name} preset"),
+            ));
+        }
+        if let Some(name) = from.strip_prefix(crate::examples::EXAMPLE_PREFIX) {
+            let e = crate::examples::get(name).map_err(|e| e.at(&key))?;
+            return Ok((
+                e.source.to_string(),
+                Format::Toml,
+                format!("the {name} example song"),
             ));
         }
         if let Some(name) = from.strip_prefix(INSTRUMENT_PREFIX) {

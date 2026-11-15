@@ -73,6 +73,10 @@ fn every_command_undone_and_redone_gives_back_the_exact_files() {
         ),
         (
             "file_copy_from",
+            json!({"from": "example:duck_craft_day", "to": "music/day.toml"}),
+        ),
+        (
+            "file_copy_from",
             json!({"from": "sfx/coin.toml", "to": "sfx/coin2.toml"}),
         ),
         (

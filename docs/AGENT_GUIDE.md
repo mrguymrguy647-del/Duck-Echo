@@ -15,7 +15,8 @@ Never write a sound from nothing, and never change many things at once.
 1. **Start from something that works.** `list_presets` (sounds) or
    `list_instruments` (music), then `get_preset` or `get_instrument`.
 2. **Save a copy.** `create` with a `path` such as `sfx/coin.toml` and
-   `from: "preset:coin"` (or `instrument:piano`, or a file). The copy is
+   `from: "preset:coin"` (or `instrument:piano`, an example song such as
+   `example:duck_craft_day`, or a file). The copy is
    named after its file, its description says what it was copied from,
    and its comments are kept. Edit its `tags` if they no longer fit.
 3. **Change one thing.** `edit` with one op, for example

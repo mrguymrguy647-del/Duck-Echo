@@ -54,7 +54,9 @@ crates/
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
 studio/                    Duck Echo Studio, a workspace of its own (Rust
                            1.95 for egui; the libraries above stay at 1.80):
-  crates/app/              DuckEchoStudio: the window, the speakers
+  crates/app/              DuckEchoStudio: the window, Home (home.rs, with
+                           library.rs for the files, thumbnails and
+                           gallery without a window), the speakers
                            (tinyaudio + duck-echo-live), settings, the
                            update check, the Linux app-menu entry.
   brand/                   the Duck Echo icon (SVG sources, PNGs, .ico).
@@ -546,6 +548,18 @@ same folder, is flushed to disk and renamed onto its name, so no program
 ever reads half a file. On Windows a rename onto a file another program
 holds open can fail with "access denied" for a moment; it is tried again
 for about a second.
+
+`file_copy_from` copies from `preset:NAME`, `instrument:NAME`, an example
+song (`example:NAME`, the files of `examples/songs` compiled into the tools
+crate by `examples.rs`), or a file in the project, so the Studio's **Make a
+copy** is one command and one Undo step for every kind of starting point,
+and agents can copy an example song the same way.
+
+**Home runs commands, nothing else.** Every button on Home that changes a
+file (New sound, New song, Make a copy, Rename, Duplicate, Delete, Undo,
+Redo) runs one of these commands as `Who::Person`, so the Studio holds no
+file logic an agent cannot reach. Home reads the project folder again
+every second, so a file an agent makes appears by itself.
 
 The tests: every command undone and redone gives back every file byte for
 byte (`crates/duck-echo-tools/tests/commands.rs`), and the real CLI and

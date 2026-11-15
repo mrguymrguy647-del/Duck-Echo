@@ -1,19 +1,19 @@
-//! The window: a bar along the top (Settings, Theme, Help), the new-version
-//! banner, the built-in sounds with Play, and a status line.
+//! The window: a bar along the top (Undo, Redo, Settings, Theme, Help), the
+//! new-version banner, Home (see [`crate::home`]) and a status line.
 //!
 //! Everything a sound does comes from the Duck Echo libraries; this file
 //! only draws and turns clicks into calls.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use duck_echo_live::Sound;
 use duck_echo_synth::Mastering;
-use duck_echo_tools::presets::{self, PresetInfo};
+use duck_echo_tools::root::Root;
 use eframe::egui::{self, RichText};
 
 use crate::app_menu;
+use crate::library::{MyFile, Shelf, Thumbs};
 use crate::settings::{self, Settings};
 use crate::speaker::Speakers;
 use crate::theme;
@@ -87,23 +87,45 @@ pub struct StudioApp {
     pub project_problem: Option<String>,
     /// The speakers, opened when something first plays.
     pub speakers: Speakers,
-    /// The preset playing now, if one is.
+    /// What plays now, if anything: `preset:coin`, `instrument:piano`,
+    /// `example:four_bars`, or one of the person's files, `my:coin.toml`.
     pub playing: Option<String>,
+    /// The project folder's path rules (`None` if it cannot be read).
+    pub root: Option<Root>,
+    /// The person's sounds and songs, as last read.
+    pub files: Vec<MyFile>,
+    /// The cards' pictures.
+    pub thumbs: Thumbs,
+    /// The part of the gallery shown.
+    pub shelf: Shelf,
+    /// The category of presets shown.
+    pub category: &'static str,
+    /// The search box's words.
+    pub search: String,
+    /// The Rename window, when it is open: the file and the name typed.
+    pub rename: Option<(String, String)>,
+    /// What Undo and Redo would do now (the steps' titles).
+    pub undo_title: Option<String>,
+    /// What Redo would do now.
+    pub redo_title: Option<String>,
+    /// When the project folder was last read. (`None` reads it again at
+    /// the next frame.)
+    pub last_scan: Option<Instant>,
     /// The new-version check and its banner.
     pub update: UpdateState,
     /// A sentence for the status line (an answer, a problem).
     pub note: Option<String>,
+    /// True when the note is a problem (shown in the colour for problems).
+    pub note_is_problem: bool,
     /// The About box is open.
     pub about_open: bool,
     /// The Settings window is open.
     pub settings_open: bool,
     /// The Linux app-menu entry.
     pub app_menu: AppMenu,
-    /// The built-in sounds, in the order shown.
-    presets: Vec<PresetInfo>,
-    /// The level and length each preset's rendered file has, worked out
-    /// the first time it plays (see `duck_echo_live::Sound`).
-    masterings: BTreeMap<String, Mastering>,
+    /// The level and length each built-in sound's rendered file has,
+    /// worked out the first time it plays (see `duck_echo_live::Sound`).
+    pub(crate) masterings: BTreeMap<String, Mastering>,
     /// For CI: write a line to this file once a few frames are drawn, then
     /// close (`DUCK_ECHO_STUDIO_SMOKE_TEST`).
     smoke_test: Option<PathBuf>,
@@ -117,33 +139,46 @@ impl StudioApp {
     /// folder if it is not there.
     pub fn new(settings: Settings, app_menu: AppMenu) -> StudioApp {
         let project = settings.project_folder();
-        let project_problem = settings::make_project_folder(&project).err();
-        let mut presets = presets::list(None).unwrap_or_default();
-        // By category in the catalogue's order, then by name.
-        presets.sort_by_key(|p| {
-            let place = presets::CATEGORIES
-                .iter()
-                .position(|c| *c == p.category)
-                .unwrap_or(usize::MAX);
-            (place, p.name.clone())
-        });
-        StudioApp {
+        let mut project_problem = settings::make_project_folder(&project).err();
+        let root = match Root::new(&project) {
+            Ok(root) => Some(root),
+            Err(why) => {
+                project_problem.get_or_insert(format!(
+                    "Your sounds folder, {}, cannot be read: {why}",
+                    project.display()
+                ));
+                None
+            }
+        };
+        let mut app = StudioApp {
             settings,
             project,
             project_problem,
             speakers: Speakers::default(),
             playing: None,
+            root,
+            files: Vec::new(),
+            thumbs: Thumbs::new(),
+            shelf: Shelf::Presets,
+            category: "pickup",
+            search: String::new(),
+            rename: None,
+            undo_title: None,
+            redo_title: None,
+            last_scan: None,
             update: UpdateState::Off,
             note: None,
+            note_is_problem: false,
             about_open: false,
             settings_open: false,
             app_menu,
-            presets,
             masterings: BTreeMap::new(),
             smoke_test: std::env::var_os("DUCK_ECHO_STUDIO_SMOKE_TEST").map(PathBuf::from),
             frames: 0,
             icon: None,
-        }
+        };
+        app.rescan();
+        app
     }
 
     /// Start the new-version check, if the settings allow it.
@@ -152,36 +187,6 @@ impl StudioApp {
             self.update = UpdateState::check(false);
         }
         self
-    }
-
-    /// Play a built-in sound through the speakers.
-    pub fn play_preset(&mut self, name: &str) {
-        let sound = presets::get(name)
-            .and_then(presets::load)
-            .map_err(|e| e.into_report().to_string())
-            .and_then(|loaded| {
-                let recipe = loaded.recipe;
-                let mastering = match self.masterings.get(name) {
-                    Some(m) => *m,
-                    None => {
-                        let (_, m) = duck_echo_synth::render_mastered(&recipe)
-                            .map_err(|report| report.to_string())?;
-                        self.masterings.insert(name.to_string(), m);
-                        m
-                    }
-                };
-                Sound::from_recipe_mastered(&recipe, &mastering).map_err(|r| r.to_string())
-            });
-        match sound.and_then(|sound| self.speakers.play(sound, false)) {
-            Ok(()) => {
-                self.playing = Some(name.to_string());
-                self.note = None;
-            }
-            Err(why) => {
-                self.playing = None;
-                self.note = Some(why);
-            }
-        }
     }
 
     /// Stop what plays.
@@ -200,8 +205,8 @@ impl StudioApp {
             self.playing = None;
         }
         let (said, close) = self.update.poll();
-        if said.is_some() {
-            self.note = said;
+        if let Some(said) = said {
+            self.say(said);
         }
         if close {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -220,12 +225,14 @@ impl StudioApp {
             }
         }
         self.status_line(ui);
-        egui::CentralPanel::default().show(ui, |ui| self.sound_list(ui));
+        self.shortcuts(&ctx);
+        egui::CentralPanel::default().show(ui, |ui| self.home(ui));
         self.dialogs(&ctx);
 
         self.frames += 1;
         self.smoke_test(&ctx);
         if self.playing.is_some()
+            || self.thumbs.busy()
             || matches!(
                 self.update,
                 UpdateState::Checking { .. } | UpdateState::Downloading(..)
@@ -260,6 +267,8 @@ impl StudioApp {
             ui.horizontal(|ui| {
                 ui.add(egui::Image::new(&icon).fit_to_exact_size(egui::vec2(28.0, 28.0)));
                 ui.heading(RichText::new("Duck Echo Studio").strong());
+                ui.add_space(12.0);
+                self.undo_buttons(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.help_menu(ui);
                     if let Some(chosen) = theme::theme_menu(ui) {
@@ -282,7 +291,7 @@ impl StudioApp {
             }
             if ui.button("Check for new versions").clicked() {
                 self.update = UpdateState::check(true);
-                self.note = Some("Asking GitHub for new versions...".into());
+                self.say("Asking GitHub for new versions...".into());
                 ui.close();
             }
             ui.hyperlink_to(
@@ -295,13 +304,27 @@ impl StudioApp {
     fn status_line(&mut self, ui: &mut egui::Ui) {
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                if let Some(name) = self.playing.clone() {
-                    ui.label(RichText::new(format!("Playing {name}")).color(theme::ECHO_CYAN));
+                if let Some(key) = self.playing.clone() {
+                    let name = key.split_once(':').map_or(key.as_str(), |(_, n)| n);
+                    if self.speakers.song_getting_ready() {
+                        ui.spinner();
+                        ui.label(
+                            RichText::new(format!("Getting {name} ready..."))
+                                .color(theme::ECHO_CYAN),
+                        );
+                    } else {
+                        ui.label(RichText::new(format!("Playing {name}")).color(theme::ECHO_CYAN));
+                    }
                     if ui.button("Stop").clicked() {
                         self.stop();
                     }
                 } else if let Some(note) = &self.note {
-                    ui.label(RichText::new(note).color(theme::LOOK));
+                    let text = RichText::new(note);
+                    ui.label(if self.note_is_problem {
+                        text.color(theme::LOOK)
+                    } else {
+                        text.strong()
+                    });
                 } else if let Some(problem) = &self.project_problem {
                     ui.label(RichText::new(problem).color(theme::LOOK));
                 } else {
@@ -312,60 +335,6 @@ impl StudioApp {
                 }
             });
         });
-    }
-
-    fn sound_list(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Built-in sounds");
-        ui.label(
-            "Every sound here is made from a short text recipe. Press Play to hear one through \
-             your speakers.",
-        );
-        ui.add_space(8.0);
-        let mut chosen: Option<String> = None;
-        let mut stop = false;
-        egui::ScrollArea::vertical()
-            .auto_shrink(false)
-            .show(ui, |ui| {
-                let mut category = "";
-                for preset in &self.presets {
-                    if preset.category != category {
-                        category = &preset.category;
-                        ui.add_space(6.0);
-                        ui.label(
-                            RichText::new(category_title(category))
-                                .strong()
-                                .size(16.0)
-                                .color(theme::NIGHT_INDIGO_TEXT),
-                        );
-                    }
-                    ui.horizontal(|ui| {
-                        let playing = self.playing.as_deref() == Some(preset.name.as_str());
-                        if playing {
-                            if ui
-                                .button("Stop")
-                                .on_hover_text(format!("Stop {}", preset.name))
-                                .clicked()
-                            {
-                                stop = true;
-                            }
-                        } else if ui
-                            .button("Play")
-                            .on_hover_text(format!("Play {}", preset.name))
-                            .clicked()
-                        {
-                            chosen = Some(preset.name.clone());
-                        }
-                        ui.label(RichText::new(&preset.name).strong().monospace());
-                        ui.label(RichText::new(&preset.description).weak());
-                    });
-                }
-            });
-        if stop {
-            self.stop();
-        }
-        if let Some(name) = chosen {
-            self.play_preset(&name);
-        }
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
@@ -457,18 +426,24 @@ impl StudioApp {
                 } else if self.app_menu.is_added() {
                     ui.label("Duck Echo Studio is in your app menu.");
                     if ui.button("Remove from app menu").clicked() {
-                        self.note = Some(match self.app_menu.remove() {
-                            Ok(()) => "Duck Echo Studio was removed from your app menu.".into(),
-                            Err(why) => format!("Could not remove it from the app menu: {why}."),
-                        });
+                        match self.app_menu.remove() {
+                            Ok(()) => {
+                                self.say("Duck Echo Studio was removed from your app menu.".into())
+                            }
+                            Err(why) => {
+                                self.warn(format!("Could not remove it from the app menu: {why}."))
+                            }
+                        }
                     }
                 } else {
                     ui.label("Duck Echo Studio is not in your app menu.");
                     if ui.button("Add to app menu").clicked() {
-                        self.note = Some(match self.app_menu.add() {
-                            Ok(()) => "Duck Echo Studio is in your app menu now.".into(),
-                            Err(why) => format!("Could not add it to the app menu: {why}."),
-                        });
+                        match self.app_menu.add() {
+                            Ok(()) => self.say("Duck Echo Studio is in your app menu now.".into()),
+                            Err(why) => {
+                                self.warn(format!("Could not add it to the app menu: {why}."))
+                            }
+                        }
                     }
                 }
             }
@@ -508,10 +483,10 @@ impl StudioApp {
             self.settings.asked_about_app_menu = true;
             self.settings.save();
             if add {
-                self.note = Some(match self.app_menu.add() {
-                    Ok(()) => "Duck Echo Studio is in your app menu now.".into(),
-                    Err(why) => format!("Could not add it to the app menu: {why}."),
-                });
+                match self.app_menu.add() {
+                    Ok(()) => self.say("Duck Echo Studio is in your app menu now.".into()),
+                    Err(why) => self.warn(format!("Could not add it to the app menu: {why}.")),
+                }
             }
         }
     }
@@ -547,26 +522,6 @@ impl StudioApp {
     pub fn on_close(&mut self) {
         self.stop();
         self.settings.save();
-    }
-}
-
-/// A category's name as a heading.
-pub fn category_title(category: &str) -> String {
-    match category {
-        "ui" => "Menus and buttons".into(),
-        "pickup" => "Pickups".into(),
-        "weapon" => "Weapons".into(),
-        "impact" => "Impacts".into(),
-        "movement" => "Movement".into(),
-        "alert" => "Alerts".into(),
-        "ambient" => "Ambient".into(),
-        other => {
-            let mut chars = other.chars();
-            chars
-                .next()
-                .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
-                .unwrap_or_default()
-        }
     }
 }
 

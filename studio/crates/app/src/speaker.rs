@@ -14,11 +14,15 @@
 
 use std::time::{Duration, Instant};
 
-use duck_echo_live::{Config, Player, Sound, live};
+use duck_echo_core::{Arrangement, Song};
+use duck_echo_live::{Config, Player, SongPlayback, SongState, Sound, live};
 
 /// The slot of the mixer the Studio plays its preview in. Playing another
 /// sound there fades the last one out.
 pub const PREVIEW: usize = 0;
+
+/// The slot a song plays in, from its background render.
+pub const SONG: usize = 1;
 
 /// Frames in each block the sound card asks for.
 ///
@@ -81,35 +85,46 @@ impl Speaker {
 pub struct Speakers {
     speaker: Option<Speaker>,
     problem: Option<String>,
+    /// The song playing, rendered in the background.
+    song: Option<SongPlayback>,
 }
 
 impl Speakers {
-    /// Play `sound` in the preview slot, opening the speakers if needed.
-    pub fn play(&mut self, sound: Sound, looping: bool) -> Result<(), String> {
-        let rate = sound.sample_rate();
+    /// Open the speakers at `rate` if they are not open at it already.
+    fn open_at(&mut self, rate: u32) -> Result<(), String> {
         if self
             .speaker
             .as_ref()
-            .is_none_or(|s| s.sample_rate() != rate)
+            .is_some_and(|s| s.sample_rate() == rate)
         {
-            // The old speaker (if any) stops before the new one opens.
-            self.speaker = None;
-            match Speaker::open(rate) {
-                Ok(speaker) => {
-                    self.speaker = Some(speaker);
-                    self.problem = None;
-                }
-                Err(why) => {
-                    let said = format!(
-                        "No speakers were found, so nothing can play ({why}). Check that \
-                         your speakers or headphones are plugged in and switched on, then \
-                         press Play again."
-                    );
-                    self.problem = Some(said.clone());
-                    return Err(said);
-                }
+            return Ok(());
+        }
+        // The old speaker (if any) stops before the new one opens.
+        self.song = None;
+        self.speaker = None;
+        match Speaker::open(rate) {
+            Ok(speaker) => {
+                self.speaker = Some(speaker);
+                self.problem = None;
+                Ok(())
+            }
+            Err(why) => {
+                let said = format!(
+                    "No speakers were found, so nothing can play ({why}). Check that your \
+                     speakers or headphones are plugged in and switched on, then press Play \
+                     again."
+                );
+                self.problem = Some(said.clone());
+                Err(said)
             }
         }
+    }
+
+    /// Play `sound` in the preview slot, opening the speakers if needed.
+    /// A song that plays stops.
+    pub fn play(&mut self, sound: Sound, looping: bool) -> Result<(), String> {
+        self.stop_song();
+        self.open_at(sound.sample_rate())?;
         let speaker = self.speaker.as_mut().expect("opened above");
         speaker
             .player()
@@ -117,25 +132,62 @@ impl Speakers {
             .map_err(|error| error.to_string())
     }
 
+    /// Play a song: it is rendered in the background (the same render as
+    /// its file) and starts when that is ready. A sound that plays stops.
+    pub fn play_song(&mut self, song: Song, arrangement: Arrangement) -> Result<(), String> {
+        self.open_at(song.sample_rate)?;
+        let speaker = self.speaker.as_mut().expect("opened above");
+        let _ = speaker.player().stop(PREVIEW);
+        let playback = self.song.get_or_insert_with(|| SongPlayback::new(SONG));
+        playback.play(song, arrangement);
+        Ok(())
+    }
+
+    fn stop_song(&mut self) {
+        if let (Some(playback), Some(speaker)) = (&mut self.song, &mut self.speaker) {
+            let _ = playback.stop(speaker.player());
+        }
+    }
+
     /// Fade out whatever plays.
     pub fn stop(&mut self) {
+        self.stop_song();
         if let Some(speaker) = &mut self.speaker {
             let _ = speaker.player().stop(PREVIEW);
         }
     }
 
-    /// Drop the sounds the mixer has finished with. Call every frame.
+    /// Hand a song's render to the mixer when it is ready, and drop the
+    /// sounds the mixer has finished with. Call every frame.
     pub fn collect(&mut self) {
         if let Some(speaker) = &mut self.speaker {
+            if let Some(playback) = &mut self.song
+                && let Err(why) = playback.poll(speaker.player())
+                && why != duck_echo_live::PlayError::Busy
+            {
+                self.problem = Some(why.to_string());
+            }
             speaker.player().collect();
         }
     }
 
-    /// True while something plays in the preview slot.
+    /// True while something plays (or a song is getting ready).
     pub fn is_playing(&self) -> bool {
-        self.speaker
+        let song = self
+            .song
+            .as_ref()
+            .is_some_and(|p| p.state() != SongState::Stopped);
+        song || self
+            .speaker
             .as_ref()
             .is_some_and(|s| s.player.status().is_playing(PREVIEW))
+    }
+
+    /// True while a song's render is being made.
+    pub fn song_getting_ready(&self) -> bool {
+        self.song
+            .as_ref()
+            .is_some_and(|p| p.state() == SongState::GettingReady)
     }
 
     /// How many sounds have started in the preview slot.
@@ -195,4 +247,52 @@ pub fn play_to_the_end(sound: Sound, timeout: Duration) -> Result<Played, String
     }
     let frames = speakers.frames_played();
     Ok(Played { seconds, frames })
+}
+
+/// Play a song through the speakers (rendered in the background first, as
+/// Home does) and wait until it has finished, or for a loop, until it has
+/// gone round once. For `DuckEchoStudio --play` with a song.
+pub fn play_song_to_the_end(
+    song: Song,
+    arrangement: Arrangement,
+    timeout: Duration,
+) -> Result<Played, String> {
+    let mut speakers = Speakers::default();
+    speakers.play_song(song, arrangement)?;
+    let started = Instant::now();
+    loop {
+        speakers.collect();
+        if let Some(problem) = speakers.problem() {
+            return Err(problem.to_string());
+        }
+        let (began, went_round) = speakers.speaker.as_ref().map_or((false, false), |s| {
+            let status = s.player.status();
+            (status.starts(SONG) > 0, status.loops(SONG) > 0)
+        });
+        if began && !speakers.is_playing() {
+            break;
+        }
+        // A loop never ends by itself: once round is enough.
+        if went_round {
+            speakers.stop();
+            break;
+        }
+        if started.elapsed() > timeout {
+            return Err(format!(
+                "the song did not finish within {} seconds; the sound card asked for {} frames",
+                timeout.as_secs(),
+                speakers.frames_played()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let frames = speakers.frames_played();
+    let rate = speakers
+        .speaker
+        .as_ref()
+        .map_or(44_100, |s| s.sample_rate());
+    Ok(Played {
+        seconds: frames as f64 / rate as f64,
+        frames,
+    })
 }

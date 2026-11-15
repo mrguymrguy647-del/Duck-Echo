@@ -10,9 +10,12 @@ byte-identical WAV files.
 
 ## Duck Echo Studio (no terminal)
 
-**Duck Echo Studio** is the app for people: play the built-in sounds
-through your speakers, and (in the coming steps) make and edit your own
-sounds and songs, with Undo shared with an AI assistant.
+**Duck Echo Studio** is the app for people. Its Home shows your sounds
+and songs as cards (each with a small picture of its level, its length and
+Play) and a gallery to start from: the 30 built-in sounds by category, the
+instruments and the example songs, each with Play and **Make a copy**. New
+sound, New song, Rename, Duplicate, Delete, Search, and Undo and Redo
+(Ctrl+Z, Ctrl+Y) shared with an AI assistant. Editing a sound comes next.
 
 * **Windows:** download `DuckEchoStudioSetup.exe` from the
   [Releases page](https://github.com/mrguymrguy647-del/Duck-Echo/releases)

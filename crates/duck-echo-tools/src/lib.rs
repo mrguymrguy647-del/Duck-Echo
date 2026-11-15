@@ -9,6 +9,7 @@ use std::fmt;
 use std::path::Path;
 
 pub mod commands;
+pub mod examples;
 pub mod files;
 pub mod guide;
 pub mod history;
