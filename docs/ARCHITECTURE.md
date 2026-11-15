@@ -60,6 +60,9 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
                            (editor.rs for its state, saves and renders,
                            controls.rs for the sliders made from the
                            schema, sound_screen.rs to draw it), the
+                           song timeline (song_view.rs for its lanes,
+                           mute, solo and note check, song_screen.rs to
+                           draw it), the
                            speakers (tinyaudio + duck-echo-live),
                            settings, the update check, the Linux app-menu
                            entry.
@@ -587,6 +590,15 @@ file's new level (a normalized sound keeps its loudness). Any other
 change waits for its render, and the new voice takes over at the same
 place with a 10 ms cross-fade (`Player::replace`). A render that is not
 the newest change's is shown but never played.
+
+**The song timeline draws the arrangement** (`song_view.rs`): the list
+of notes `arrange` gives the renderer, with patterns placed, chords split
+and bars turned into beats, so what you see is what you hear. Play and
+Loop use the background song player; Mute and Solo play the stem of the
+tracks heard at their level in the full mix (`SongPlayback::set_heard`,
+the same stem as `render --solo`). The note check runs on a background
+thread with `measure_song` and outlines the notes it finds a problem
+with.
 
 **Home runs commands, nothing else.** Every button on Home that changes a
 file (New sound, New song, Make a copy, Rename, Duplicate, Delete, Undo,

@@ -4,7 +4,7 @@
 
 use duck_echo_core::{load_song_str, Format, LoadedSong};
 use duck_echo_live::{live, Config, Mixer, PlayError, Player, SongPlayback, SongState};
-use duck_echo_synth::song::render_song;
+use duck_echo_synth::song::{render_song, render_song_tracks};
 use duck_echo_tools::song::{files_next_to, Library};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -217,4 +217,36 @@ fn a_song_at_another_sample_rate_says_so() {
         }
     );
     assert_eq!(playback.state(), SongState::Stopped);
+}
+
+#[test]
+fn a_solo_track_plays_its_stem_and_loop_repeats_any_song() {
+    let loaded = song("four_bars.toml", |t| t);
+    assert!(!loaded.song.loop_);
+    let (full, mastering) = render_song(&loaded.song, &loaded.arrangement);
+    let stem = render_song_tracks(&loaded.song, &loaded.arrangement, &[0], &mastering);
+    assert_ne!(stem.samples, full.samples);
+    let (mut player, mut mixer) = pair(&loaded);
+    let mut playback = SongPlayback::new(1);
+    playback.set_heard(Some(vec![0]));
+    playback.set_looping(Some(true));
+    playback.play(loaded.song.clone(), loaded.arrangement.clone());
+    wait(&mut playback, &mut player, |p| {
+        p.state() == SongState::Playing
+    });
+    let mut out = Vec::new();
+    let frames = stem.samples.len() / mixer.channels();
+    blocks(&mut mixer, frames / BLOCK + 3, &mut out);
+    // The first track alone, at its level in the full mix...
+    assert!(out[..stem.samples.len()] == stem.samples[..]);
+    // ...and then again from the start: Loop repeats a song that does
+    // not loop by itself.
+    let again = &out[stem.samples.len()..];
+    assert!(again[..BLOCK] == stem.samples[..BLOCK]);
+    assert_eq!(playback.poll(&mut player), Ok(SongState::Playing));
+    // Everything again: the full mix takes over at the play head.
+    playback.set_heard(None);
+    playback.changed(loaded.song.clone(), loaded.arrangement.clone());
+    wait(&mut playback, &mut player, |p| !p.is_rendering());
+    playback.stop(&mut player).unwrap();
 }

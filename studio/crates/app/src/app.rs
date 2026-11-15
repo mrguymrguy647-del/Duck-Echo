@@ -17,6 +17,7 @@ use crate::app_menu;
 use crate::editor::Editor;
 use crate::library::{MyFile, Shelf, Thumbs};
 use crate::settings::{self, Settings};
+use crate::song_view::SongView;
 use crate::speaker::Speakers;
 use crate::theme;
 use crate::update_banner::{self, BannerChoice, UpdateState};
@@ -106,6 +107,8 @@ pub struct StudioApp {
     pub search: String,
     /// The sound open in the editor, if one is.
     pub editor: Option<Editor>,
+    /// The song open in the timeline, if one is.
+    pub song_view: Option<SongView>,
     /// The Rename window, when it is open: the file and the name typed.
     pub rename: Option<(String, String)>,
     /// What Undo and Redo would do now (the steps' titles).
@@ -167,6 +170,7 @@ impl StudioApp {
             category: "pickup",
             search: String::new(),
             editor: None,
+            song_view: None,
             rename: None,
             undo_title: None,
             redo_title: None,
@@ -233,6 +237,8 @@ impl StudioApp {
         self.shortcuts(&ctx);
         if self.editor.is_some() {
             egui::CentralPanel::default().show(ui, |ui| self.editor_screen(ui));
+        } else if self.song_view.is_some() {
+            egui::CentralPanel::default().show(ui, |ui| self.song_screen(ui));
         } else {
             egui::CentralPanel::default().show(ui, |ui| self.home(ui));
         }

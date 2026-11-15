@@ -178,12 +178,48 @@ impl Speakers {
     /// Play a song: it is rendered in the background (the same render as
     /// its file) and starts when that is ready. A sound that plays stops.
     pub fn play_song(&mut self, song: Song, arrangement: Arrangement) -> Result<(), String> {
+        self.play_song_with(song, arrangement, None, None)
+    }
+
+    /// [`Speakers::play_song`], repeating it (`Some(true)`) or not
+    /// whatever its `loop` says, and with only the tracks in `heard`
+    /// (`None`: all of them).
+    pub fn play_song_with(
+        &mut self,
+        song: Song,
+        arrangement: Arrangement,
+        looping: Option<bool>,
+        heard: Option<Vec<usize>>,
+    ) -> Result<(), String> {
         self.open_at(song.sample_rate)?;
         let speaker = self.speaker.as_mut().expect("opened above");
         let _ = speaker.player().stop(PREVIEW);
         let playback = self.song.get_or_insert_with(|| SongPlayback::new(SONG));
+        playback.set_looping(looping);
+        playback.set_heard(heard);
         playback.play(song, arrangement);
         Ok(())
+    }
+
+    /// The playing song changed (its file, or which tracks are heard): a
+    /// new render takes over at the play head.
+    pub fn song_changed(
+        &mut self,
+        song: Song,
+        arrangement: Arrangement,
+        heard: Option<Vec<usize>>,
+    ) {
+        if let Some(playback) = &mut self.song {
+            playback.set_heard(heard);
+            playback.changed(song, arrangement);
+        }
+    }
+
+    /// The frame of the song the speakers have reached, while it plays.
+    pub fn song_frame(&self) -> Option<u64> {
+        self.speaker
+            .as_ref()
+            .and_then(|s| s.player.status().position(SONG))
     }
 
     fn stop_song(&mut self) {

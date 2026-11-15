@@ -20,7 +20,9 @@ in the sound editor: its text on the left, sliders on the right, a picture
 of the sound below, and Play and Loop, so you hear each slider move. The
 text and the sliders always agree, a mistake shows under its line with a
 fix to click, and Export WAV saves the sound for a game. Your comments in
-a file stay, whatever changes it.
+a file stay, whatever changes it. Click a song to see it in the song
+timeline: a lane per track with its notes and patterns, the bars, the
+loop and the play head, with Mute and Solo for each track.
 
 * **Windows:** download `DuckEchoStudioSetup.exe` from the
   [Releases page](https://github.com/mrguymrguy647-del/Duck-Echo/releases)

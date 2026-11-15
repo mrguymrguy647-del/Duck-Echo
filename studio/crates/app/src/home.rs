@@ -461,16 +461,12 @@ impl StudioApp {
         let card = card.on_hover_cursor(egui::CursorIcon::PointingHand);
         let card = match file.kind {
             Kind::Sound => card.on_hover_text("Click to open it"),
-            Kind::Song => card.on_hover_text("Songs open in the song timeline, which comes next"),
+            Kind::Song => card.on_hover_text("Click to open it in the song timeline"),
         };
         if card.clicked() {
             match file.kind {
                 Kind::Sound => self.open_sound(&file.rel),
-                Kind::Song => self.say(
-                    "Songs open in the song timeline, which comes in a later version. For now, \
-                     play it here, or edit its text in a text editor."
-                        .into(),
-                ),
+                Kind::Song => self.open_song(&file.rel),
             }
         }
     }

@@ -821,6 +821,12 @@ schema's `x-applies-when` (asked for on approval of step 6).
 
 **What you test on Linux:** the same five steps.
 
+**As built** (step 8): Mute and Solo play the stem of the tracks heard,
+at their level in the full mix (as `render --solo` writes it), so a
+solo drum track is not made louder. Loop repeats any song; Play follows
+its `loop`. The buttons say Mute and Solo in words, not M and S. A song
+opens by clicking its card on Home.
+
 ### Step 9: editing the song (task 24, part 2)
 
 * Add, drag, stretch and delete notes; place, move and remove pattern

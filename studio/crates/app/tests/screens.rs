@@ -432,6 +432,104 @@ fn open_a_sound_and_edit_it_as_the_checklist_does() {
 }
 
 #[test]
+fn open_a_song_in_the_timeline_as_the_checklist_does() {
+    let dir = folder("timeline");
+    let mut harness = harness(app(&dir, AppMenu::none()), true);
+    harness.run_steps(2);
+    // 1. Example songs: Make a copy of the day theme, then open it.
+    harness.get_by_label("Example songs").click();
+    harness.run_steps(2);
+    button_on(&harness, "duck_craft_day", "Make a copy").click();
+    harness.run_steps(2);
+    let mine = harness
+        .query_all_by_label("duck_craft_day")
+        .min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+        .unwrap();
+    mine.click();
+    harness.run_steps(3);
+    assert!(
+        harness.state().song_view.is_some(),
+        "the card opens the timeline: {:?}",
+        harness.state().note
+    );
+    for label in ["< Home", "duck_craft_day.toml", "Play", "Loop", "Stop"] {
+        harness.get_by_label(label);
+    }
+    harness.get_by_label_contains("84 BPM, 4/4, 8 bars, loops");
+    // A lane per track, each with Mute and Solo.
+    for track in ["pad", "bass", "keys", "drums"] {
+        // (The pad, the bass and the drums play instruments of the same
+        // name, shown under it.)
+        assert!(harness.query_all_by_label(track).next().is_some());
+        button_on(&harness, track, "Mute");
+        button_on(&harness, track, "Solo");
+    }
+    // 5. Hover over a note: its name, bar and beat show.
+    let note = harness.get_by_label("keys: E5, bar 1, beat 0");
+    note.hover();
+    // A tooltip waits half a second.
+    harness.run_steps(60);
+    harness.get_by_label_contains("held 1 beat");
+    // The note check: the summary line, and every note heard.
+    until(&mut harness, "the note check", |app| {
+        app.song_view
+            .as_ref()
+            .is_some_and(|v| v.checked.is_some() && !v.checking())
+    });
+    harness.get_by_label_contains("8 bars looping at 84 BPM");
+    let checked = harness
+        .state()
+        .song_view
+        .as_ref()
+        .unwrap()
+        .checked
+        .clone()
+        .unwrap();
+    assert!(checked.problems.is_empty(), "{:?}", checked.problems);
+    shoot(&mut harness, "08-song-timeline");
+
+    // 3. Solo on the drums: only the drums are heard. Again: everything.
+    button_on(&harness, "drums", "Solo").click();
+    harness.run_steps(2);
+    let drums = 3;
+    assert_eq!(
+        harness.state().song_view.as_ref().unwrap().heard(),
+        Some(vec![drums])
+    );
+    button_on(&harness, "drums", "Solo").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state().song_view.as_ref().unwrap().heard(), None);
+    // Mute the pad: everything but the pad.
+    button_on(&harness, "pad", "Mute").click();
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().song_view.as_ref().unwrap().heard(),
+        Some(vec![1, 2, 3])
+    );
+
+    // A change made elsewhere shows: an AI assistant moves the tempo.
+    let project = dir.join("Duck Echo");
+    let text = std::fs::read_to_string(project.join("duck_craft_day.toml")).unwrap();
+    std::fs::write(
+        project.join("duck_craft_day.toml"),
+        text.replace("tempo = 84", "tempo = 100"),
+    )
+    .unwrap();
+    until(&mut harness, "the new tempo", |app| {
+        app.song_view
+            .as_ref()
+            .and_then(|v| v.loaded.as_ref())
+            .is_some_and(|(song, _)| song.tempo == 100.0)
+    });
+    harness.get_by_label_contains("100 BPM");
+
+    harness.get_by_label("< Home").click();
+    harness.run_steps(2);
+    assert!(harness.state().song_view.is_none());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn every_preset_and_instrument_gets_its_sliders() {
     let dir = folder("all-sliders");
     let mut harness = harness(app(&dir, AppMenu::none()), true);

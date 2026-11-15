@@ -30,6 +30,8 @@ struct Request {
     number: u64,
     song: Song,
     arrangement: Arrangement,
+    /// Only these tracks, when some are muted or one is solo.
+    heard: Option<Vec<usize>>,
 }
 
 struct Rendered {
@@ -60,6 +62,10 @@ pub struct SongPlayback {
     ready: Option<(u64, Sound)>,
     /// The number of the newest render handed to the player.
     handed: u64,
+    /// Repeat (or not) whatever the song's `loop` says. `None`: follow it.
+    looping_override: Option<bool>,
+    /// Play only these tracks. `None`: all of them.
+    heard: Option<Vec<usize>>,
 }
 
 impl SongPlayback {
@@ -78,8 +84,19 @@ impl SongPlayback {
                     while let Ok(newer) = todo.try_recv() {
                         request = newer;
                     }
-                    let (buffer, _) =
+                    let (full, mastering) =
                         duck_echo_synth::song::render_song(&request.song, &request.arrangement);
+                    // Muted or solo tracks: the stem of the tracks heard,
+                    // at the full mix's level, as `render --solo` writes.
+                    let buffer = match &request.heard {
+                        Some(heard) => duck_echo_synth::song::render_song_tracks(
+                            &request.song,
+                            &request.arrangement,
+                            heard,
+                            &mastering,
+                        ),
+                        None => full,
+                    };
                     let rendered = Rendered {
                         number: request.number,
                         buffer,
@@ -102,7 +119,24 @@ impl SongPlayback {
             state: SongState::Stopped,
             ready: None,
             handed: 0,
+            looping_override: None,
+            heard: None,
         }
+    }
+
+    /// Repeat the song (`Some(true)`), play it once (`Some(false)`), or
+    /// follow its `loop` (`None`). Takes effect at the next [`Self::play`]
+    /// or [`Self::changed`].
+    pub fn set_looping(&mut self, looping: Option<bool>) {
+        self.looping_override = looping;
+    }
+
+    /// Play only the tracks numbered in `heard` (others are muted), or
+    /// every track (`None`). They play at the level they have in the full
+    /// mix, as `render --solo` writes them. Takes effect at the next
+    /// [`Self::play`] or [`Self::changed`].
+    pub fn set_heard(&mut self, heard: Option<Vec<usize>>) {
+        self.heard = heard;
     }
 
     /// What it is doing, as of the last [`Self::poll`].
@@ -125,6 +159,7 @@ impl SongPlayback {
             number: self.newest,
             song,
             arrangement,
+            heard: self.heard.clone(),
         });
     }
 
@@ -132,7 +167,7 @@ impl SongPlayback {
     /// begins when it is ready (see [`Self::poll`]). A song with
     /// `loop = true` repeats.
     pub fn play(&mut self, song: Song, arrangement: Arrangement) {
-        self.looping = song.loop_;
+        self.looping = self.looping_override.unwrap_or(song.loop_);
         self.started = false;
         self.state = SongState::GettingReady;
         self.ask(song, arrangement);
@@ -146,7 +181,7 @@ impl SongPlayback {
         if self.state == SongState::Stopped {
             return;
         }
-        self.looping = song.loop_;
+        self.looping = self.looping_override.unwrap_or(song.loop_);
         self.ask(song, arrangement);
     }
 

@@ -775,12 +775,52 @@ Lessons for the next builder:
   slightly different `got`, and pruned the value. It now reads the
   schema without ranges; the published schema adds them.
 
-### 24. Song timeline
+### 24. Song timeline [to look at and play: done in Phase 2 step 8]
 
 * Tracks as lanes, notes as blocks, patterns as reusable clips, a play
   head, and loop markers; edits change the song document.
 * Accept: a song made in the timeline renders the same bytes as the same
   song written as text.
+
+Done in Phase 2 step 8 (to look at and play):
+
+* [x] Click a song's card to open it in the timeline
+  (`studio/crates/app/src/song_view.rs` for what it knows,
+  `song_screen.rs` to draw it). It is drawn from the song's
+  arrangement, the very list of notes the renderer plays, so what you
+  see is what you hear.
+* [x] A lane per track (name, volume, instrument, **Mute** and
+  **Solo**); notes as blocks at their beat and length, higher for a
+  higher pitch, with their names; a drum kit's pieces on rows of their
+  own; each placed pattern as a clip with its name and transpose.
+* [x] The ruler of bars, the loop marker ("loop: bars 1 to 8") for a
+  song with `loop = true`, and the play head while it plays.
+* [x] Play (once, or looping as the song says) and Loop (always
+  repeats), through the background song player. Mute and Solo play the
+  stem of the tracks heard at their level in the full mix, as `render
+  --solo` writes it (`SongPlayback::set_heard`, `set_looping`), and a
+  change takes over at the play head.
+* [x] The note check, the same one `analyze` runs, on a background
+  thread: the summary line under the lanes, and every note that is
+  missing, quiet or at the wrong pitch outlined in red with the reason
+  in its tooltip.
+* [x] Hover over a note: its name, bar and beat, how long it is held and
+  how hard it is played.
+* [x] The file is read again twice a second, so an agent's change shows
+  (and is heard, if it plays).
+* [ ] Editing in the timeline: step 9.
+
+Lessons for the next builder (step 8):
+
+* **Draw from the arrangement, not the file.** Patterns, chords,
+  transposes and bars are already worked out there; a note's `path`
+  says where it was written, so a clip's notes are known by their
+  `patterns.` path.
+* **Painted shapes are invisible to tests and screen readers.** Each
+  note block is also an invisible widget named "keys: E5, bar 1, beat
+  0", so a test can hover it and a screen reader can read it.
+* **A tooltip waits half a second.** A test that hovers must let that
+  much time pass before it looks.
 
 ### 25. Every button is a command, with Undo [command layer done: step 1]
 
