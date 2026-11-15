@@ -323,14 +323,20 @@ fn default_lfo_depth() -> f32 {
 #[serde(deny_unknown_fields, default)]
 pub struct Lfo {
     /// What the wave moves: `volume` (default), `cutoff` (needs a
-    /// `filter`) or `duty` (needs `source = "square"`).
+    /// `filter`), `duty` (needs `source = "square"`) or `pitch` (needs a
+    /// layer with a pitch).
     pub target: LfoTarget,
-    /// Cycles per second, range 0.01..=50. Default `5`.
+    /// Cycles per second. Default `5`. `volume` and `pitch` go up to
+    /// 2000: above about 20 the wobble is too fast to hear as a wobble
+    /// and becomes a rough, growling or buzzing tone (side tones at the
+    /// note plus and minus the rate). `cutoff` and `duty` go up to 50.
+    /// Range 0.01..=2000.
     pub rate: f32,
     /// How far it moves. `volume`: 0..=1, the level swings between full
     /// and `1 - depth` of full. `cutoff`: 0..=4 octaves up and down from
     /// the filter's cutoff. `duty`: 0..=0.5 added to and taken from
-    /// `duty` (the result is kept inside 0.01..=0.99). Default `0.5`.
+    /// `duty` (the result is kept inside 0.01..=0.99). `pitch`: 0..=24
+    /// semitones up and down. Default `0.5`.
     pub depth: f32,
     /// The wave: `sine` (default), `triangle` or `square`.
     pub shape: LfoShape,
@@ -361,6 +367,11 @@ pub enum LfoTarget {
     Cutoff,
     /// The pulse width of a square wave.
     Duty,
+    /// The layer's pitch, `depth` semitones up and down. Slow, it is a
+    /// wobble; at audio rates (tens to hundreds of times a second) it
+    /// growls, buzzes or rasps: side tones appear at the note plus and
+    /// minus the rate (frequency modulation). Needs a layer with a pitch.
+    Pitch,
 }
 
 /// The wave of an [`Lfo`].

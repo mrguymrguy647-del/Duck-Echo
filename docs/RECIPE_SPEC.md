@@ -94,7 +94,7 @@ stack of layers must not clip.
 | `envelope` | table | defaults | | Volume envelope. |
 | `pitch` | table | defaults | | Pitch over time. |
 | `filter` | table | none | | Optional filter. |
-| `lfo` | table | none | | Optional slow wave that moves the volume, the cutoff or the duty. |
+| `lfo` | table | none | | Optional wave that moves the volume, the cutoff, the duty or the pitch: slowly (a wobble), or for volume and pitch at audio rates (a growl, buzz or rasp). |
 | `effects` | array | `[]` | | Per-layer effect chain. |
 
 Source details:
@@ -199,14 +199,20 @@ accurate.
 
 ### `layers[].lfo`
 
-An LFO ("low-frequency oscillator") is a slow wave that moves one setting
+An LFO ("low-frequency oscillator") is a wave that moves one setting
 while the sound plays. One per layer. It starts when the layer starts, so
-in a song it starts again with each note.
+in a song it starts again with each note. Slow, it is a wobble you hear as
+a wobble. On `volume` and `pitch` it may also run at audio rates, up to
+2000 cycles a second: then it is too fast to hear as a wobble and becomes
+part of the tone, a growl, buzz or rasp, with side tones at the note plus
+and minus the rate ("ring" style on volume, FM style on pitch). Gritty
+footsteps, growls, screams and rasps want 20 to 150 a second; buzzes and
+metallic tones more.
 
 | Field | Type | Default | Range | Meaning |
 |---|---|---|---|---|
-| `target` | string | `"volume"` | `volume`, `cutoff`, `duty` | What the wave moves. `cutoff` needs a `filter` on the layer and `duty` needs `source = "square"` (errors otherwise). |
-| `rate` | number | `5` | 0.01..50 | Cycles per second. |
+| `target` | string | `"volume"` | `volume`, `cutoff`, `duty`, `pitch` | What the wave moves. `cutoff` needs a `filter` on the layer, `duty` needs `source = "square"`, and `pitch` needs a layer with a pitch (not plain white noise); errors otherwise. |
+| `rate` | number | `5` | 0.01..2000 by target | Cycles per second: up to 2000 for `volume` and `pitch`, up to 50 for `cutoff` and `duty` (the filter takes a new cutoff every 16 samples, so faster would not be heard). |
 | `depth` | number | `0.5` | by target | How far it moves; see below. |
 | `shape` | string | `"sine"` | `sine`, `triangle`, `square` | The wave. `square` jumps between the two ends. |
 | `delay` | number | `0` | 0..30 | Seconds before the wave starts. |
@@ -223,6 +229,15 @@ What `depth` means:
 * `duty` (0..0.5): added to and taken from `duty`; the result is kept
   inside 0.01..0.99. It starts at `duty` and goes up first. This is
   pulse-width movement, which makes a square wave sound thicker.
+* `pitch` (0..24): semitones up and down from the note (after its own
+  sweep, vibrato and arpeggio). It starts at the note and goes up first.
+  Slow, it is a vibrato with other shapes than `pitch.vibrato`; fast, half
+  a semitone to a few semitones gives a growl or a rasp.
+
+Faster than 50 a second, the wave's place is worked out in 64-bit time,
+so it stays exact for a whole minute. Slower LFOs are worked out exactly
+as before audio rates existed, so every older sound renders the same
+bytes. `analyze` lists the side tones in `peaks`.
 
 ```toml
 [[layers]]
@@ -231,7 +246,13 @@ filter = { cutoff = 800, resonance = 2.0 }
 lfo = { target = "cutoff", rate = 1.0, depth = 2.0 }   # a slow "wah"
 ```
 
-Pitch has its own wave already: `pitch.vibrato`.
+```toml
+[[layers]]
+source = "noise"
+noise_mode = "pitched"
+pitch = { start = 180 }
+lfo = { target = "volume", rate = 70, depth = 0.8 }    # a gritty growl
+```
 
 ### Stereo
 

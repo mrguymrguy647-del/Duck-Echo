@@ -478,6 +478,20 @@ pub fn summary(a: &Analysis) -> String {
             parts.push(format!("{character}, {pitch}"));
         }
     }
+    // How it feels: only what is high is named.
+    if let Some(feel) = &a.feel {
+        use crate::character::Level::High;
+        for (level, word) in [
+            (feel.roughness, "rough"),
+            (feel.sharpness, "piercing"),
+            (feel.boom, "booming"),
+            (feel.movement, "moving"),
+        ] {
+            if level == High {
+                parts.push(word.into());
+            }
+        }
+    }
     if a.onsets.len() >= 2 {
         parts.push(format!("{} onsets", a.onsets.len()));
     }

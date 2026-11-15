@@ -247,13 +247,28 @@ impl Validator {
         }
         if let Some(lfo) = &l.lfo {
             let lp = format!("{p}.lfo");
-            self.check(&format!("{lp}.rate"), lfo.rate, ranges::LFO_RATE);
+            // The rate's range depends on the target: only volume and
+            // pitch move at audio rates.
+            let rate = ranges::lfo_rate(lfo.target);
+            let rate_ok = self.check(&format!("{lp}.rate"), lfo.rate, rate);
+            if !rate_ok && lfo.rate > rate.max as f32 && lfo.rate <= ranges::LFO_RATE.max as f32 {
+                if let Some(last) = self.report.errors.last_mut() {
+                    last.message = format!(
+                        "value {} is outside the allowed range 0.01..={} for target `{}`: only `volume` and `pitch` move at audio rates (up to 2000)",
+                        lfo.rate,
+                        rate.max,
+                        lfo_target_name(lfo.target)
+                    );
+                    last.suggestion = Some("target = \"volume\"".into());
+                }
+            }
             self.check(&format!("{lp}.delay"), lfo.delay, ranges::LFO_DELAY);
             let max = ranges::lfo_depth(lfo.target).max as f32;
             let unit = match lfo.target {
                 LfoTarget::Volume => "a part of the volume",
                 LfoTarget::Cutoff => "octaves",
                 LfoTarget::Duty => "an amount of duty",
+                LfoTarget::Pitch => "semitones",
             };
             if lfo.depth.is_nan() || lfo.depth < 0.0 || lfo.depth > max {
                 self.report.push(
@@ -278,6 +293,14 @@ impl Validator {
                         "an LFO on `cutoff` needs a filter on this layer; add `filter = { cutoff = 1000 }`, or use target `volume`",
                     )
                     .got("cutoff"),
+                ),
+                LfoTarget::Pitch if !l.has_pitch() => self.report.push(
+                    Issue::error(
+                        Code::Invalid,
+                        format!("{lp}.target"),
+                        "an LFO on `pitch` needs a layer with a pitch; plain white noise has none (use `noise_mode = \"pitched\"`, another source, or target `volume`)",
+                    )
+                    .got("pitch"),
                 ),
                 LfoTarget::Duty if l.source != Source::Square => self.report.push(
                     Issue::error(
@@ -472,6 +495,7 @@ fn lfo_target_name(t: LfoTarget) -> &'static str {
         LfoTarget::Volume => "volume",
         LfoTarget::Cutoff => "cutoff",
         LfoTarget::Duty => "duty",
+        LfoTarget::Pitch => "pitch",
     }
 }
 

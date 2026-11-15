@@ -558,17 +558,17 @@
         },
         "depth": {
           "default": 0.5,
-          "description": "How far it moves. `volume`: 0..=1, the level swings between full\nand `1 - depth` of full. `cutoff`: 0..=4 octaves up and down from\nthe filter's cutoff. `duty`: 0..=0.5 added to and taken from\n`duty` (the result is kept inside 0.01..=0.99). Default `0.5`.",
+          "description": "How far it moves. `volume`: 0..=1, the level swings between full\nand `1 - depth` of full. `cutoff`: 0..=4 octaves up and down from\nthe filter's cutoff. `duty`: 0..=0.5 added to and taken from\n`duty` (the result is kept inside 0.01..=0.99). `pitch`: 0..=24\nsemitones up and down. Default `0.5`.",
           "format": "float",
-          "maximum": 4,
+          "maximum": 24,
           "minimum": 0,
           "type": "number"
         },
         "rate": {
           "default": 5.0,
-          "description": "Cycles per second, range 0.01..=50. Default `5`.",
+          "description": "Cycles per second. Default `5`. `volume` and `pitch` go up to\n2000: above about 20 the wobble is too fast to hear as a wobble\nand becomes a rough, growling or buzzing tone (side tones at the\nnote plus and minus the rate). `cutoff` and `duty` go up to 50.\nRange 0.01..=2000.",
           "format": "float",
-          "maximum": 50,
+          "maximum": 2000,
           "minimum": 0.01,
           "type": "number"
         },
@@ -580,7 +580,7 @@
         "target": {
           "$ref": "#/$defs/LfoTarget",
           "default": "volume",
-          "description": "What the wave moves: `volume` (default), `cutoff` (needs a\n`filter`) or `duty` (needs `source = \"square\"`)."
+          "description": "What the wave moves: `volume` (default), `cutoff` (needs a\n`filter`), `duty` (needs `source = \"square\"`) or `pitch` (needs a\nlayer with a pitch)."
         }
       },
       "type": "object"
@@ -621,6 +621,11 @@
         {
           "const": "duty",
           "description": "The pulse width of a square wave.",
+          "type": "string"
+        },
+        {
+          "const": "pitch",
+          "description": "The layer's pitch, `depth` semitones up and down. Slow, it is a\nwobble; at audio rates (tens to hundreds of times a second) it\ngrowls, buzzes or rasps: side tones appear at the note plus and\nminus the rate (frequency modulation). Needs a layer with a pitch.",
           "type": "string"
         }
       ]

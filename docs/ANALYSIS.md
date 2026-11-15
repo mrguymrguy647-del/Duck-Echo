@@ -31,6 +31,8 @@ to the last sample above that level.
 | `energy_over_time` | `slice_seconds` and `rms_dbfs`: the RMS level of all channels in 20 equal slices over the whole file, rounded to 0.1 dB, `null` for digital silence. A coarse level-over-time picture in numbers: a fade, a gap, a second hit or a tail. |
 | `onsets` | Where notes or bursts start, each with `time_seconds`, `note_hz` and `level_dbfs` (see Onsets). |
 | `ending` | The click check for a sound that stops: `jump`, `largest_step_near_end`, `last_level_dbfs`, `clean` (see Ending). |
+| `roughness`, `sharpness`, `boom`, `movement`, `feel` | How the sound feels, measured cheaply until Duck Ear listens properly (see How it feels). |
+| `peaks` | Up to 8 strongest peaks of the average spectrum (93 ms Hann frames, half overlap), strongest first: `hz` (placed between bins by a parabola) and `db` against the strongest (0). Only peaks within 40 dB of the strongest. A fast LFO shows as side tones at the note plus and minus its rate. |
 | `silence_threshold_dbfs` | The -60 dBFS threshold used above. |
 
 Spectral fields use the mean of the channels; level fields use all
@@ -239,6 +241,25 @@ The picture shows texture the numbers miss (grit, a noisy tail, aliasing),
 but its colours are not measurements: check numbers with the fields
 above.
 
+## How it feels
+
+Four numbers for the questions a film's sounds raise, each with fixed
+thresholds for `low`, `medium` and `high` in `feel`. The summary names
+each that is `high`: rough, piercing, booming, moving. They are plain
+measurements, not a model of hearing; Duck Ear (Phase 4) will do better.
+All four use the mean of the channels over the active span.
+
+| Field | What it measures | medium from | high from |
+|---|---|---|---|
+| `roughness` | Fast loudness wobble at one steady rate between 20 and 150 a second: growls, screams, rasps, low buzzes. The Hilbert envelope (the loudness without the ripple at twice the note, so a low hum is not rough), one value a millisecond, minus its 31 ms average; then only the strongest wobble rate in 20 to 150 Hz, ±3 Hz, as a share of the mean level. Noise flickers at every rate, so steady noise reads low. A wobble of pitch alone (FM) changes the loudness little and reads low here; read `peaks` for it. | 0.12 | 0.3 |
+| `sharpness` | Share of the power between 2 and 5 kHz, where the ear is most sensitive: harsh, piercing. | 0.15 | 0.35 |
+| `boom` | Share of the power below 80 Hz. | 0.1 | 0.35 |
+| `movement` | How much the sound changes over time: the spread of the brightness (spectral centroid, in octaves) plus the spread of the level (dB, over 20), across 50 ms frames within 30 dB of the loudest. Sounds shorter than 100 ms read 0. | 0.3 | 0.75 |
+
+On the presets: `engine_hum` (a 55 Hz saw) is medium rough, the wind low;
+`big_explosion`, `thud` and `low_health` boom; `gem` and `extra_life` are
+piercing; `laser`, `missile` and the explosions move.
+
 ## Summary words
 
 | Word | Rule |
@@ -248,6 +269,7 @@ above.
 | tonal, tone and noise, noisy | Tonality at least 0.6, between, or at most 0.3. |
 | pitch rising / falling from X to Y Hz | Uses pitch-track windows with tonality above 0.3 and a level within 20 dB of the loudest window, so a faint tail does not decide the direction. First and last such windows differ by more than one semitone; otherwise "around X Hz". No pitch is given for noisy sounds. |
 | `~` before LUFS | Short-clip loudness (`k_weighted_ungated`). |
+| rough, piercing, booming, moving | `feel` is `high` for roughness, sharpness, boom or movement (see How it feels). |
 | N onsets | Two or more `onsets`. |
 | CLIPPING (N samples) | Any clipped sample. |
 | ends cleanly, ENDS WITH A CLICK | `ending.clean` (see Ending). Not in a song's summary when it loops; "loop joins cleanly" or "LOOP CLICKS AT THE JOIN" is there instead. |

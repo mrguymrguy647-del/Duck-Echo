@@ -374,12 +374,24 @@ impl LayerVoice {
             let local = self.local;
             if local < self.env_frames {
                 let t = local as f32 * self.inv_sample_rate;
-                let hz = self.pitch.at(t);
+                let mut hz = self.pitch.at(t);
                 let mut level = self.env.level(t) * self.volume;
                 if let Some(lfo) = &self.lfo {
                     match target {
+                        // A fast LFO keeps its phase in 64-bit time; a
+                        // slow one is worked out exactly as before audio
+                        // rates existed, so old sounds keep their bytes.
+                        Some(LfoTarget::Volume) if lfo.is_fast() => {
+                            level *= lfo.gain_exact(local, f64::from(self.inv_sample_rate));
+                        }
                         Some(LfoTarget::Volume) => level *= lfo.gain(t),
                         Some(LfoTarget::Duty) => self.osc.set_duty(self.duty + lfo.offset(t)),
+                        Some(LfoTarget::Pitch) => {
+                            // Kept under the same ceiling as the pitch
+                            // curve (45% of the sample rate).
+                            hz = (hz * lfo.ratio_exact(local, f64::from(self.inv_sample_rate)))
+                                .min(0.45 / self.inv_sample_rate);
+                        }
                         _ => {}
                     }
                 }

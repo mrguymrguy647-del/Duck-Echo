@@ -176,6 +176,53 @@ impl LfoShaper {
         1.0 - self.depth * 0.5 * (1.0 - w)
     }
 
+    /// True for an LFO faster than any slow LFO may go (50 per second):
+    /// a growl, buzz or rasp. Its wave is worked out with
+    /// [`LfoShaper::gain_exact`] and [`LfoShaper::ratio_exact`].
+    #[inline]
+    pub fn is_fast(&self) -> bool {
+        f64::from(self.rate) > duck_echo_core::ranges::SLOW_LFO_MAX
+    }
+
+    /// The wave `local` frames after the layer began, `ahead` turns
+    /// ahead, or `None` before `delay`. Worked out in 64-bit time: at
+    /// 2000 cycles a second, 32-bit time would lose the phase within a
+    /// minute and make the tone fuzzy. (Slow LFOs keep the 32-bit
+    /// [`LfoShaper::gain`] and [`LfoShaper::offset`], so every sound made
+    /// before audio rates existed renders the very same bytes.)
+    #[inline]
+    fn wave_exact(&self, local: usize, inv_sample_rate: f64, ahead: f64) -> Option<f32> {
+        let t = local as f64 * inv_sample_rate;
+        let delay = f64::from(self.delay);
+        if t < delay {
+            return None;
+        }
+        let turns = (t - delay) * f64::from(self.rate) + ahead;
+        Some(self.wave((turns - turns.floor()) as f32))
+    }
+
+    /// [`LfoShaper::gain`] for a fast LFO on `volume` (amplitude
+    /// modulation, "ring" style): side tones at the note plus and minus
+    /// the rate.
+    #[inline]
+    pub fn gain_exact(&self, local: usize, inv_sample_rate: f64) -> f32 {
+        match self.wave_exact(local, inv_sample_rate, 0.25) {
+            Some(w) => 1.0 - self.depth * 0.5 * (1.0 - w),
+            None => 1.0,
+        }
+    }
+
+    /// The pitch ratio for target `pitch`: the note moves `depth`
+    /// semitones up and down (frequency modulation at audio rates). 1
+    /// before `delay`, and it starts from 1.
+    #[inline]
+    pub fn ratio_exact(&self, local: usize, inv_sample_rate: f64) -> f32 {
+        match self.wave_exact(local, inv_sample_rate, 0.0) {
+            Some(w) => math::exp2(self.depth * w / 12.0),
+            None => 1.0,
+        }
+    }
+
     /// The wave times `depth` at time `t`, for targets `cutoff` (octaves)
     /// and `duty` (an amount to add). 0 before `delay`, and it starts
     /// from 0, so nothing jumps when the LFO begins.
