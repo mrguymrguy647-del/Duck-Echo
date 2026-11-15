@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Duck Echo: the duck quacks, and the sound rings out in echoes.
+       Made for this project, in the style of its siblings Duck Quill and
+       Duck Forge: an indigo tile with stars, and the yellow duck. -->
+  <defs>
+    <clipPath id="tile"><rect width="1024" height="1024" rx="232" ry="232"/></clipPath>
+    <radialGradient id="night" cx="50%" cy="34%" r="80%">
+      <stop offset="0" stop-color="#7466F2"/>
+      <stop offset="0.45" stop-color="#5546D0"/>
+      <stop offset="1" stop-color="#1B1446"/>
+    </radialGradient>
+    <radialGradient id="duck" cx="38%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#FFF0A0"/>
+      <stop offset="0.45" stop-color="#FFCC2E"/>
+      <stop offset="1" stop-color="#E89A00"/>
+    </radialGradient>
+    <linearGradient id="bill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFA940"/>
+      <stop offset="1" stop-color="#F0701A"/>
+    </linearGradient>
+    <radialGradient id="pond" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#46D6FF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#46D6FF" stop-opacity="0"/>
+    </radialGradient>
+    <path id="spark" d="M0,-1 C0.12,-0.3 0.3,-0.12 1,0 C0.3,0.12 0.12,0.3 0,1 C-0.12,0.3 -0.3,0.12 -1,0 C-0.3,-0.12 -0.12,-0.3 0,-1 Z"/>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="1024" height="1024" fill="url(#night)"/>
+    <!-- stars -->
+    <g fill="#DCD5FF">
+      <use href="#spark" transform="translate(150,170) scale(26)" opacity="0.95"/>
+      <use href="#spark" transform="translate(880,150) scale(18)" opacity="0.85"/>
+      <use href="#spark" transform="translate(300,95) scale(10)" opacity="0.7"/>
+      <use href="#spark" transform="translate(110,430) scale(12)" opacity="0.75"/>
+      <circle cx="720" cy="90" r="5" opacity="0.7"/>
+      <circle cx="210" cy="300" r="4" opacity="0.6"/>
+      <circle cx="70" cy="250" r="3.5" opacity="0.5"/>
+      <circle cx="560" cy="150" r="4" opacity="0.6"/>
+    </g>
+
+    <!-- the echoes: rings of sound from the open bill, fading as they go -->
+    <g fill="none" stroke-linecap="round">
+      <path d="M690,300 A150,150 0 0 1 690,520" stroke="#46D6FF" stroke-width="34" opacity="0.95"/>
+      <path d="M760,230 A250,250 0 0 1 760,590" stroke="#46D6FF" stroke-width="30" opacity="0.7"/>
+      <path d="M830,160 A350,350 0 0 1 830,660" stroke="#DCD5FF" stroke-width="26" opacity="0.5"/>
+      <path d="M900,95 A450,450 0 0 1 900,725" stroke="#DCD5FF" stroke-width="22" opacity="0.28"/>
+    </g>
+
+    <!-- the water the duck floats on, rippling with the sound -->
+    <ellipse cx="420" cy="860" rx="440" ry="120" fill="url(#pond)"/>
+    <g fill="none" stroke="#46D6FF" stroke-linecap="round">
+      <path d="M90,830 C160,800 230,860 300,830 C370,800 440,860 510,830 C580,800 650,860 720,830 C790,800 860,860 930,830" stroke-width="16" opacity="0.8"/>
+      <path d="M150,905 C210,880 270,930 330,905 C390,880 450,930 510,905 C570,880 630,930 690,905" stroke-width="12" opacity="0.45"/>
+    </g>
+
+    <!-- the duck -->
+    <g>
+      <ellipse cx="340" cy="815" rx="200" ry="24" fill="#1B1446" opacity="0.35"/>
+      <!-- tail -->
+      <path d="M120,640 C80,585 92,540 145,552 C165,585 182,618 214,640 Z" fill="url(#duck)"/>
+      <!-- body -->
+      <ellipse cx="330" cy="680" rx="215" ry="140" fill="url(#duck)"/>
+      <!-- wing -->
+      <path d="M220,660 C270,615 380,620 425,672 C385,725 280,738 222,705 C206,690 206,675 220,660 Z" fill="#F2A900" opacity="0.55"/>
+      <!-- head, tipped up to sing -->
+      <circle cx="455" cy="440" r="135" fill="url(#duck)"/>
+      <!-- neck -->
+      <path d="M360,520 C380,560 420,600 470,580 C500,560 520,520 510,500 Z" fill="url(#duck)"/>
+      <!-- cheek shine -->
+      <ellipse cx="405" cy="385" rx="48" ry="30" fill="#FFF7C9" opacity="0.55" transform="rotate(-28 405 385)"/>
+      <!-- the open bill: upper and lower half -->
+      <path d="M566,402 C620,370 668,368 690,384 C682,404 640,424 580,430 C566,424 560,412 566,402 Z" fill="url(#bill)"/>
+      <path d="M572,448 C624,452 668,470 682,492 C660,506 612,500 576,480 C566,470 566,456 572,448 Z" fill="url(#bill)"/>
+      <!-- inside the bill -->
+      <path d="M572,430 C610,428 650,436 672,452 C640,452 600,450 572,448 Z" fill="#9C2F12" opacity="0.85"/>
+      <!-- eye, smiling shut as it sings -->
+      <path d="M484,392 C496,374 522,374 534,392" stroke="#1B1446" stroke-width="13" fill="none" stroke-linecap="round"/>
+    </g>
+
+    <!-- notes rising with the echoes -->
+    <g fill="#FFCC2E">
+      <circle cx="620" cy="235" r="26"/>
+      <rect x="638" y="140" width="11" height="98" rx="5"/>
+      <path d="M643,140 C680,150 690,175 680,200 C676,180 665,168 643,166 Z"/>
+    </g>
+  </g>
+</svg>

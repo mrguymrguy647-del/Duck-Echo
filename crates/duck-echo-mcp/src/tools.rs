@@ -10,10 +10,13 @@
 //! code and a path: a recipe field (`layers[0].volume`) or the argument at
 //! fault (`arguments.output`). Messages show paths relative to the root.
 
-use crate::root::Root;
 use duck_echo_audio::WavFormat;
 use duck_echo_core::{load::did_you_mean, Code, Issue, Report};
+use duck_echo_tools::commands;
 use duck_echo_tools::edit::{self, EditOp};
+use duck_echo_tools::history::Who;
+use duck_echo_tools::project::{Plan, Project};
+use duck_echo_tools::root::Root;
 use duck_echo_tools::{instruments, measure, presets, Document, Options, RecipeRef, ToolError};
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
@@ -153,9 +156,53 @@ fn tool(
     })
 }
 
-/// The `tools/list` entries.
+/// The `tools/list` entries: the original tools, then one tool per
+/// command (see `duck_echo_tools::commands`), with the command's name and
+/// arguments.
 pub fn definitions() -> Vec<Value> {
+    let mut list = original_definitions();
+    list.extend(commands::TABLE.iter().map(command_definition));
+    list
+}
+
+/// A command as an MCP tool.
+fn command_definition(entry: &commands::Entry) -> Value {
+    let read_only = !entry.changes_files && entry.name == "edit_history";
+    json!({
+        "name": entry.name,
+        "title": entry.name.replace('_', " "),
+        "description": commands::description(entry),
+        "inputSchema": (entry.schema)(),
+        "annotations": {
+            "readOnlyHint": read_only,
+            "destructiveHint": false,
+            "idempotentHint": read_only,
+            "openWorldHint": false
+        }
+    })
+}
+
+/// The tools from before commands existed.
+fn original_definitions() -> Vec<Value> {
+    let topics: Vec<&str> = duck_echo_tools::guide::TOPICS
+        .iter()
+        .map(|t| t.name)
+        .collect();
+    let topic_list: Vec<String> = duck_echo_tools::guide::TOPICS
+        .iter()
+        .map(|t| format!("`{}` ({})", t.name, t.about))
+        .collect();
     vec![
+        tool(
+            "get_guide",
+            "Read the guide",
+            &format!("Read Duck Echo's guide or one of its reference pages, as Markdown. Call it with no arguments first: the guide shows the whole workflow for sound effects and music in one page. Topics: {}.", topic_list.join("; ")),
+            json!({
+                "topic": { "type": "string", "enum": topics, "description": "Which page. Default `guide`." }
+            }),
+            &[],
+            true,
+        ),
         tool(
             "get_schema",
             "Recipe or song schema",
@@ -218,13 +265,14 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "create",
             "Create a recipe file",
-            "Validate a recipe or a song and save it as a file (.toml or .json by extension) relative to the server root, creating folders as needed. Refuses an invalid document (returning its report) and refuses to replace an existing file unless `overwrite` is true.",
+            "Validate a recipe or a song and save it as a file (.toml or .json by extension) relative to the server root, creating folders as needed. Give the document as `recipe`, or give `from` (preset:NAME, instrument:NAME, example:NAME or a file) to save a copy of it: the copy is named after its new file and its description says what it was copied from, and a TOML copy keeps its comments. Refuses an invalid document (returning its report) and refuses to replace an existing file unless `overwrite` is true. The save is one step of the project's Undo history (edit_undo takes it back).",
             json!({
                 "path": { "type": "string", "description": "File to write, ending in .toml or .json." },
-                "recipe": { "type": "object", "description": "The recipe or song as a JSON object." },
+                "recipe": { "type": "object", "description": "The recipe or song as a JSON object. Give this or `from`." },
+                "from": { "type": "string", "description": "Copy this instead: preset:NAME, instrument:NAME, example:NAME (an example song: duck_craft_day, duck_craft_night or four_bars), or a recipe or song file relative to the server root. Give this or `recipe`." },
                 "overwrite": { "type": "boolean", "description": "Replace an existing file. Default false." }
             }),
-            &["path", "recipe"],
+            &["path"],
             false,
         ),
         tool(
@@ -301,7 +349,7 @@ pub fn definitions() -> Vec<Value> {
 
 /// Check argument names against the tool's input schema.
 fn check_args(name: &str, args: &Map<String, Value>) -> Result<(), ToolError> {
-    let defs = definitions();
+    let defs = original_definitions();
     let def = defs.iter().find(|d| d["name"] == name).expect("known tool");
     let props = def["inputSchema"]["properties"].as_object().expect("props");
     let known: Vec<String> = props.keys().cloned().collect();
@@ -453,31 +501,15 @@ fn source(root: &Root, args: &Map<String, Value>) -> Result<Source, ToolError> {
     }
 }
 
-/// How a song at `folder` (a path relative to the root, or empty for the
-/// root itself) reads its instrument files: relative to its own folder,
-/// and always through [`Root::read`], so an instrument file can no more
-/// leave the root than any other path. The empty key leaves the error's
-/// path free for the song field that named the file.
-fn song_files<'r>(
-    root: &'r Root,
-    folder: String,
-) -> impl Fn(&str) -> Result<PathBuf, ToolError> + 'r {
-    move |reference| {
-        // Check the reference by itself first. Joined onto the folder, an
-        // absolute path would no longer look absolute.
-        root.check_relative("", reference)?;
-        let joined = if folder.is_empty() || folder == "." {
-            reference.to_string()
-        } else {
-            format!("{folder}/{reference}")
-        };
-        root.read("", &joined)
-    }
+/// How a song in `folder` reads its instrument files: see
+/// [`Root::song_files`].
+fn song_files(root: &Root, folder: String) -> impl Fn(&str) -> Result<PathBuf, ToolError> + '_ {
+    root.song_files(folder)
 }
 
-/// The folder of a file inside the root, as a path relative to the root.
+/// The folder of a file inside the root, as a path relative to it.
 fn folder_in_root(root: &Root, file: &std::path::Path) -> String {
-    file.parent().map(|p| root.show(p)).unwrap_or_default()
+    root.folder_of(file)
 }
 
 /// Load the recipe or song a tool call names.
@@ -548,14 +580,72 @@ fn to_value<T: serde::Serialize>(v: &T) -> Value {
     serde_json::from_str(&serde_json::to_string(v).expect("serializes")).expect("valid json")
 }
 
+/// `create` with `from`: the `file_copy_from` command, answered in
+/// `create`'s own shape, with `to` reported as `arguments.path`.
+fn create_from(
+    root: &Root,
+    path_arg: &str,
+    path: &std::path::Path,
+    from: &Value,
+    args: &Map<String, Value>,
+) -> Result<(Value, Vec<Vec<u8>>), ToolError> {
+    if args.contains_key("recipe") {
+        return Err(arg_error(
+            "from",
+            Code::InvalidArgument,
+            "give `recipe` or `from`, not both",
+        ));
+    }
+    let Value::String(from) = from else {
+        return Err(arg_error(
+            "from",
+            Code::TypeMismatch,
+            "`from` must be a string: preset:NAME, instrument:NAME or a file",
+        ));
+    };
+    let command = commands::Command::FileCopyFrom(commands::CopyFromArgs {
+        from: from.clone(),
+        to: path_arg.to_string(),
+        overwrite: opt_bool(args, "overwrite")?,
+    });
+    commands::run(&Project::new(root), command, Who::Agent, None, "arguments.").map_err(
+        |mut e| {
+            for issue in e.issues_mut() {
+                if issue.path == "arguments.to" {
+                    issue.path = "arguments.path".into();
+                }
+            }
+            e
+        },
+    )?;
+    let loaded = load_doc(root, &Source::Path(path.to_path_buf()))?;
+    Ok((
+        json!({
+            "ok": true,
+            "path": root.show(path),
+            "kind": loaded.kind(),
+            "from": from,
+            "warnings": loaded.report().warnings
+        }),
+        Vec::new(),
+    ))
+}
+
 /// Run a tool. `None` for an unknown tool name.
 pub fn call(root: &Root, name: &str, args: &Value) -> Option<Outcome> {
     let empty = Map::new();
     let args = args.as_object().unwrap_or(&empty);
-    if !definitions().iter().any(|d| d["name"] == name) {
+    let result = if commands::entry(name).is_some() {
+        // A command: the same arguments, checks and Undo step as the
+        // Studio's buttons and the CLI's `duck-echo do`.
+        commands::parse(name, &Value::Object(args.clone()), "arguments.")
+            .and_then(|c| commands::run(&Project::new(root), c, Who::Agent, None, "arguments."))
+            .map(|v| (v, Vec::new()))
+    } else if original_definitions().iter().any(|d| d["name"] == name) {
+        check_args(name, args).and_then(|()| run(root, name, args))
+    } else {
         return None;
-    }
-    let result = check_args(name, args).and_then(|()| run(root, name, args));
+    };
     Some(match result {
         Ok((value, images)) => Outcome {
             value,
@@ -577,6 +667,11 @@ fn run(
 ) -> Result<(Value, Vec<Vec<u8>>), ToolError> {
     let plain = |v: Value| Ok((v, Vec::new()));
     match name {
+        "get_guide" => {
+            let topic = opt_str(args, "topic")?.unwrap_or("guide");
+            let text = duck_echo_tools::guide::page(topic, "arguments.topic")?;
+            plain(json!({ "topic": topic, "text": text }))
+        }
         "get_schema" => match opt_str(args, "kind")? {
             None | Some("recipe") => plain(duck_echo_core::schema::recipe_schema()),
             Some("song") => plain(duck_echo_core::schema::song_schema()),
@@ -649,29 +744,54 @@ fn run(
                     "`path` must end in .toml or .json",
                 ));
             }
+            if let Some(from) = args.get("from") {
+                return create_from(root, path_arg, &path, from, args);
+            }
             let Some(doc @ Value::Object(_)) = args.get("recipe") else {
+                if args.get("recipe").is_none() {
+                    return Err(ToolError::issue(
+                        Issue::error(
+                            Code::MissingField,
+                            "arguments.recipe",
+                            "`create` needs `recipe` (the document as a JSON object) or `from` (preset:NAME, instrument:NAME or a file to copy)",
+                        )
+                        .one_of(["recipe", "from"]),
+                    ));
+                }
                 return Err(arg_error(
                     "recipe",
                     Code::TypeMismatch,
                     "`recipe` must be a JSON object",
                 ));
             };
-            if path.exists() && !opt_bool(args, "overwrite")?.unwrap_or(false) {
-                return Err(ToolError::issue(
-                    Issue::error(
-                        Code::AlreadyExists,
-                        "arguments.overwrite",
-                        format!(
-                            "{path_arg} already exists; pass \"overwrite\": true to replace it"
-                        ),
-                    )
-                    .suggest("true"),
-                ));
-            }
+            let overwrite = opt_bool(args, "overwrite")?.unwrap_or(false);
             let files = song_files(root, folder_in_root(root, &path));
             let loaded = duck_echo_tools::load_document_value(doc, &files)
                 .map_err(|e| e.at("arguments.recipe"))?;
-            edit::write_document(&path, doc).map_err(|e| e.at("arguments.path"))?;
+            let text = edit::document_text(&path, doc).map_err(|e| e.at("arguments.path"))?;
+            // Saved through the project, so the change is a step of the
+            // shared Undo history and can never overwrite another
+            // program's change unseen.
+            let project = Project::new(root);
+            let rel = project.name_of(&path);
+            project.apply(std::slice::from_ref(&rel), Who::Agent, None, |texts| {
+                if texts[0].is_some() && !overwrite {
+                    return Err(ToolError::issue(
+                        Issue::error(
+                            Code::AlreadyExists,
+                            "arguments.overwrite",
+                            format!(
+                                "{path_arg} already exists; pass \"overwrite\": true to replace it"
+                            ),
+                        )
+                        .suggest("true"),
+                    ));
+                }
+                Ok(Plan {
+                    title: format!("Create {rel}"),
+                    writes: vec![(rel.clone(), Some(text.clone()))],
+                })
+            })?;
             plain(json!({
                 "ok": true,
                 "path": root.show(&path),
@@ -737,7 +857,43 @@ fn run(
             let loaded = duck_echo_tools::load_document_value(&doc, &song_files(root, folder))
                 .map_err(|e| e.at(src.arg()))?;
             if let (true, Some(p)) = (write, &file) {
-                edit::write_document(p, &doc).map_err(|e| e.at("arguments.path"))?;
+                // Saved through the project: one Undo step. The edits are
+                // made again on the file's text as it is under the lock, so
+                // a change another program made meanwhile is kept.
+                let project = Project::new(root);
+                let rel = project.name_of(p);
+                let format = duck_echo_core::Format::from_path(p);
+                let folder = folder_in_root(root, p);
+                let mut edited = doc.clone();
+                project.apply(std::slice::from_ref(&rel), Who::Agent, None, |texts| {
+                    let Some(text) = &texts[0] else {
+                        return Err(arg_error(
+                            "path",
+                            Code::NotFound,
+                            format!("{rel} no longer exists"),
+                        ));
+                    };
+                    edited =
+                        edit::parse_document(text, format).map_err(|e| e.at("arguments.path"))?;
+                    edit::apply_edits(&mut edited, &ops).map_err(|e| e.at("arguments.ops"))?;
+                    duck_echo_tools::load_document_value(
+                        &edited,
+                        &song_files(root, folder.clone()),
+                    )
+                    .map_err(|e| e.at("arguments.path"))?;
+                    Ok(Plan {
+                        title: format!(
+                            "Edit {rel} ({} change{})",
+                            ops.len(),
+                            if ops.len() == 1 { "" } else { "s" }
+                        ),
+                        writes: vec![(
+                            rel.clone(),
+                            Some(edit::document_text_from(p, text, &edited)?),
+                        )],
+                    })
+                })?;
+                doc = edited;
             }
             plain(json!({
                 "ok": true,

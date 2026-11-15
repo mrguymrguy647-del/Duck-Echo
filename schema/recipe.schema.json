@@ -28,12 +28,16 @@
           "default": 0.05,
           "description": "Length of each step in seconds, range 0.001..=30. Default `0.05`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0.001,
           "type": "number"
         },
         "steps": {
           "description": "Pitch offsets in semitones, played in order. At least one step,\neach in -96..=96. Example: `[0, 4, 7]` is a major chord.",
           "items": {
             "format": "float",
+            "maximum": 96,
+            "minimum": -96,
             "type": "number"
           },
           "type": "array"
@@ -100,18 +104,24 @@
               "default": 0.25,
               "description": "Delay time in seconds, range 0.001..=5. Default `0.25`.",
               "format": "float",
+              "maximum": 5,
+              "minimum": 0.001,
               "type": "number"
             },
             "feedback": {
               "default": 0.4,
               "description": "How much of each echo feeds the next, range 0..=0.99. Default `0.4`.",
               "format": "float",
+              "maximum": 0.99,
+              "minimum": 0,
               "type": "number"
             },
             "mix": {
               "default": 0.35,
               "description": "Wet/dry mix, range 0..=1. Default `0.35`.",
               "format": "float",
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "type": {
@@ -132,24 +142,32 @@
               "default": 0.5,
               "description": "High-frequency damping of the tail, range 0..=1. Default `0.5`.",
               "format": "float",
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "decay": {
               "default": 1.0,
               "description": "Time in seconds for the tail to fall by 60 dB, range 0.05..=10.\nDefault `1.0`.",
               "format": "float",
+              "maximum": 10,
+              "minimum": 0.05,
               "type": "number"
             },
             "mix": {
               "default": 0.3,
               "description": "Wet/dry mix, range 0..=1. Default `0.3`.",
               "format": "float",
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "size": {
               "default": 0.5,
               "description": "Room size, range 0..=1. Default `0.5`.",
               "format": "float",
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "type": {
@@ -170,6 +188,8 @@
               "default": 2.0,
               "description": "Input gain before shaping, range 1..=100. Default `2`.",
               "format": "float",
+              "maximum": 100,
+              "minimum": 1,
               "type": "number"
             },
             "kind": {
@@ -181,6 +201,8 @@
               "default": 1.0,
               "description": "Wet/dry mix, range 0..=1. Default `1`.",
               "format": "float",
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "type": {
@@ -201,18 +223,23 @@
               "default": 8,
               "description": "Bit depth, range 1..=16. Default `8`.",
               "format": "uint32",
-              "minimum": 0,
+              "maximum": 16,
+              "minimum": 1,
               "type": "integer"
             },
             "mix": {
               "default": 1.0,
               "description": "Wet/dry mix, range 0..=1. Default `1`.",
               "format": "float",
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "rate": {
               "description": "Sample-and-hold rate in Hz, range 100..=192000. Omit to keep the full\nsample rate.",
               "format": "float",
+              "maximum": 192000,
+              "minimum": 100,
               "type": [
                 "number",
                 "null"
@@ -238,36 +265,48 @@
           "default": 0.005,
           "description": "Time to rise from 0 to full level. Default `0.005`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0,
           "type": "number"
         },
         "decay": {
           "default": 0.2,
           "description": "Time to fall from full level to `sustain`. Default `0.2`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0,
           "type": "number"
         },
         "hold": {
           "default": 0.0,
           "description": "Time held at full level. Default `0`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0,
           "type": "number"
         },
         "release": {
           "default": 0.0,
           "description": "Time to fall from `sustain` to 0. Default `0`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0,
           "type": "number"
         },
         "sustain": {
           "default": 0.0,
           "description": "Sustain level, 0..=1. Default `0`.",
           "format": "float",
+          "maximum": 1,
+          "minimum": 0,
           "type": "number"
         },
         "sustain_time": {
           "default": 0.0,
           "description": "Time held at `sustain` level. Default `0`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0,
           "type": "number"
         }
       },
@@ -286,11 +325,15 @@
           "default": 2000.0,
           "description": "Cutoff frequency in Hz at the start, range 10..=20000. Default `2000`.",
           "format": "float",
+          "maximum": 20000,
+          "minimum": 10,
           "type": "number"
         },
         "cutoff_end": {
           "description": "Cutoff at the end of the sweep in Hz. Omit for a fixed cutoff.",
           "format": "float",
+          "maximum": 20000,
+          "minimum": 10,
           "type": [
             "number",
             "null"
@@ -305,11 +348,15 @@
           "default": 0.707,
           "description": "Resonance (Q), range 0.1..=30. `0.707` is flat. Default `0.707`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0.1,
           "type": "number"
         },
         "sweep_time": {
           "description": "Sweep length in seconds, range 0.001..=30. Omit to sweep over the\nwhole layer.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0.001,
           "type": [
             "number",
             "null"
@@ -342,6 +389,8 @@
       "anyOf": [
         {
           "format": "float",
+          "maximum": 20000,
+          "minimum": 1,
           "type": "number"
         },
         {
@@ -364,13 +413,26 @@
         "aliasing": {
           "$ref": "#/$defs/Aliasing",
           "default": "clean",
-          "description": "How `square` and `saw` handle high notes. `clean` (default) smooths\neach jump in the wave, so high notes do not fold back into harsh\nextra tones (\"aliasing\"). `retro` keeps the raw wave of old sound\nchips, as Duck Echo made it before this option. Sine, triangle and\nnoise sound the same either way."
+          "description": "How `square` and `saw` handle high notes. `clean` (default) smooths\neach jump in the wave, so high notes do not fold back into harsh\nextra tones (\"aliasing\"). `retro` keeps the raw wave of old sound\nchips, as Duck Echo made it before this option. Sine, triangle and\nnoise sound the same either way.",
+          "x-applies-when": {
+            "source": [
+              "square",
+              "saw"
+            ]
+          }
         },
         "duty": {
           "default": 0.5,
           "description": "Pulse width for `square`, range 0.01..=0.99. Ignored by other\nsources. Default `0.5`.",
           "format": "float",
-          "type": "number"
+          "maximum": 0.99,
+          "minimum": 0.01,
+          "type": "number",
+          "x-applies-when": {
+            "source": [
+              "square"
+            ]
+          }
         },
         "effects": {
           "default": [],
@@ -424,18 +486,27 @@
         "noise_mode": {
           "$ref": "#/$defs/NoiseMode",
           "default": "white",
-          "description": "What kind of noise a `noise` layer makes. `white` (default) is\nplain hiss and ignores `pitch`. `pitched` picks a new random value\n`pitch` times per second and holds it in between, like the noise\nchannel of old game consoles: a low pitch rumbles, a high pitch\nhisses, and it follows the note in a song."
+          "description": "What kind of noise a `noise` layer makes. `white` (default) is\nplain hiss and ignores `pitch`. `pitched` picks a new random value\n`pitch` times per second and holds it in between, like the noise\nchannel of old game consoles: a low pitch rumbles, a high pitch\nhisses, and it follows the note in a song.",
+          "x-applies-when": {
+            "source": [
+              "noise"
+            ]
+          }
         },
         "offset": {
           "default": 0.0,
           "description": "Start time of this layer in seconds from the start of the sound,\nrange 0..=30. Default `0`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0,
           "type": "number"
         },
         "pan": {
           "default": 0.0,
           "description": "Stereo position, -1 (left) ..= 1 (right), equal-power. Only used\nwhen the recipe has `channels = 2`. Default `0` (centre).",
           "format": "float",
+          "maximum": 1,
+          "minimum": -1,
           "type": "number"
         },
         "pitch": {
@@ -444,7 +515,18 @@
             "curve": "linear",
             "start": 440.0
           },
-          "description": "Pitch over time."
+          "description": "Pitch over time.",
+          "x-applies-when": {
+            "noise_mode": [
+              "pitched"
+            ],
+            "source": [
+              "sine",
+              "square",
+              "saw",
+              "triangle"
+            ]
+          }
         },
         "source": {
           "$ref": "#/$defs/Source",
@@ -455,6 +537,8 @@
           "default": 0.8,
           "description": "Layer volume, linear, range 0..=2. Default `0.8`.",
           "format": "float",
+          "maximum": 2,
+          "minimum": 0,
           "type": "number"
         }
       },
@@ -468,18 +552,24 @@
           "default": 0.0,
           "description": "Seconds before the wave starts, range 0..=30. Default `0`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0,
           "type": "number"
         },
         "depth": {
           "default": 0.5,
           "description": "How far it moves. `volume`: 0..=1, the level swings between full\nand `1 - depth` of full. `cutoff`: 0..=4 octaves up and down from\nthe filter's cutoff. `duty`: 0..=0.5 added to and taken from\n`duty` (the result is kept inside 0.01..=0.99). Default `0.5`.",
           "format": "float",
+          "maximum": 4,
+          "minimum": 0,
           "type": "number"
         },
         "rate": {
           "default": 5.0,
           "description": "Cycles per second, range 0.01..=50. Default `5`.",
           "format": "float",
+          "maximum": 50,
+          "minimum": 0.01,
           "type": "number"
         },
         "shape": {
@@ -543,6 +633,8 @@
           "default": 1.0,
           "description": "Linear gain applied to the mix, range 0..=4. Default `1.0`.",
           "format": "float",
+          "maximum": 4,
+          "minimum": 0,
           "type": "number"
         },
         "normalize": {
@@ -553,6 +645,8 @@
         "normalize_lufs": {
           "description": "Scale the render so its loudness, as `analyze` measures it, is this\nmany LUFS, range -60..=0. Replaces `normalize` and\n`normalize_peak_db`; the peak never goes above -1 dBFS, so a target\nthat needs more gain renders quieter (the render result warns).\nOffline only. Default: off.",
           "format": "float",
+          "maximum": 0,
+          "minimum": -60,
           "type": [
             "number",
             "null"
@@ -562,6 +656,8 @@
           "default": -1.0,
           "description": "Target peak in dBFS when `normalize` is on, range -40..=0. Default `-1`.",
           "format": "float",
+          "maximum": 0,
+          "minimum": -40,
           "type": "number"
         },
         "trim_silence": {
@@ -626,6 +722,8 @@
         "sweep_time": {
           "description": "Sweep length in seconds, range 0.001..=30. Omit to sweep over the whole\nlayer. After the sweep the pitch stays at `end`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0.001,
           "type": [
             "number",
             "null"
@@ -683,18 +781,24 @@
           "default": 0.0,
           "description": "Seconds before the vibrato starts, range 0..=30. Default `0`.",
           "format": "float",
+          "maximum": 30,
+          "minimum": 0,
           "type": "number"
         },
         "depth": {
           "default": 0.5,
           "description": "Wobble depth in semitones (peak), range 0..=48. Default `0.5`.",
           "format": "float",
+          "maximum": 48,
+          "minimum": 0,
           "type": "number"
         },
         "rate": {
           "default": 6.0,
           "description": "Wobble rate in Hz, range 0..=100. Default `6`.",
           "format": "float",
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         }
       },
@@ -710,8 +814,8 @@
       "default": 1,
       "description": "Output channels: `1` (mono, default) or `2` (stereo). In stereo each\nlayer is placed with its `pan`.",
       "format": "uint16",
-      "maximum": 65535,
-      "minimum": 0,
+      "maximum": 2,
+      "minimum": 1,
       "type": "integer"
     },
     "description": {
@@ -724,6 +828,8 @@
     "duration": {
       "description": "Force the total output length in seconds, range 0.001..=60.\nWhen omitted the length is computed from the layers and effect tails.",
       "format": "float",
+      "maximum": 60,
+      "minimum": 0.001,
       "type": [
         "number",
         "null"
@@ -766,7 +872,8 @@
       "default": 44100,
       "description": "Output sample rate in Hz. Range 8000..=192000. Default `44100`.",
       "format": "uint32",
-      "minimum": 0,
+      "maximum": 192000,
+      "minimum": 8000,
       "type": "integer"
     },
     "seed": {
@@ -787,6 +894,8 @@
       "default": 0.0,
       "description": "How much the seed may jitter pitch and envelope times, 0..=1.\n`0` (default) means the seed only affects noise. `1` jitters pitch by\nup to +-3 semitones and envelope times by up to +-30%.",
       "format": "float",
+      "maximum": 1,
+      "minimum": 0,
       "type": "number"
     },
     "version": {

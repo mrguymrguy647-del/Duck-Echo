@@ -319,10 +319,12 @@ fn the_check_runs_when_asked_and_the_picture_has_bar_lines() {
     let check = m.note_check.as_ref().unwrap();
     // Without `notes`, only problems are listed, so the answer is short.
     assert!(check.tracks.iter().all(|t| t.notes.is_none()));
-    assert!(m
-        .analysis
-        .summary
-        .ends_with(", 29 of 29 notes heard; per_track describes each"));
+    // The song's words: what matters for a mix, not a sound effect's.
+    assert_eq!(
+        m.analysis.summary,
+        "4 bars at 110 BPM, 2 tracks; 8.81 s, -16.0 LUFS, no clipping, ends cleanly, \
+         29 of 29 notes heard; loudest track lead (-18.7 LUFS), quietest bass (-19.4 LUFS)"
+    );
     let json = serde_json::to_value(&m).unwrap();
     assert_eq!(json["note_check"]["tracks"][1]["name"], "lead");
     assert_eq!(

@@ -1,0 +1,25 @@
+[package]
+name = "duck-echo-live"
+description = "Duck Echo realtime mixer: plays voices through the speakers with no allocation or locks on the audio thread"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+duck-echo-core = { workspace = true }
+duck-echo-audio = { workspace = true }
+duck-echo-synth = { workspace = true }
+# A lock-free ring buffer with one writer and one reader, made for audio
+# threads. See docs/ARCHITECTURE.md, "Dependencies and why".
+rtrb = "0.4"
+
+[dev-dependencies]
+duck-echo-tools = { workspace = true }
+# Makes a test fail if the audio code allocates or frees memory. The
+# default features turn the check off in release builds; here it is always
+# on, and counts each violation so a test can report it.
+assert_no_alloc = { version = "1.1", default-features = false, features = ["warn_debug", "warn_release"] }
+
+[lints]
+workspace = true

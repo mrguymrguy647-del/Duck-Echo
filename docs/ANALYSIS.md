@@ -30,10 +30,29 @@ to the last sample above that level.
 | `pitch_track` | Up to 8 evenly spaced 46 ms windows inside the active span, each with `time_seconds`, `dominant_hz` (strongest raw frequency, usually the fundamental of chip waveforms), `level_dbfs` and `tonality` (same method as above, with a 186 ms frame around the same centre). `dominant_hz` and `tonality` are `null` in windows below -60 dBFS RMS; `dominant_hz` means little when the window's tonality is low. |
 | `energy_over_time` | `slice_seconds` and `rms_dbfs`: the RMS level of all channels in 20 equal slices over the whole file, rounded to 0.1 dB, `null` for digital silence. A coarse level-over-time picture in numbers: a fade, a gap, a second hit or a tail. |
 | `onsets` | Where notes or bursts start, each with `time_seconds`, `note_hz` and `level_dbfs` (see Onsets). |
+| `ending` | The click check for a sound that stops: `jump`, `largest_step_near_end`, `last_level_dbfs`, `clean` (see Ending). |
 | `silence_threshold_dbfs` | The -60 dBFS threshold used above. |
 
 Spectral fields use the mean of the channels; level fields use all
 channels.
+
+### Ending
+
+When a player reaches the end of a file it stops, and the wave jumps from
+the last sample to silence. A sound that is still loud there clicks.
+`jump` is the size of the last sample (largest of the channels, linear).
+`largest_step_near_end` is the biggest step between two neighbouring
+samples in the last 5 ms, and `last_level_dbfs` is the RMS level of those
+5 ms. `clean` is true when `jump` is at most -50 dBFS (0.0032), or no
+bigger than `largest_step_near_end`: a jump that size is the sound's own
+kind of step, so it cannot stand out. The renderer trims a fading tail
+once it falls below -60 dBFS, so every rendered sound that fades out ends
+cleanly; a `duration` that cuts a held note does not.
+
+Two limits: a cut at a zero crossing of a tone is clean (there is no jump
+to hear), and a cut of a square wave or loud noise is clean too, because
+their own steps are as big as the cut. For a loop, read `loop_seam`
+instead: a loop never stops, so its last sample leads into its first.
 
 ### Onsets
 
@@ -98,9 +117,19 @@ measure the finished mix with every field above, and add:
 | `loop_seam` | For a song with `loop = true`: `seam_step`, `largest_step`, `clean` (see below). |
 | `note_check` | The notes written next to the notes heard (see below). Always in `analyze`; in `render` with `per_track` or `notes`. |
 
-The summary of a song starts with its shape and ends with its checks:
-`8 bars looping at 84 BPM, 4 tracks; 22.86 s, -16.0 LUFS, ..., loop joins
-cleanly, 92 of 92 notes heard`.
+The summary of a song uses words for a mix, not a sound effect's
+(brightness, attack, pitch and onsets are left out; the fields are all
+still there): its shape, then its length, loudness, clipping, how it ends
+("loop joins cleanly", or "ends cleanly" for a song that stops), the note
+check, and, when the tracks were heard alone (always in `analyze`), the
+loudest and quietest track:
+
+`8 bars looping at 140 BPM, 4 tracks; 13.71 s, -18.0 LUFS, no clipping,
+loop joins cleanly, 155 of 155 notes heard; loudest track lead (-22.1
+LUFS), quietest drums (-27.4 LUFS)`
+
+When the tracks were not heard alone (`render` without `per_track` or
+`notes`), it ends "per_track describes each" instead.
 
 **Stems.** A track heard alone (`solo`, `mute`, `per_track`) is rendered
 with the other tracks silenced and finished with the full song's master
@@ -221,6 +250,7 @@ above.
 | `~` before LUFS | Short-clip loudness (`k_weighted_ungated`). |
 | N onsets | Two or more `onsets`. |
 | CLIPPING (N samples) | Any clipped sample. |
+| ends cleanly, ENDS WITH A CLICK | `ending.clean` (see Ending). Not in a song's summary when it loops; "loop joins cleanly" or "LOOP CLICKS AT THE JOIN" is there instead. |
 | silent tail | Trailing silence above 20% of the length. |
 | N layers; per_layer describes each | Only for a recipe with two or more layers (a WAV file has no layers). The rest of the summary describes the whole mix, so this says how many layers made it and that `per_layer` gives each one's own analysis. With `per_layer` on, only "N layers"; with `solo` or `mute`, "K of N layers heard". |
 

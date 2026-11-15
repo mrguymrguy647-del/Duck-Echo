@@ -1,0 +1,501 @@
+# Duck Echo Studio: tests, builds, installs and starts the app on Windows
+# and on Linux, and makes its downloads:
+#   DuckEchoStudioSetup.exe   the Windows installer
+#   DuckEchoStudio.AppImage   the Linux app, one file
+#   SHA256SUMS                the fingerprints of both, which the Studio's
+#                             Update checks before it uses a download
+#
+# A push to a branch tests and builds: the installer and the AppImage are
+# kept as downloads ("artifacts") on the run's page, to try before any
+# release is made. Three ways to make a release, none needing a terminal
+# (as in Duck Forge Studio):
+# - Actions tab -> "Studio" -> "Run workflow" (the "Make a release"
+#   button): reads the version from studio/Cargo.toml and publishes the
+#   release studio-vX.Y.Z on the chosen branch's newest commit. (GitHub
+#   shows the button once this file is on the main branch.)
+# - Releases -> "Draft a new release" with a new tag like studio-v0.1.0:
+#   this workflow runs on the tag and adds the files.
+# - Pushing a tag like studio-v0.1.0.
+# If the release is already there, its files are replaced instead.
+name: Studio
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["studio-v*"]
+    branches: ["**"]
+    # Anything that ends up in the Studio: its own code, the libraries,
+    # and the presets, instruments and docs compiled into them.
+    paths:
+      - ".github/workflows/studio.yml"
+      - "studio/**"
+      - "crates/**"
+      - "presets/**"
+      - "instruments/**"
+      - "docs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+env:
+  CARGO_TERM_COLOR: always
+  # The installer's fixed id (studio/release/DuckEchoStudio.iss).
+  APP_ID: "{9FBE6DCB-D9A2-426D-A93C-163F40898E59}"
+
+jobs:
+  windows:
+    name: Windows - test, installer, install, start, upgrade, uninstall
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            studio -> target
+
+      - name: Read the version
+        id: version
+        run: |
+          # The one place it is written: the Studio's workspace Cargo.toml.
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' studio/Cargo.toml | head -n 1)
+          echo "Version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "studio-v$version" ]]; then
+            echo "The tag $GITHUB_REF_NAME does not match the version $version in studio/Cargo.toml."
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=studio-v$version" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the command-line tool and the MCP server
+        run: cargo build --release -p duck-echo-cli -p duck-echo-mcp
+
+      - name: Test the Studio, and take a picture of every screen
+        working-directory: studio
+        env:
+          STUDIO_SCREENSHOTS: ${{ github.workspace }}/screens-windows
+        run: cargo test --workspace -- --test-threads 1
+
+      - name: Keep the screenshots on this run's page
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-screens-windows
+          path: screens-windows
+
+      - name: Build the Studio
+        working-directory: studio
+        run: cargo build --release -p studio_app
+
+      - name: The update check, with Windows' own curl and pretend release lists
+        run: |
+          exe=studio/target/release/DuckEchoStudio.exe
+          "$exe" --version
+          [[ "$("$exe" --version | tr -d '\r')" == "Duck Echo Studio $VERSION" ]]
+          list() { # tag, then the file to write
+            printf '[{"tag_name": "%s", "draft": false, "prerelease": false, "html_url": "https://example.invalid/whats-new", "assets": [{"name": "DuckEchoStudioSetup.exe", "browser_download_url": "https://example.invalid/DuckEchoStudioSetup.exe", "size": 1}, {"name": "SHA256SUMS", "browser_download_url": "https://example.invalid/SHA256SUMS", "size": 1}]}]' "$1" > "$2"
+          }
+          list studio-v99.0.0 newer.json
+          list "studio-v$VERSION" same.json
+          echo "== A newer version"
+          DUCK_ECHO_RELEASES="file:///$(cygpath -m "$PWD/newer.json")" "$exe" --check-for-updates | tee update-newer.txt
+          grep -q "Duck Echo Studio 99.0.0 is out (this is $VERSION)" update-newer.txt
+          grep -q "DuckEchoStudioSetup.exe: https://example.invalid/DuckEchoStudioSetup.exe" update-newer.txt
+          grep -q "SHA256SUMS: https://example.invalid/SHA256SUMS" update-newer.txt
+          echo "== Already up to date"
+          DUCK_ECHO_RELEASES="file:///$(cygpath -m "$PWD/same.json")" "$exe" --check-for-updates | tee update-same.txt
+          grep -q "Up to date" update-same.txt
+          echo "== No internet (an address nothing answers at)"
+          start=$SECONDS
+          DUCK_ECHO_RELEASES="https://127.0.0.1:9/releases" "$exe" --check-for-updates | tee update-offline.txt
+          grep -q "No answer from GitHub" update-offline.txt
+          (( SECONDS - start < 30 )) || { echo "took too long"; exit 1; }
+          echo "== The real list on GitHub (whatever it says, it must not fail)"
+          "$exe" --check-for-updates
+
+      - name: Put the programs together
+        run: |
+          folder="dist/Duck Echo Studio"
+          mkdir -p "$folder"
+          cp studio/target/release/DuckEchoStudio.exe "$folder/"
+          cp target/release/duck-echo.exe target/release/duck-echo-mcp.exe "$folder/"
+          cp "studio/release/READ ME FIRST.txt" "$folder/"
+          ls -l "$folder"
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DVersion=$env:VERSION" "/DSource=$pwd\dist\Duck Echo Studio" "/O$pwd\dist" studio\release\DuckEchoStudio.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item dist\DuckEchoStudioSetup.exe | Format-List Name, Length
+
+      - name: Keep the installer on this run's page
+        uses: actions/upload-artifact@v4
+        with:
+          name: DuckEchoStudioSetup
+          path: dist/DuckEchoStudioSetup.exe
+
+      - name: Install it, as a person would (no administrator rights), with both tick boxes
+        shell: pwsh
+        run: |
+          $setup = Start-Process dist\DuckEchoStudioSetup.exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/MERGETASKS="desktopicon,addtopath"', "/LOG=$pwd\install.log"
+          if ($setup.ExitCode -ne 0) { Get-Content install.log; throw "the installer said $($setup.ExitCode)" }
+          $app = "$env:LOCALAPPDATA\Programs\Duck Echo Studio"
+          foreach ($file in 'DuckEchoStudio.exe', 'duck-echo.exe', 'duck-echo-mcp.exe', 'READ ME FIRST.txt', 'unins000.exe') {
+            if (-not (Test-Path "$app\$file")) { throw "not installed: $file" }
+          }
+          # Start menu and desktop, pointing at the program.
+          $shell = New-Object -ComObject WScript.Shell
+          foreach ($place in 'Programs', 'Desktop') {
+            $link = Join-Path ([Environment]::GetFolderPath($place)) 'Duck Echo Studio.lnk'
+            if (-not (Test-Path $link)) { throw "no shortcut in $place" }
+            $target = $shell.CreateShortcut($link).TargetPath
+            "$place shortcut -> $target"
+            if ($target -ne "$app\DuckEchoStudio.exe") { throw "the $place shortcut points at $target" }
+          }
+          # Windows Settings > Apps lists it, for this person only.
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${env:APP_ID}_is1"
+          $entry = Get-ItemProperty $key
+          $entry | Format-List DisplayName, DisplayVersion, InstallLocation
+          if ($entry.DisplayName -ne 'Duck Echo Studio') { throw "listed as $($entry.DisplayName)" }
+          if ($entry.DisplayVersion -ne $env:VERSION) { throw "listed as version $($entry.DisplayVersion)" }
+          if (Test-Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${env:APP_ID}_is1") {
+            throw "installed for every user (that needs administrator rights)"
+          }
+          # "Add to PATH": the install folder is on this account's Path.
+          $path = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (-not ($path -split ';' -contains $app)) { throw "not on the Path: $path" }
+          # The three programs start and know their versions.
+          $ver = (& "$app\DuckEchoStudio.exe" --version | Out-String).Trim()
+          $ver
+          if ($ver -ne "Duck Echo Studio $env:VERSION") { throw "the installed Studio says $ver" }
+          & "$app\duck-echo.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "duck-echo.exe did not start" }
+          & "$app\duck-echo-mcp.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "duck-echo-mcp.exe did not start" }
+
+      - name: Start the installed Studio, as a person would; it opens its window and draws
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\Duck Echo Studio"
+          $docs = [Environment]::GetFolderPath('MyDocuments')
+          if (Test-Path "$docs\Duck Echo") { throw "Documents\Duck Echo is there already" }
+          # The Studio draws its window, writes this file after 30 frames,
+          # and closes itself (no settings or folders are pointed elsewhere:
+          # it uses the real Documents and %APPDATA%).
+          $env:DUCK_ECHO_STUDIO_SMOKE_TEST = "$pwd\started.txt"
+          $studio = Start-Process "$app\DuckEchoStudio.exe" -PassThru
+          if (-not $studio.WaitForExit(180000)) { Stop-Process $studio; throw "the Studio did not close by itself" }
+          Remove-Item Env:\DUCK_ECHO_STUDIO_SMOKE_TEST
+          if ($studio.ExitCode -ne 0) { throw "the Studio ended with $($studio.ExitCode)" }
+          Get-Content started.txt
+          if (-not (Select-String -Quiet "drew 30 frames" started.txt)) { throw "the window did not draw" }
+          if (-not (Test-Path "$docs\Duck Echo")) { throw "Documents\Duck Echo was not made" }
+          if (-not (Test-Path "$env:APPDATA\Duck Echo Studio\settings.json")) { throw "the settings were not saved" }
+          # A sound of the person's own, to check it survives updating and
+          # uninstalling.
+          Copy-Item examples\recipes\coin.toml "$docs\Duck Echo\my coin.toml"
+          "Documents\Duck Echo and %APPDATA%\Duck Echo Studio\settings.json are there."
+
+      - name: Play a sound through the speakers (GitHub's machines may have none)
+        shell: pwsh
+        run: |
+          # A program's non-zero exit is not an error here: the checks
+          # below decide. (Otherwise PowerShell turns the Studio's 3 into an
+          # error before they run.)
+          $PSNativeCommandUseErrorActionPreference = $false
+          $app = "$env:LOCALAPPDATA\Programs\Duck Echo Studio"
+          $out = & "$app\DuckEchoStudio.exe" --play coin 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          $out
+          # 0: it played. 3: no speakers, said plainly. Anything else fails.
+          if ($code -ne 0 -and $code -ne 3) { throw "--play ended with $code" }
+          if ($code -eq 3 -and $out -notmatch 'No speakers were found') { throw "no plain message" }
+          if ($code -eq 3) { "No speakers on this machine, and the Studio said so plainly." }
+          exit 0
+
+      - name: A newer installer over the top keeps my sounds and settings
+        shell: pwsh
+        run: |
+          $docs = [Environment]::GetFolderPath('MyDocuments')
+          Copy-Item -Recurse "dist\Duck Echo Studio" "dist\Next"
+          "A file only the next version has." | Set-Content "dist\Next\next-version.txt"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DVersion=$env:VERSION" "/DSource=$pwd\dist\Next" "/O$pwd\dist" "/DSetupName=Next" studio\release\DuckEchoStudio.iss | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "the newer installer could not be built" }
+          $setup = Start-Process dist\Next.exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$pwd\upgrade.log"
+          if ($setup.ExitCode -ne 0) { throw "the newer installer said $($setup.ExitCode)" }
+          $app = "$env:LOCALAPPDATA\Programs\Duck Echo Studio"
+          if (-not (Test-Path "$app\next-version.txt")) { throw "the newer version did not go in" }
+          if (-not (Test-Path "$docs\Duck Echo\my coin.toml")) { throw "my sound is gone" }
+          if (-not (Test-Path "$env:APPDATA\Duck Echo Studio\settings.json")) { throw "my settings are gone" }
+          # Still one entry in Settings > Apps, and the Studio still starts.
+          $entries = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
+            Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -eq 'Duck Echo Studio' })
+          if ($entries.Count -ne 1) { throw "$($entries.Count) entries in Settings > Apps" }
+          $env:DUCK_ECHO_STUDIO_SMOKE_TEST = "$pwd\started-again.txt"
+          $studio = Start-Process "$app\DuckEchoStudio.exe" -PassThru
+          if (-not $studio.WaitForExit(180000)) { Stop-Process $studio; throw "the Studio did not close by itself" }
+          Remove-Item Env:\DUCK_ECHO_STUDIO_SMOKE_TEST
+          if (-not (Select-String -Quiet "drew 30 frames" started-again.txt)) { throw "the updated Studio did not draw" }
+          "Updated in place. Kept: my coin.toml and the settings."
+
+      - name: Uninstall it; my sounds and settings stay, and the Path is as before
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\Duck Echo Studio"
+          $docs = [Environment]::GetFolderPath('MyDocuments')
+          Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          # The uninstaller carries on from a copy of itself: wait for it.
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${env:APP_ID}_is1"
+          for ($i = 0; $i -lt 120 -and ((Test-Path $key) -or (Test-Path "$app\DuckEchoStudio.exe")); $i++) { Start-Sleep 1 }
+          if (Test-Path $key) { throw "still listed in Settings > Apps" }
+          if (Test-Path "$app\DuckEchoStudio.exe") { throw "the program is still there" }
+          foreach ($place in 'Programs', 'Desktop') {
+            if (Test-Path (Join-Path ([Environment]::GetFolderPath($place)) 'Duck Echo Studio.lnk')) { throw "a shortcut is left in $place" }
+          }
+          $path = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if ($path -split ';' -contains $app) { throw "still on the Path: $path" }
+          if (-not (Test-Path "$docs\Duck Echo\my coin.toml")) { throw "uninstalling took my sound" }
+          if (-not (Test-Path "$env:APPDATA\Duck Echo Studio\settings.json")) { throw "uninstalling took the settings" }
+          "Uninstalled. Still there: $docs\Duck Echo (with my coin.toml) and the settings."
+
+      - name: Keep the update checks and the install logs on this run's page
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-logs-windows
+          path: |
+            update-*.txt
+            started*.txt
+            install.log
+            upgrade.log
+          if-no-files-found: ignore
+
+      - name: Keep the release's file for the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/DuckEchoStudioSetup.exe
+
+  linux:
+    name: Linux - test, AppImage, its three programs, sound, window
+    # The oldest Ubuntu GitHub offers: an AppImage runs on Linux systems as
+    # new as or newer than the one it was built on.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          # libasound2-dev: ALSA's files, to build the sound out loud.
+          # The rest only for testing here: a virtual screen (xvfb), the
+          # keyboard library every desktop has (libxkbcommon-x11-0),
+          # software graphics (mesa-vulkan-drivers) and a checker for
+          # menu entries (desktop-file-utils).
+          sudo apt-get install -y -q libasound2-dev pkg-config xvfb libxkbcommon-x11-0 mesa-vulkan-drivers desktop-file-utils
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            studio -> target
+
+      - name: Read the version
+        run: echo "VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' studio/Cargo.toml | head -n 1)" >> "$GITHUB_ENV"
+
+      - name: Formatting and clippy (no warnings allowed)
+        working-directory: studio
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build the command-line tool and the MCP server
+        run: cargo build --release -p duck-echo-cli -p duck-echo-mcp
+
+      - name: Test the Studio, and take a picture of every screen
+        working-directory: studio
+        env:
+          STUDIO_SCREENSHOTS: ${{ github.workspace }}/screens-linux
+        run: cargo test --workspace -- --test-threads 1
+
+      - name: Keep the screenshots on this run's page
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-screens-linux
+          path: screens-linux
+
+      - name: Build the Studio
+        working-directory: studio
+        run: cargo build --release -p studio_app
+
+      - name: Build the AppImage
+        run: |
+          curl -sSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          mkdir -p dist
+          APPIMAGETOOL="$PWD/appimagetool" studio/release/linux/make-appimage.sh \
+            target/release studio/target/release/DuckEchoStudio dist/DuckEchoStudio.AppImage
+          desktop-file-validate studio/release/linux/duck-echo-studio.desktop
+
+      - name: Keep the AppImage on this run's page
+        uses: actions/upload-artifact@v4
+        with:
+          name: DuckEchoStudio-AppImage
+          path: dist/DuckEchoStudio.AppImage
+
+      - name: The AppImage's three programs
+        env:
+          # GitHub's machines have no FUSE; a person's desktop does.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          app=dist/DuckEchoStudio.AppImage
+          echo "== The Studio"
+          [[ "$("$app" --version)" == "Duck Echo Studio $VERSION" ]]
+          echo "== cli: the command-line tool"
+          "$app" cli --version
+          "$app" cli validate examples/recipes/coin.toml
+          "$app" cli render examples/recipes/coin.toml -o coin.wav
+          ls -l coin.wav
+          echo "== mcp: the MCP server, asked to start and to list its tools"
+          printf '%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | "$app" mcp --root "$PWD" > mcp.txt
+          grep -q '"serverInfo"' mcp.txt
+          grep -q '"get_guide"' mcp.txt
+          echo "The MCP server answered."
+
+      - name: Play a sound through ALSA's "null" device (no sound card needed)
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          printf 'pcm.!default {\n    type null\n}\n' > ~/.asoundrc
+          dist/DuckEchoStudio.AppImage --play coin | tee played.txt
+          grep -q "Played coin through the speakers" played.txt
+          dist/DuckEchoStudio.AppImage --play wind | tee -a played.txt
+          # A song, from its background render as Home plays it, and a
+          # looping one (once round).
+          dist/DuckEchoStudio.AppImage --play example:four_bars | tee -a played.txt
+          grep -q "Played the song example:four_bars" played.txt
+          dist/DuckEchoStudio.AppImage --play example:duck_craft_day | tee -a played.txt
+          rm ~/.asoundrc
+
+      - name: The update check, with curl and pretend release lists
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          app=dist/DuckEchoStudio.AppImage
+          list() {
+            printf '[{"tag_name": "%s", "draft": false, "prerelease": false, "html_url": "https://example.invalid/whats-new", "assets": [{"name": "DuckEchoStudio.AppImage", "browser_download_url": "https://example.invalid/DuckEchoStudio.AppImage", "size": 1}, {"name": "SHA256SUMS", "browser_download_url": "https://example.invalid/SHA256SUMS", "size": 1}]}]' "$1" > "$2"
+          }
+          list studio-v99.0.0 newer.json
+          list "studio-v$VERSION" same.json
+          DUCK_ECHO_RELEASES="file://$PWD/newer.json" "$app" --check-for-updates | tee update-newer.txt
+          grep -q "Duck Echo Studio 99.0.0 is out (this is $VERSION)" update-newer.txt
+          grep -q "DuckEchoStudio.AppImage: https://example.invalid/DuckEchoStudio.AppImage" update-newer.txt
+          DUCK_ECHO_RELEASES="file://$PWD/same.json" "$app" --check-for-updates | tee update-same.txt
+          grep -q "Up to date" update-same.txt
+          start=$SECONDS
+          DUCK_ECHO_RELEASES="https://127.0.0.1:9/releases" "$app" --check-for-updates | tee update-offline.txt
+          grep -q "No answer from GitHub" update-offline.txt
+          (( SECONDS - start < 30 ))
+          "$app" --check-for-updates
+
+      - name: Start the AppImage on a virtual screen; it opens its window and draws
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          # As a person would start it: the real Documents and settings
+          # folders. Only the app menu goes to a folder of the test's own.
+          export XDG_DATA_HOME="$RUNNER_TEMP/share"
+          export DUCK_ECHO_STUDIO_SMOKE_TEST="$PWD/started.txt"
+          timeout 180 xvfb-run -a -s "-screen 0 1280x800x24" dist/DuckEchoStudio.AppImage
+          cat started.txt
+          grep -q "drew 30 frames" started.txt
+          grep -q "AppImage $PWD/dist/DuckEchoStudio.AppImage" started.txt
+          grep -q "asks about the app menu: true" started.txt
+          ls -d "$HOME/Documents/Duck Echo" || ls -d "$(xdg-user-dir DOCUMENTS 2>/dev/null)/Duck Echo"
+          ls -l "${XDG_CONFIG_HOME:-$HOME/.config}/duck-echo-studio/settings.json"
+
+      - name: Keep the logs on this run's page
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-logs-linux
+          path: |
+            update-*.txt
+            started.txt
+            played.txt
+            mcp.txt
+          if-no-files-found: ignore
+
+      - name: Keep the release's file for the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/DuckEchoStudio.AppImage
+
+  publish:
+    name: Publish the release
+    needs: [windows, linux]
+    if: startsWith(github.ref, 'refs/tags/studio-v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.windows.outputs.tag }}
+          VERSION: ${{ needs.windows.outputs.version }}
+        run: |
+          cd release
+          ls -l
+          [[ -f DuckEchoStudioSetup.exe && -f DuckEchoStudio.AppImage ]] || { echo "expected the installer and the AppImage"; exit 1; }
+          # The fingerprints the Studio's Update checks before it uses a
+          # download.
+          sha256sum DuckEchoStudioSetup.exe DuckEchoStudio.AppImage > SHA256SUMS
+          cat SHA256SUMS
+          files=(DuckEchoStudioSetup.exe DuckEchoStudio.AppImage SHA256SUMS)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "The release $TAG is already there: adding the files to it."
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            # Made as a draft with every file, then published, so an update
+            # check never sees half a release.
+            gh release create "$TAG" "${files[@]}" --draft --target "$GITHUB_SHA" \
+              --title "Duck Echo Studio $VERSION" \
+              --notes "Windows: download DuckEchoStudioSetup.exe below and double-click it. It installs Duck Echo Studio just for you (no administrator rights). Linux: download DuckEchoStudio.AppImage, allow it to run as a program (right-click, Properties), and double-click it. Your sounds and songs go in Documents/Duck Echo and are kept when you update or uninstall. SHA256SUMS lists the fingerprints the Studio checks before it updates itself."
+            gh release edit "$TAG" --draft=false
+          fi
+          echo "Published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

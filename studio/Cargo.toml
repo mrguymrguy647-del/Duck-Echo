@@ -1,0 +1,38 @@
+# Duck Echo Studio: the app for making sounds and music without a terminal.
+#
+# Its own Cargo "workspace", apart from the libraries in the folder above,
+# with its own lock file and target folder, as in Duck Forge Studio. So
+# building or testing the libraries, the command-line tool or the MCP server
+# never builds the Studio, and the Studio's libraries (egui and friends)
+# never reach an agent.
+#
+#   crates/app - DuckEchoStudio itself: the window (egui), the speakers, the
+#                settings, the update check and the Linux app-menu entry.
+#                Everything a sound or a song does is in the libraries in
+#                ../crates, the same code agents use.
+
+[workspace]
+resolver = "3"
+members = ["crates/app"]
+
+[workspace.package]
+# The one place the Studio's version is written: the About box, the
+# installer, the AppImage and the release's tag (studio-vX.Y.Z) read it here.
+version = "0.1.0"
+edition = "2024"
+# egui 0.37 needs Rust 1.95. The libraries above promise 1.80.
+rust-version = "1.95"
+repository = "https://github.com/mrguymrguy647-del/Duck-Echo"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+# While developing, still optimise the libraries we use (egui and friends
+# run at full speed); our own code stays quick to recompile.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

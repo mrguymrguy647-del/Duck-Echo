@@ -8,6 +8,45 @@ Every sound is a text **recipe**. The recipe is the source of truth; audio
 is its output. Renders are deterministic: same recipe plus same seed gives
 byte-identical WAV files.
 
+## Duck Echo Studio (no terminal)
+
+**Duck Echo Studio** is the app for people. Its Home shows your sounds
+and songs as cards (each with a small picture of its level, its length and
+Play) and a gallery to start from: the 30 built-in sounds by category, the
+instruments and the example songs, each with Play and **Make a copy**. New
+sound, New song, Rename, Duplicate, Delete, Search, and Undo and Redo
+(Ctrl+Z, Ctrl+Y) shared with an AI assistant. Click a sound to open it
+in the sound editor: its text on the left, sliders on the right, a picture
+of the sound below, and Play and Loop, so you hear each slider move. The
+text and the sliders always agree, a mistake shows under its line with a
+fix to click, and Export WAV saves the sound for a game. Your comments in
+a file stay, whatever changes it. Click a song to see it in the song
+timeline: a lane per track with its notes and patterns, the bars, the
+loop and the play head, with Mute and Solo for each track. Double-click
+to add a note, drag notes and pattern clips about, and change a track's
+instrument and volume; Ctrl+Z takes any of it back. Settings > Connect
+an AI assistant gives the lines to paste into Claude Desktop; then you
+and the assistant work on the same sounds, you see its changes within a
+second with a note saying so, and History shows who did what.
+
+* **Windows:** download `DuckEchoStudioSetup.exe` from the
+  [Releases page](https://github.com/mrguymrguy647-del/Duck-Echo/releases)
+  and double-click it. It installs just for you, with no administrator
+  rights. Windows may say "Windows protected your PC": click **More info**,
+  then **Run anyway** (the installer is not signed with a paid
+  certificate).
+* **Linux:** download `DuckEchoStudio.AppImage` from the same page,
+  right-click it, choose **Properties**, turn on **Allow executing file as
+  program**, and double-click it. The first time, it offers to add itself to
+  your app menu.
+
+Your sounds and songs go in `Documents/Duck Echo`, and updating or
+uninstalling never touches them. The Studio says when a new version is
+out, and **Update** checks the download's SHA-256 fingerprint before it
+uses it. Both downloads also hold the command-line tool and the MCP server,
+ready to run: no Rust and no build needed (see `studio/release/READ ME
+FIRST.txt`).
+
 ## Quick start
 
 ```bash
@@ -96,7 +135,11 @@ to keep their level in mono.
 | `duck-echo instruments list [--json]` | The built-in instruments a song can play (piano, pad, bass, chip_lead and the kit `drums`), with their useful range. |
 | `duck-echo instruments show <name> [--json]` | An instrument's recipe, to copy and edit. |
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
+| `duck-echo guide [topic]` | The agent guide, or a reference page: `recipe_spec`, `song_spec`, `analysis`, `instruments`, `presets`. Built into the program. |
 | `duck-echo schema [song]` | The JSON Schema for recipes, or for songs, with descriptions and defaults. |
+| `duck-echo commands [--json]` | The named commands that change a project: make, copy, rename and delete files, set a field, add a layer, effect, track or note, place a pattern, undo and redo. The Studio's buttons and the MCP server use the same ones. |
+| `duck-echo do <command> ['{json}'] [--root DIR] [--by person\|agent]` | Run one command, such as `duck-echo do sound_set '{"file": "coin.toml", "path": "layers[0].volume", "value": 0.6}'`, then `duck-echo do edit_undo` to take it back. Prints JSON. |
+| `duck-echo run <script.json> [--root DIR] [--by person\|agent]` | Run a list of commands from a JSON file, in order; the first failure stops it. |
 
 `validate`, `render`, `analyze` and `compare` also take a song (a document
 with `tracks`). For a song, `--per-track` analyzes each track alone and
@@ -106,6 +149,15 @@ track's stem, which lines up with the full mix in time and level.
 written note and reports any that is missing, quiet or at the wrong pitch
 (`note_check`; `--notes` lists every note), and for a loop whether the end
 joins the start cleanly (`loop_seam`).
+
+Every change a command makes is one step of the project's **shared Undo
+history**, kept in the project's `.duck-echo/history` folder. A person
+(in the Studio or with `duck-echo do`) and an agent (through the MCP
+server) can work on the same files at the same moment: no change is ever
+lost, and either can undo the other's steps. `duck-echo do edit_history`
+lists the steps and who made them. If a file is changed by another program
+(a text editor), that change becomes a step of its own and Undo never
+overwrites it.
 
 Recipes and songs are TOML on disk and JSON in tool calls; both are the same schema.
 Anywhere a recipe is expected, `preset:NAME` names a built-in preset, for
@@ -120,9 +172,12 @@ them: start from a preset or instrument, change one thing, render, read
 the numbers, compare.
 
 `duck-echo-mcp` serves the Duck Echo tools over the Model Context Protocol:
-`get_schema`, `list_presets`, `get_preset`, `list_instruments`,
+`get_guide` (the agent guide and reference pages, built in), `get_schema`, `list_presets`, `get_preset`, `list_instruments`,
 `get_instrument`, `list_files`, `validate`,
-`create`, `edit`, `render`, `analyze`, `compare` and `variations`. File
+`create`, `edit`, `render`, `analyze`, `compare` and `variations`, plus
+one tool for each command of `duck-echo commands` (`sound_set`,
+`song_add_note`, `edit_undo` and the rest), with the same names and
+arguments. File
 paths are relative to `--root` and cannot leave it: absolute paths, `..`,
 any `:` in a path (a drive letter) and symbolic links that lead out are
 refused, and `render` only writes `.wav` files. A song's instrument files
@@ -227,6 +282,12 @@ crates/duck-echo-audio    AudioBuffer and WAV I/O
 crates/duck-echo-synth    deterministic renderer
 crates/duck-echo-analyze  measurements and compare
 crates/duck-echo-tools    operations shared by the CLI and the MCP server
+crates/duck-echo-live     realtime mixer for playing through speakers (no
+                          allocation or locks on the audio thread)
+studio                    Duck Echo Studio, its own workspace: the app
+                          (studio/crates/app), its icon (studio/brand), the
+                          Windows installer and the Linux AppImage
+                          (studio/release)
 crates/duck-echo-cli      the duck-echo binary and end-to-end tests
 crates/duck-echo-mcp      the duck-echo-mcp binary: MCP server over stdio
 presets                   30 tagged starting points (see presets/README.md)
@@ -259,6 +320,29 @@ cargo test --workspace
 ```bash
 cargo clippy --workspace --all-targets && cargo fmt --all -- --check
 ```
+
+### Building the Studio
+
+The Studio is its own Cargo workspace in `studio/` (egui needs Rust 1.95;
+the libraries above stay at 1.80). On Linux it needs ALSA's build files for
+the sound:
+
+```bash
+sudo apt-get install libasound2-dev pkg-config
+```
+
+```bash
+cd studio && cargo run --release
+```
+
+```bash
+cd studio && cargo test --workspace
+```
+
+`STUDIO_SCREENSHOTS=<folder>` with the tests saves a picture of every
+screen. The `Studio` workflow (`.github/workflows/studio.yml`) builds the
+installer and the AppImage, installs and starts them, and publishes a
+release from the **Run workflow** button in the Actions tab.
 
 After changing the recipe or song types, regenerate the checked-in schemas
 (a test fails when one is stale):

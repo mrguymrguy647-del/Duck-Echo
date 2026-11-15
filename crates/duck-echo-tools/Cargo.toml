@@ -13,7 +13,11 @@ duck-echo-synth = { workspace = true }
 duck-echo-analyze = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+schemars = { workspace = true }
 toml = { workspace = true }
+# Changes the values inside a TOML file's text, so the comments, blank
+# lines and layout a person wrote survive every command.
+toml_edit = { workspace = true }
 
 [dev-dependencies]
 duck-echo-audio = { workspace = true, features = ["wav"] }

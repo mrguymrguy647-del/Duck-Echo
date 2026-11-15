@@ -1,6 +1,8 @@
 //! Semantic validation: range checks and structural rules that serde cannot
 //! express. Collects every problem instead of stopping at the first.
 
+use crate::applies::{self, Applies};
+use crate::ranges::{self, Range};
 use crate::recipe::*;
 use crate::report::{Code, Issue, Report};
 
@@ -68,9 +70,14 @@ impl Validator {
         }
     }
 
-    fn range_opt(&mut self, path: &str, value: Option<f32>, min: f32, max: f32) {
+    /// Check `value` against its range from the table in [`ranges`].
+    fn check(&mut self, path: &str, value: f32, r: Range) -> bool {
+        self.range(path, value, r.min as f32, r.max as f32)
+    }
+
+    fn check_opt(&mut self, path: &str, value: Option<f32>, r: Range) {
         if let Some(v) = value {
-            self.range(path, v, min, max);
+            self.check(path, v, r);
         }
     }
 
@@ -80,13 +87,16 @@ impl Validator {
 
     /// The `master` table: ranges, and settings that cancel each other.
     fn master(&mut self, m: &Master) {
-        self.range("master.gain", m.gain, 0.0, 4.0);
-        self.range("master.normalize_peak_db", m.normalize_peak_db, -40.0, 0.0);
-        self.range_opt(
+        self.check("master.gain", m.gain, ranges::MASTER_GAIN);
+        self.check(
+            "master.normalize_peak_db",
+            m.normalize_peak_db,
+            ranges::MASTER_NORMALIZE_PEAK_DB,
+        );
+        self.check_opt(
             "master.normalize_lufs",
             m.normalize_lufs,
-            MIN_NORMALIZE_LUFS,
-            0.0,
+            ranges::MASTER_NORMALIZE_LUFS,
         );
         if m.normalize && m.normalize_lufs.is_some() {
             self.warn(
@@ -114,10 +124,10 @@ impl Validator {
                 .one_of([CURRENT_VERSION.to_string()]),
             );
         }
-        self.range("sample_rate", r.sample_rate as f32, 8000.0, 192_000.0);
-        self.range("channels", r.channels as f32, 1.0, 2.0);
-        self.range("variation", r.variation, 0.0, 1.0);
-        self.range_opt("duration", r.duration, 0.001, MAX_DURATION);
+        self.check("sample_rate", r.sample_rate as f32, ranges::SAMPLE_RATE);
+        self.check("channels", r.channels as f32, ranges::CHANNELS);
+        self.check("variation", r.variation, ranges::VARIATION);
+        self.check_opt("duration", r.duration, ranges::DURATION);
         self.master(&r.master);
         if r.master.trim_silence && r.duration.is_some() {
             self.warn(
@@ -171,11 +181,11 @@ impl Validator {
     }
 
     fn layer(&mut self, p: &str, l: &Layer, sample_rate: u32) {
-        self.range(&format!("{p}.volume"), l.volume, 0.0, 2.0);
-        self.range(&format!("{p}.offset"), l.offset, 0.0, 30.0);
-        self.range(&format!("{p}.duty"), l.duty, 0.01, 0.99);
-        self.range(&format!("{p}.pan"), l.pan, -1.0, 1.0);
-        if l.aliasing == Aliasing::Retro && !matches!(l.source, Source::Square | Source::Saw) {
+        self.check(&format!("{p}.volume"), l.volume, ranges::LAYER_VOLUME);
+        self.check(&format!("{p}.offset"), l.offset, ranges::LAYER_OFFSET);
+        self.check(&format!("{p}.duty"), l.duty, ranges::LAYER_DUTY);
+        self.check(&format!("{p}.pan"), l.pan, ranges::LAYER_PAN);
+        if l.aliasing == Aliasing::Retro && !does_something(&applies::LAYER_ALIASING, l) {
             self.warn(
                 Code::Unused,
                 &format!("{p}.aliasing"),
@@ -185,7 +195,7 @@ impl Validator {
                 ),
             );
         }
-        if l.source != Source::Square && l.duty != 0.5 {
+        if l.duty != 0.5 && !does_something(&applies::LAYER_DUTY, l) {
             self.warn(
                 Code::Unused,
                 &format!("{p}.duty"),
@@ -196,7 +206,7 @@ impl Validator {
             );
         }
 
-        if l.noise_mode == NoiseMode::Pitched && l.source != Source::Noise {
+        if l.noise_mode == NoiseMode::Pitched && !does_something(&applies::LAYER_NOISE_MODE, l) {
             self.warn(
                 Code::Unused,
                 &format!("{p}.noise_mode"),
@@ -208,12 +218,13 @@ impl Validator {
         }
         if let Some(lfo) = &l.lfo {
             let lp = format!("{p}.lfo");
-            self.range(&format!("{lp}.rate"), lfo.rate, 0.01, 50.0);
-            self.range(&format!("{lp}.delay"), lfo.delay, 0.0, 30.0);
-            let (max, unit) = match lfo.target {
-                LfoTarget::Volume => (1.0, "a part of the volume"),
-                LfoTarget::Cutoff => (4.0, "octaves"),
-                LfoTarget::Duty => (0.5, "an amount of duty"),
+            self.check(&format!("{lp}.rate"), lfo.rate, ranges::LFO_RATE);
+            self.check(&format!("{lp}.delay"), lfo.delay, ranges::LFO_DELAY);
+            let max = ranges::lfo_depth(lfo.target).max as f32;
+            let unit = match lfo.target {
+                LfoTarget::Volume => "a part of the volume",
+                LfoTarget::Cutoff => "octaves",
+                LfoTarget::Duty => "an amount of duty",
             };
             if lfo.depth.is_nan() || lfo.depth < 0.0 || lfo.depth > max {
                 self.report.push(
@@ -258,16 +269,24 @@ impl Validator {
         let e = &l.envelope;
         let ep = format!("{p}.envelope");
         let mut all_ok = true;
-        for (name, val) in [
-            ("attack", e.attack),
-            ("hold", e.hold),
-            ("decay", e.decay),
-            ("sustain_time", e.sustain_time),
-            ("release", e.release),
+        for (name, val, range) in [
+            ("attack", e.attack, ranges::ENVELOPE_ATTACK),
+            ("hold", e.hold, ranges::ENVELOPE_HOLD),
+            ("decay", e.decay, ranges::ENVELOPE_DECAY),
+            (
+                "sustain_time",
+                e.sustain_time,
+                ranges::ENVELOPE_SUSTAIN_TIME,
+            ),
+            ("release", e.release, ranges::ENVELOPE_RELEASE),
         ] {
-            all_ok &= self.range(&format!("{ep}.{name}"), val, 0.0, 30.0);
+            all_ok &= self.check(&format!("{ep}.{name}"), val, range);
         }
-        self.range(&format!("{ep}.sustain"), e.sustain, 0.0, 1.0);
+        self.check(
+            &format!("{ep}.sustain"),
+            e.sustain,
+            ranges::ENVELOPE_SUSTAIN,
+        );
         if all_ok && e.length() <= 0.0 {
             self.report.push(Issue::error(
                 Code::Invalid,
@@ -286,14 +305,17 @@ impl Validator {
         // Pitch
         let pitch = &l.pitch;
         let pp = format!("{p}.pitch");
-        self.range(&format!("{pp}.start"), pitch.start.hz(), 1.0, 20_000.0);
-        self.range_opt(
+        self.check(&format!("{pp}.start"), pitch.start.hz(), ranges::FREQUENCY);
+        self.check_opt(
             &format!("{pp}.end"),
             pitch.end.as_ref().map(|e| e.hz()),
-            1.0,
-            20_000.0,
+            ranges::FREQUENCY,
         );
-        self.range_opt(&format!("{pp}.sweep_time"), pitch.sweep_time, 0.001, 30.0);
+        self.check_opt(
+            &format!("{pp}.sweep_time"),
+            pitch.sweep_time,
+            ranges::PITCH_SWEEP_TIME,
+        );
         if pitch.end.is_none() && pitch.sweep_time.is_some() {
             self.warn(
                 Code::Unused,
@@ -310,9 +332,9 @@ impl Validator {
         }
         if let Some(v) = &pitch.vibrato {
             let vp = format!("{pp}.vibrato");
-            self.range(&format!("{vp}.rate"), v.rate, 0.0, 100.0);
-            self.range(&format!("{vp}.depth"), v.depth, 0.0, 48.0);
-            self.range(&format!("{vp}.delay"), v.delay, 0.0, 30.0);
+            self.check(&format!("{vp}.rate"), v.rate, ranges::VIBRATO_RATE);
+            self.check(&format!("{vp}.depth"), v.depth, ranges::VIBRATO_DEPTH);
+            self.check(&format!("{vp}.delay"), v.delay, ranges::VIBRATO_DELAY);
         }
         if let Some(a) = &pitch.arpeggio {
             let ap = format!("{pp}.arpeggio");
@@ -324,9 +346,13 @@ impl Validator {
                 ));
             }
             for (i, s) in a.steps.iter().enumerate() {
-                self.range(&format!("{ap}.steps[{i}]"), *s, -96.0, 96.0);
+                self.check(&format!("{ap}.steps[{i}]"), *s, ranges::ARPEGGIO_STEP);
             }
-            self.range(&format!("{ap}.step_time"), a.step_time, 0.001, 30.0);
+            self.check(
+                &format!("{ap}.step_time"),
+                a.step_time,
+                ranges::ARPEGGIO_STEP_TIME,
+            );
         }
         let nyquist = sample_rate as f32 / 2.0;
         if pitch.start.hz() > nyquist || pitch.end.as_ref().is_some_and(|e| e.hz() > nyquist) {
@@ -340,10 +366,22 @@ impl Validator {
         // Filter
         if let Some(f) = &l.filter {
             let fp = format!("{p}.filter");
-            self.range(&format!("{fp}.cutoff"), f.cutoff, 10.0, 20_000.0);
-            self.range_opt(&format!("{fp}.cutoff_end"), f.cutoff_end, 10.0, 20_000.0);
-            self.range_opt(&format!("{fp}.sweep_time"), f.sweep_time, 0.001, 30.0);
-            self.range(&format!("{fp}.resonance"), f.resonance, 0.1, 30.0);
+            self.check(&format!("{fp}.cutoff"), f.cutoff, ranges::FILTER_CUTOFF);
+            self.check_opt(
+                &format!("{fp}.cutoff_end"),
+                f.cutoff_end,
+                ranges::FILTER_CUTOFF_END,
+            );
+            self.check_opt(
+                &format!("{fp}.sweep_time"),
+                f.sweep_time,
+                ranges::FILTER_SWEEP_TIME,
+            );
+            self.check(
+                &format!("{fp}.resonance"),
+                f.resonance,
+                ranges::FILTER_RESONANCE,
+            );
             if f.cutoff_end.is_none() && f.sweep_time.is_some() {
                 self.warn(
                     Code::Unused,
@@ -370,24 +408,24 @@ impl Validator {
     fn effect(&mut self, p: &str, e: &Effect, sample_rate: u32) {
         match e {
             Effect::Echo(x) => {
-                self.range(&format!("{p}.delay"), x.delay, 0.001, 5.0);
-                self.range(&format!("{p}.feedback"), x.feedback, 0.0, 0.99);
-                self.range(&format!("{p}.mix"), x.mix, 0.0, 1.0);
+                self.check(&format!("{p}.delay"), x.delay, ranges::ECHO_DELAY);
+                self.check(&format!("{p}.feedback"), x.feedback, ranges::ECHO_FEEDBACK);
+                self.check(&format!("{p}.mix"), x.mix, ranges::ECHO_MIX);
             }
             Effect::Reverb(x) => {
-                self.range(&format!("{p}.size"), x.size, 0.0, 1.0);
-                self.range(&format!("{p}.decay"), x.decay, 0.05, MAX_TAIL);
-                self.range(&format!("{p}.damping"), x.damping, 0.0, 1.0);
-                self.range(&format!("{p}.mix"), x.mix, 0.0, 1.0);
+                self.check(&format!("{p}.size"), x.size, ranges::REVERB_SIZE);
+                self.check(&format!("{p}.decay"), x.decay, ranges::REVERB_DECAY);
+                self.check(&format!("{p}.damping"), x.damping, ranges::REVERB_DAMPING);
+                self.check(&format!("{p}.mix"), x.mix, ranges::REVERB_MIX);
             }
             Effect::Distortion(x) => {
-                self.range(&format!("{p}.drive"), x.drive, 1.0, 100.0);
-                self.range(&format!("{p}.mix"), x.mix, 0.0, 1.0);
+                self.check(&format!("{p}.drive"), x.drive, ranges::DISTORTION_DRIVE);
+                self.check(&format!("{p}.mix"), x.mix, ranges::DISTORTION_MIX);
             }
             Effect::Bitcrush(x) => {
-                self.range(&format!("{p}.bits"), x.bits as f32, 1.0, 16.0);
-                self.range_opt(&format!("{p}.rate"), x.rate, 100.0, 192_000.0);
-                self.range(&format!("{p}.mix"), x.mix, 0.0, 1.0);
+                self.check(&format!("{p}.bits"), x.bits as f32, ranges::BITCRUSH_BITS);
+                self.check_opt(&format!("{p}.rate"), x.rate, ranges::BITCRUSH_RATE);
+                self.check(&format!("{p}.mix"), x.mix, ranges::BITCRUSH_MIX);
                 if x.rate.is_some_and(|r| r >= sample_rate as f32) {
                     self.warn(
                         Code::Unused,
@@ -405,6 +443,28 @@ fn lfo_target_name(t: LfoTarget) -> &'static str {
         LfoTarget::Volume => "volume",
         LfoTarget::Cutoff => "cutoff",
         LfoTarget::Duty => "duty",
+    }
+}
+
+/// True when the field of `rule` does something on layer `l`.
+fn does_something(rule: &Applies, l: &Layer) -> bool {
+    rule.holds(|sibling| layer_word(l, sibling).to_string())
+}
+
+/// The value of one of a layer's word fields, as written in a recipe.
+/// Only the siblings that the rules of [`applies`] name are needed.
+fn layer_word(l: &Layer, field: &str) -> &'static str {
+    match field {
+        "source" => source_name(l.source),
+        "noise_mode" => match l.noise_mode {
+            NoiseMode::White => "white",
+            NoiseMode::Pitched => "pitched",
+        },
+        "aliasing" => match l.aliasing {
+            Aliasing::Clean => "clean",
+            Aliasing::Retro => "retro",
+        },
+        _ => "",
     }
 }
 
@@ -467,4 +527,36 @@ pub fn estimate_length(r: &Recipe) -> f32 {
         .map(|l| l.offset + l.envelope.length() + chain_tail_seconds(&l.effects))
         .fold(0.0f32, f32::max);
     layers + chain_tail_seconds(&r.effects)
+}
+
+#[cfg(test)]
+mod applies_tests {
+    use super::*;
+
+    #[test]
+    fn the_applies_table_agrees_with_the_renderer() {
+        use crate::applies::{LAYER_DUTY, LAYER_NOISE_MODE, LAYER_PITCH};
+        for source in [
+            Source::Sine,
+            Source::Square,
+            Source::Saw,
+            Source::Triangle,
+            Source::Noise,
+        ] {
+            for noise_mode in [NoiseMode::White, NoiseMode::Pitched] {
+                let l = Layer {
+                    source,
+                    noise_mode,
+                    ..Layer::default()
+                };
+                // `has_pitch` is what songs and the synth use.
+                assert_eq!(does_something(&LAYER_PITCH, &l), l.has_pitch());
+                assert_eq!(does_something(&LAYER_DUTY, &l), source == Source::Square);
+                assert_eq!(
+                    does_something(&LAYER_NOISE_MODE, &l),
+                    source == Source::Noise
+                );
+            }
+        }
+    }
 }

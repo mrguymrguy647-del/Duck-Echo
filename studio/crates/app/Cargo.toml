@@ -1,0 +1,52 @@
+[package]
+name = "studio_app"
+description = "Duck Echo Studio: make sounds and music without a terminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "DuckEchoStudio"
+path = "src/main.rs"
+
+[dependencies]
+# The Duck Echo libraries, the very code the command-line tool and the MCP
+# server run.
+duck-echo-core = { path = "../../../crates/duck-echo-core" }
+duck-echo-audio = { path = "../../../crates/duck-echo-audio" }
+duck-echo-synth = { path = "../../../crates/duck-echo-synth" }
+duck-echo-tools = { path = "../../../crates/duck-echo-tools" }
+duck-echo-live = { path = "../../../crates/duck-echo-live" }
+duck-echo-analyze = { path = "../../../crates/duck-echo-analyze" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The window and everything in it: the same library as Duck Quill and Duck
+# Forge Studio.
+eframe = "0.37"
+# The speakers: DirectSound on Windows, ALSA on Linux (linked in the normal
+# way; ALSA reaches PipeWire and PulseAudio too). The same library as Duck
+# Forge.
+tinyaudio = "2"
+# Where Documents and the settings folder really are: Windows' own answer
+# (OneDrive often moves Documents) and the XDG folders on Linux, with no
+# unsafe code of ours.
+dirs = "6"
+# The system's own "Save As" window, for Export WAV: Windows' standard
+# one, and on Linux the desktop's own through the XDG portal (no extra
+# system library).
+rfd = "0.18"
+# Checks a downloaded update against the release's SHA-256 list before it
+# runs, as Duck Quill does.
+sha2 = "0.10"
+
+[build-dependencies]
+# Puts the icon and the version into DuckEchoStudio.exe on Windows.
+winresource = "0.1"
+
+[dev-dependencies]
+# Draws every screen with no window, for the screen tests and screenshots.
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot", "eframe"] }
+
+[lints]
+workspace = true

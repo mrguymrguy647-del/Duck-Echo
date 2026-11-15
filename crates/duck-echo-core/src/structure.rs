@@ -41,16 +41,18 @@ pub struct Checked {
     pub renames: Vec<(String, String)>,
 }
 
-/// The recipe schema, generated once.
+/// The recipe schema, generated once. This is the schema of the types
+/// alone, without the ranges of [`crate::ranges`]: ranges are checked by
+/// [`crate::validate`], after the structure.
 fn recipe_schema() -> &'static J {
     static SCHEMA: OnceLock<J> = OnceLock::new();
-    SCHEMA.get_or_init(crate::schema::recipe_schema)
+    SCHEMA.get_or_init(crate::schema::recipe_structure)
 }
 
-/// The song schema, generated once.
+/// The song schema, generated once (without the ranges, as above).
 fn song_schema() -> &'static J {
     static SCHEMA: OnceLock<J> = OnceLock::new();
-    SCHEMA.get_or_init(crate::schema::song_schema)
+    SCHEMA.get_or_init(crate::schema::song_structure)
 }
 
 /// Check a document against the recipe schema.

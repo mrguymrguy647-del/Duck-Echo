@@ -39,11 +39,42 @@ crates/
   duck-echo-tools/         operations shared by the CLI and the MCP server:
                            load a WAV or render a recipe, compare, presets,
                            variations, edits, analysis extras (per layer,
-                           solo, mute, picture) and file listings.
+                           solo, mute, picture) and file listings; the path
+                           rules (`root`), the named commands (`commands`),
+                           the shared Undo history (`project`, `history`)
+                           and writing files in one step (`save`).
+  duck-echo-live/          the realtime mixer for playing through speakers:
+                           a pool of 32 voice slots, two lock-free queues,
+                           fades and clipping, and the background song
+                           player. No window and no sound card: the Studio
+                           connects it to both. See "Realtime playback".
   duck-echo-cli/           the `duck-echo` binary and the end-to-end tests.
   duck-echo-mcp/           the `duck-echo-mcp` binary: the agent tools as an MCP
                            server over stdio.
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
+studio/                    Duck Echo Studio, a workspace of its own (Rust
+                           1.95 for egui; the libraries above stay at 1.80):
+  crates/app/              DuckEchoStudio: the window, Home (home.rs, with
+                           library.rs for the files, thumbnails and
+                           gallery without a window), the sound editor
+                           (editor.rs for its state, saves and renders,
+                           controls.rs for the sliders made from the
+                           schema, sound_screen.rs to draw it), the
+                           a person and an AI assistant together
+                           (together.rs: notes about others' changes,
+                           the History panel; connect.rs: Settings >
+                           Connect an AI assistant), the
+                           song timeline (song_view.rs for its lanes,
+                           mute, solo and note check, song_edit.rs for
+                           the commands its edits run, song_screen.rs to
+                           draw it), the
+                           speakers (tinyaudio + duck-echo-live),
+                           settings, the update check, the Linux app-menu
+                           entry.
+  brand/                   the Duck Echo icon (SVG sources, PNGs, .ico).
+  release/                 DuckEchoStudio.iss (the Windows installer),
+                           READ ME FIRST.txt, linux/ (AppRun, the menu entry,
+                           make-appimage.sh).
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 examples/recipes/          the example recipes (TOML, plus coin.json)
 examples/songs/            the example songs
@@ -65,6 +96,7 @@ cli ──> tools ──> synth ──> core
  │        └────> core
  └────> core, synth, analyze, audio (directly, for render and validate)
 mcp ──> tools (and core, audio)
+live ──> synth, core, audio (and rtrb; tools only in its tests)
 ear (planned) ──> core, audio, analyze
 ```
 
@@ -195,10 +227,9 @@ is the same on both. In plain words:
   there, but it is not checked. A different Duck Echo version may change a
   sound, and its commit will say which.
 
-## Realtime constraints (for later phases)
+## Realtime playback
 
-Even though this phase renders offline, the renderer is already shaped for a
-realtime audio thread:
+The renderer was shaped for a realtime audio thread from the start:
 
 * `prepare(recipe) -> Voice` does all validation, planning and allocation.
 * `Voice::process(&mut [f32])` allocates nothing, takes no locks, does no I/O
@@ -208,12 +239,84 @@ realtime audio thread:
 * The offline `render` is just `process` in a loop plus the offline-only
   `normalize` step, which needs the whole signal.
 
-Rules for whoever adds playback: build a `Voice` on the control thread, move
-it to the audio thread through a lock-free channel or a triple buffer, and
-never share it. Parameter changes create a new `Voice` (or a small
-`ParamUpdate` message with plain numbers). The audio thread must clip its own
-output since `process` does not. Keep `RENDER_BLOCK` as the upper bound of
-scratch memory.
+Phase 2 step 3 built the playback on top of it, in two places.
+
+**Live changes, in `duck-echo-synth/src/live.rs`.** A `ParamUpdate` is a
+change a slider can make without a new voice: a layer's volume, a filter's
+cutoff (and `cutoff_end`), or the master gain. A change does not jump,
+which would click: the value slides to its target over 10 ms, a little
+each sample. `Voice::process` and everything under it were not edited for
+this. `Voice::process_live` is a wrapper: while nothing slides it calls
+`process`; while something slides it moves each sliding value one step
+and calls `process` for one frame, again and again. That is the same
+sound, because `process` gives the same samples however its blocks are
+cut (tested). So a render, which never sends a `ParamUpdate`, runs the
+same code on the same numbers as before. `Voice::rewind` plays a voice
+again from its first frame without building a new one (delay lines are
+cleared in place); a rewound voice makes exactly a new voice's samples.
+
+**The mixer, in `duck-echo-live`.**
+
+```
+ control thread (the window)                audio thread (the sound card)
+ ---------------------------                -----------------------------
+ Player                                      Mixer
+   play / replace / update / stop  ------>     process(block), every ~23 ms:
+   (sounds are made here, where                  take messages (never waits)
+    allocating is fine)                          mix the sounds in 32 slots
+                                                 slide changes, fade, clip
+   collect()  <-------------------------       send finished sounds back
+   (finished sounds are dropped here)
+```
+
+* **Two one-way queues**, both `rtrb` ring buffers (one writer, one
+  reader, lock-free). The mixer's state for the window (play heads,
+  clipped samples) is a few atomics.
+* **Nothing is allocated or freed on the audio thread.** Every buffer is
+  made in `live()`. A finished or replaced sound is sent back to the
+  control thread and dropped there. If the ring back is full, sounds wait
+  in a parking area made in advance; if that is nearly full, the mixer
+  stops taking messages (the player is told `Busy`) until the control
+  thread has collected. It never blocks and never drops a sound.
+* **What you hear is the file.** `Sound::from_recipe` plays the voice at
+  the gain and length the offline master steps give the rendered file
+  (`master.normalize`, `normalize_lufs`, `trim_silence`), and the mixer
+  clips its output to -1..=1 as a render does. A test plays every preset
+  and example through the mixer and compares it with `render`, sample for
+  sample, once and repeated.
+* **No clicks.** `Player::update` slides (above). `Player::replace` (an
+  edit that needs a new voice) puts the new voice at the old one's place
+  and cross-fades over 10 ms; `stop`, and `play` over a playing sound,
+  fade the old one out. A request that arrives during a fade waits for it
+  (at most 10 ms and one block), so a fade is never cut short.
+* **Songs** play from a render made on a worker thread
+  (`SongPlayback`): the same `render_song` that writes the file. After an
+  edit the song is rendered again and the new render takes over at the
+  play head with the same cross-fade. (`SongPlayer` makes a voice per
+  note, which allocates; live song voices from a pool are a Phase 3 job.)
+* **The mixer does not resample.** A sound must have the sound card's
+  sample rate; otherwise `Player` refuses it with a message. The Studio
+  opens the sound card at the sound's rate.
+
+How the rules are proven (`crates/duck-echo-live/tests`):
+
+* `realtime.rs` replaces the test program's allocator with
+  `assert_no_alloc` (always on, in debug and release). Every block is
+  mixed inside `assert_no_alloc`, which counts each allocation or free on
+  that thread; each test ends with the count at zero. One test runs 60
+  seconds of busy playback, one stalls the control thread until every
+  queue is full, one uses two real threads, and one first shows the
+  detector catching an allocation and the freeing of a voice.
+* `clicks.rs` measures the biggest step between two neighbouring samples
+  of the output and compares it with the sound's own. Each scene runs
+  twice: smoothed (no step bigger than the sound's own) and with the
+  smoothing turned off (the same scene clicks).
+* `audio_path.rs` is a tripwire for locks: it reads the source of every
+  file the audio thread runs and fails if one names a lock, a channel, a
+  sleep, a file or a print. Nothing can count locks at run time the way
+  allocations are counted, so the lock rule rests on this, on the stall
+  test, and on review.
+* `matches_render.rs` and `song.rs` compare what plays with what renders.
 
 ## How music and voice will extend the recipe model
 
@@ -313,6 +416,7 @@ a song works too: the tools tell the two apart by looking inside.
 
 | Tool | Input | Output |
 |---|---|---|
+| `get_guide` | optional `topic` (`guide`, `recipe_spec`, `song_spec`, `analysis`, `instruments`, `presets`) | `{topic, text}`: the page as Markdown, compiled in from the repository's own files (`duck-echo-tools/src/guide.rs`), so an agent without the repository can read the guide. `recipe_spec` and `song_spec` are the two parts of `RECIPE_SPEC.md`. Same as `duck-echo guide TOPIC`. |
 | `get_schema` | optional `kind` (`recipe` or `song`) | The recipe JSON Schema, same as `duck-echo schema`, or the song schema (`duck-echo schema song`). |
 | `list_presets` | optional `tag` | `{presets: [{name, category, target_lufs, description, tags}]}`. Presets are levelled to per-category loudness targets (see `presets/README.md`). A tag no preset has is a `not_found` error at `arguments.tag` with the closest real tag as `suggestion` and every tag in `allowed`, so a typo is never an empty list. |
 | `get_preset` | `name` | `{name, category, description, tags, recipe, toml}`: the recipe as a JSON object and its TOML source with comments. |
@@ -320,12 +424,13 @@ a song works too: the tools tell the two apart by looking inside.
 | `get_instrument` | `name` | The listing entry plus `recipe` (a JSON object) and `toml` (its source with comments). A kit is an error that names its pieces. |
 | `list_files` | optional `path` (a folder), `recursive` (default true) | `{folder, entries: [{path, kind, bytes, seconds}], truncated}`. Kinds: `folder`, `recipe`, `audio`, `image`, `link`, `other`; `seconds` for WAV files. Hidden files are skipped, links are not followed, at most 500 entries. |
 | `validate` | recipe | The `Report`. An invalid recipe is a normal answer here, not a tool error. |
-| `create` | `path`, `recipe`, optional `overwrite` | `{ok, path, kind, warnings}` (`kind` is `recipe` or `song`). Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. |
+| `create` | `path`, and `recipe` or `from`, optional `overwrite` | `{ok, path, kind, warnings}` (`kind` is `recipe` or `song`; with `from`, also `from`). Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. `from` (`preset:NAME`, `instrument:NAME` or a file) runs the `file_copy_from` command: the copy is named after its file, its description says what it was copied from, and a TOML copy keeps its comments. One Undo step either way. |
 | `edit` | recipe, `ops`, optional `write` | `{ok, recipe, warnings, written, path}`. Each op is `{path, value}` or `{path, remove: true}`, with paths as in error messages; an index equal to the length appends. Edits apply to the document as written (defaults stay implicit), and a file is rewritten only when the result is valid. Comments are not kept. |
 | `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. A song adds `song` (`tempo`, `beats_per_bar`, `bars`, `loop`, `song_frames`, `seconds_per_bar`, `tracks`, `notes`), `heard_tracks` and `tracks` when asked, for a loop `loop_seam` (`seam_step`, `largest_step`, `clean`), and with `per_track` or `notes` the `note_check`. |
 | `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. For a song also `song`, `loop_seam` and always `note_check` (the notes written next to the notes heard; `notes: true` lists every note). |
 | `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
 | `variations` | recipe (not a song), optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
+| the commands | see below | One tool per command (`sound_set`, `song_add_note`, `edit_undo`...), with the command's name and arguments. |
 | `export` | (task 13) | Not built: the Duck Forge format is still to be agreed. |
 
 Extras on `render` and `analyze`, shared with the CLI's `--per-layer`,
@@ -380,7 +485,10 @@ Rules the server keeps:
   writes only `.wav` files, so it cannot overwrite other files; recipe
   names are made file-safe before they become file names. Results show
   paths relative to the root. All of this lives in
-  `crates/duck-echo-mcp/src/root.rs`, and stdio tests try each escape.
+  `crates/duck-echo-tools/src/root.rs` (shared by the server and the
+  CLI's `do` and `run`), and stdio tests try each escape. The project's own
+  `.duck-echo` folder (the Undo history) is refused as a path, so a tool
+  can never write into the history behind its back.
 * **Never silently.** Edits that cannot apply say which op and why; an
   invalid result changes no file.
 
@@ -393,6 +501,146 @@ dependency tree into a synchronous program. It negotiates protocol versions
 2024-11-05 through 2025-11-25. If Duck Echo later needs resources, prompts,
 progress notifications or HTTP transport, replacing that one file with the
 SDK is the way; the tools module does not depend on it.
+
+## Commands and the shared Undo history
+
+Phase 2 (Duck Echo Studio) needs a person and an agent to work on one
+project at the same moment, and to undo each other's changes. So every
+action that changes a project is a named **command**
+(`crates/duck-echo-tools/src/commands.rs`): a `Command` enum, tagged by
+`"do"`, whose arguments deserialize with `deny_unknown_fields` and whose
+JSON Schemas come from `schemars`. One table (`commands::TABLE`) lists
+each command's name, description and argument schema. Every front end
+uses it:
+
+* the MCP server makes one tool per entry, same name, same arguments;
+* the CLI has `duck-echo commands`, `duck-echo do NAME '{json}'` and
+  `duck-echo run script.json` (a JSON list of commands);
+* the Studio's buttons will build the same `Command` values.
+
+Names use `_`, not `.`, because Claude's tool names must match
+`^[a-zA-Z0-9_-]{1,128}$`. File commands (`file_new_sound`,
+`file_copy_from`, `file_rename`, `file_delete`, `file_restore`,
+`file_set_text`...), sound commands (`sound_set`, `sound_add_layer`...),
+song commands (`song_add_note`, `song_place_pattern`, `song_set_loop`...)
+and `edit_undo`, `edit_redo`, `edit_history`. A command checks its result
+(a recipe, or a song with its instruments) before it writes; an invalid
+result changes nothing and returns the usual report. Commands that change
+data (and the MCP `edit` tool) change only the values that changed,
+inside the file's text (`edit::document_text_from`, with `toml_edit`), so
+`#` comments, blank lines and inline tables stay as written. The new text
+is read back and must hold exactly the new data; if it does not (or the
+old text does not parse), the file is written whole from its data, as
+before. JSON files are always written whole. `file_set_text` and
+`file_copy_from` keep the text as written.
+
+**History on disk** (`history.rs`). Undo cannot live in one program's
+memory when two programs share it, so each change is one JSON file,
+`<project>/.duck-echo/history/NNNNNN.json`, holding each changed file's
+whole text before and after, a title, who made it (`person`, `agent` or
+`outside`) and when. Undone steps move to `history/undone/` until Redo or
+the next change. Edits with the same `stroke` number from the same maker
+join one step (a slider drag). The newest 500 steps are kept. A deleted
+file is also copied to `.duck-echo/recycle/`. The step's time is only
+metadata: nothing rendered reads it.
+
+**No change is ever lost** (`project.rs`). A change works out its new
+text without holding anything, then takes the project lock
+(`.duck-echo/lock`, created with "fail if it exists"; a lock older than
+10 seconds was left by a crash and is removed), reads the files again and
+writes only if each still holds exactly the text it read. If another
+program saved first, the change is worked out again on the new text, this
+time holding the lock, so no Duck Echo program can save in between. If
+the file changed even then (only a program that is not Duck Echo can do
+that), the change is refused, "kept changing ... Nothing was changed; try
+again", and the other change is kept. A file whose text is not what the
+history last wrote was changed outside Duck Echo; that change becomes its
+own step ("Changed outside Duck Echo") before anything else, and an Undo
+that would overwrite it refuses instead and leaves that step on top.
+
+**One-step writes** (`save.rs`). Every file Duck Echo writes (recipes,
+songs, history steps, WAVs, PNGs) goes to a hidden temporary file in the
+same folder, is flushed to disk and renamed onto its name, so no program
+ever reads half a file. On Windows a rename onto a file another program
+holds open can fail with "access denied" for a moment; it is tried again
+for about a second.
+
+`file_copy_from` copies from `preset:NAME`, `instrument:NAME`, an example
+song (`example:NAME`, the files of `examples/songs` compiled into the tools
+crate by `examples.rs`), or a file in the project, so the Studio's **Make a
+copy** is one command and one Undo step for every kind of starting point,
+and agents can copy an example song the same way.
+
+**The sound editor runs commands too.** A slider runs `sound_set`, typing
+runs `file_set_text` (0.6 s after the last key, and only when the text
+works), and the "+" and "x" buttons run `sound_add_layer`,
+`sound_remove`, `sound_add_effect` and the rest. While a slider is held,
+the editor saves at most every 200 ms and once more on release, all with
+one stroke number (one Undo step), because the Documents folder is often
+synced by OneDrive and every save is an upload. The sliders are made from
+`recipe_schema()` (`controls.rs`), so they have the ranges validation
+enforces. Each change is rendered on a background thread with the same
+code as `render` (the newest change wins), and the same render draws the
+analyze picture (`picture::draw_image`, the
+pixels of the PNG agents get) and the summary line. Export WAV writes the
+bytes `render` writes, through `Root::write` in the chosen folder.
+
+**Live changes** (`editor::Live`). Play and Loop play a live voice
+(`Sound::from_recipe_mastered`, the file's samples exactly). After each
+edit, `ParamUpdate::between(playing, new)` (in `duck-echo-synth`) says
+whether the change is only to a layer's volume, a filter's cutoff or the
+master gain. If so, the updates go to the playing voice at once and slide
+over 10 ms; when the edit's render arrives, only the level slides to the
+file's new level (a normalized sound keeps its loudness). Any other
+change waits for its render, and the new voice takes over at the same
+place with a 10 ms cross-fade (`Player::replace`). A render that is not
+the newest change's is shown but never played.
+
+**The song timeline draws the arrangement** (`song_view.rs`): the list
+of notes `arrange` gives the renderer, with patterns placed, chords split
+and bars turned into beats, so what you see is what you hear. Play and
+Loop use the background song player; Mute and Solo play the stem of the
+tracks heard at their level in the full mix (`SongPlayback::set_heard`,
+the same stem as `render --solo`). The note check runs on a background
+thread with `measure_song` and outlines the notes it finds a problem
+with. Its edits (add, move, stretch and delete notes; place, move and
+take off clips; a track's instrument and volume) are built as the shared
+song commands in `song_edit.rs` and run as the person, one Undo step
+each; a drag runs its command once, on release. A test makes a song with
+these commands and checks it renders the same WAV bytes as the same song
+written by hand. The screen counts beats from 1; files and commands
+count from 0.
+
+**A person and an agent together** (`together.rs`). The Studio and the
+MCP server share only the project folder: its files and its history. The
+editor and the timeline look at the open file twice a second; when it
+changed, `Project::notice_outside` first records a change no Duck Echo
+program made ("Changed outside Duck Echo", by `outside`), then the
+newest steps someone else made to that file give the three-second note,
+with Undo. Steps are known by number, time and title, since an Undo
+frees its number for the next step. Typed text is saved whole, so before
+saving it the editor checks the file still holds what the typing started
+from; if not, the person chooses Keep mine or Use theirs. Settings >
+Connect an AI assistant (`connect.rs`) writes the lines for Claude
+Desktop: `duck-echo-mcp` next to the Studio (or the AppImage with `mcp`)
+and `--root` set to the sounds folder. The test
+`studio/crates/app/tests/together.rs` runs the real MCP server and the
+Studio code on one sound (playtest 3, `docs/playtest-3.md`).
+
+**Home runs commands, nothing else.** Every button on Home that changes a
+file (New sound, New song, Make a copy, Rename, Duplicate, Delete, Undo,
+Redo) runs one of these commands as `Who::Person`, so the Studio holds no
+file logic an agent cannot reach. Home reads the project folder again
+every second, so a file an agent makes appears by itself.
+
+The tests: every command undone and redone gives back every file byte for
+byte (`crates/duck-echo-tools/tests/commands.rs`), and the real CLI and
+the real MCP server add 40 layers each to one file at the same moment
+while a reader checks the file always parses; every change is there, in
+each program's order, as one step each, and undoing all 80 gives back the
+first text exactly (`crates/duck-echo-mcp/tests/shared_undo.rs`). The
+MCP `create` and `edit` tools save through the same path, so they are
+steps too.
 
 ## Duck Ear bridge (design)
 
@@ -420,9 +668,28 @@ it say so in their output rather than failing.
 
 One `validate` call reports every problem: structural ones from the schema
 walk and range ones from semantic validation, in document order, each with
-a line and column. The schema walk is driven by the same generated JSON
-Schema agents read, so it cannot drift from the Rust types; a unit test
+a line and column. The schema walk is driven by the JSON Schema generated
+from the Rust types, so it cannot drift from them; a unit test
 fails if schemars ever emits a schema keyword the walker does not handle.
+
+**Ranges live in one table**, `duck-echo-core/src/ranges.rs`: the smallest
+and largest value of every number in a recipe and a song. Semantic
+validation reads its limits from the table, and the published schema
+(`duck-echo schema`, `get_schema`, `schema/*.json`) is the schema of the
+types plus each range written in as `minimum` and `maximum` (or
+`exclusiveMinimum`), so agents and the Studio's sliders see the very
+limits that validation enforces. The walker reads the schema *without*
+the ranges, so a range error is still reported once, by validation, in
+the same words as before. A test puts every field of the table just
+outside its range and reads the table's limits back from the error.
+**"Only for this source" rules live in one table too**,
+`duck-echo-core/src/applies.rs`: `duty` only for `square`, `aliasing`
+for `square` and `saw`, `noise_mode` for `noise`, `pitch` for every wave
+and pitched noise. Validation's `unused` warnings read it, the schema
+carries each rule on its field as `x-applies-when`, and the Studio's
+panel hides a setting whose rule does not hold. A test checks the table
+against `Layer::has_pitch`, which the renderer uses.
+
 Two rules keep the report free of echoes: a value replaced by a placeholder
 suppresses later issues at or under its path, and a misspelled field with a
 suggestion suppresses complaints about the suggested field's default.
@@ -476,15 +743,36 @@ output is one line per issue in the same order.
 | Crate | Used by | Why |
 |---|---|---|
 | serde, serde_json, toml | core | One schema, two syntaxes. |
-| schemars | core | JSON Schema from the same types, with docs and defaults. |
+| schemars | core, tools | JSON Schema from the same types, with docs and defaults; in tools, the argument schemas of the commands, so the MCP tools and the Rust types cannot disagree. |
 | serde_path_to_error | core | Field path for the rare serde error the schema walk does not pre-empt. |
 | strsim | core | "Did you mean" suggestions. |
 | hound | audio | WAV read and write, zero dependencies of its own. |
 | clap | cli | Argument parsing. |
+| rtrb | live | A lock-free ring buffer with one writer and one reader, made for audio threads: the audio thread takes and sends messages without ever waiting on a lock or allocating. No dependencies of its own. Writing one ourselves needs `unsafe` code, which the workspace forbids. |
+| eframe (egui) 0.37 | studio | The window and every widget: the same library and version as Duck Quill and Duck Forge Studio, so the three apps look alike. Its default wgpu renderer draws on Direct3D 12 (or its software fallback, WARP) on Windows and on Vulkan or OpenGL on Linux. |
+| egui_kittest 0.37 | studio (tests only) | Draws every screen with no window and finds things by their words, as a person would; with wgpu it also saves pictures of the screens. The same as Duck Forge Studio. |
+| tinyaudio 2 | studio | Plays the mixer's blocks through the speakers: DirectSound on Windows, ALSA on Linux, linked in the normal way (ALSA reaches PipeWire and PulseAudio too), with no `unsafe` code of ours. The lightest crate that does it, and Duck Forge's choice. Building on Linux needs `libasound2-dev`. |
+| dirs 6 | studio | Where Documents and the settings folder really are: Windows' own answer (OneDrive often moves Documents), the XDG folders on Linux. The design named `windows-sys` for this, as Duck Forge uses; `windows-sys` would need `unsafe` code of ours to call Windows, and would leave Linux to us, so `dirs` (which wraps the same Windows call) does both. |
+| sha2 0.10 | studio | The SHA-256 fingerprint of a downloaded update, checked against the release's `SHA256SUMS` before it is used, as Duck Quill does. |
+| rfd 0.18 | studio | The system's own Save As window for Export WAV: Windows' standard one, and on Linux the desktop's own through the XDG portal (spoken to over D-Bus in Rust, no system library; the AppImage still links only ALSA). Without a portal, "Export WAV to my Duck Echo folder" needs no window. |
+| toml_edit 0.25 | tools | Changes values inside a TOML file's text, so a person's comments and layout survive every command and the `edit` tool. It shares its parser and writer crates (`toml_parser`, `toml_writer`, `toml_datetime`) with `toml`, so it adds one crate. |
+| winresource 0.1 | studio (build only) | Puts the icon and the version into `DuckEchoStudio.exe`, as both siblings do. |
+| assert_no_alloc | live (tests only) | Replaces the test program's allocator and counts every allocation and free inside a marked section, so a test fails if the audio block touches the allocator. Its default features switch the check off in release builds; here they are off and the counting ones are on, so it always runs. |
 
-The MCP server and the tools crate add no external dependencies: the
-protocol layer is plain `serde_json` (see above), and `toml` writes edited
-recipes. Pictures add none either: `analyze::png` is a small PNG encoder
+The Studio's crates live only in `studio/`, a workspace of its own (its own
+lock file and `target`), so the command-line tool and the MCP server gain
+none of them. Two programs are used to package it, not linked: **Inno
+Setup 6** builds `DuckEchoStudioSetup.exe` from
+`studio/release/DuckEchoStudio.iss` (as both siblings do), and
+**appimagetool** (downloaded by CI) builds `DuckEchoStudio.AppImage` with
+its static runtime, so a person's Linux does not need the old FUSE 2
+library. The Studio checks for new versions with the system's own `curl`
+(Windows 10 and later have it; so does nearly every Linux), as Duck Forge
+does: no web library.
+
+The MCP server and the tools crate add no external dependencies beyond
+`toml_edit`: the protocol layer is plain `serde_json` (see above), and
+`toml` and `toml_edit` write edited recipes. Pictures add none either: `analyze::png` is a small PNG encoder
 (palette image, zlib with fixed-Huffman deflate and LZ77, CRC-32 and
 Adler-32, about 240 lines plus a test-only inflater that proves round
 trips), and the server's base64 is twenty lines. An image crate would pull

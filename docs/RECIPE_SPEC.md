@@ -354,6 +354,32 @@ warning[unused] layers[0].duty: duty only affects `square`; this layer is `sine`
 Unknown fields are always errors: a misspelled field would otherwise be
 silently ignored, which is the worst outcome for an agent.
 
+Every range in this document comes from one table in the code
+(`duck-echo-core/src/ranges.rs`). Validation reads it, and the JSON Schema
+(`duck-echo schema`, the `get_schema` tool) carries each range as
+`minimum` and `maximum`, so a tool that builds a slider from the schema
+can never offer a value that validation refuses. One range depends on
+another field: an LFO's `depth` goes up to 1 for `volume`, 4 for `cutoff`
+and 0.5 for `duty`; the schema gives the widest, 4.
+
+Some layer fields do something only for some sources, and the JSON Schema
+says which, on the field itself, as `x-applies-when`:
+
+| Field | Does something when |
+|---|---|
+| `duty` | `source` is `square` |
+| `aliasing` | `source` is `square` or `saw` |
+| `noise_mode` | `source` is `noise` |
+| `pitch` | `source` is `sine`, `square`, `saw` or `triangle`, or `noise_mode` is `pitched` |
+
+In the schema it reads `"x-applies-when": {"source": ["square"]}`: the
+field does something only when its sibling `source` is one of the listed
+values. With more than one sibling, any one is enough. A sibling that is
+not written has its default. These rules come from one table in the code
+(`duck-echo-core/src/applies.rs`), which validation also reads: a field
+set where it does nothing gets an `unused` warning, and Duck Echo Studio
+hides it.
+
 ## JSON equivalence
 
 `examples/recipes/coin.toml` and `examples/recipes/coin.json` are the same

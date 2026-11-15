@@ -1,0 +1,25 @@
+#!/bin/sh
+# Duck Echo Studio's AppImage: one file, three programs. The first word
+# picks which:
+#
+#   DuckEchoStudio.AppImage                     opens the Studio
+#   DuckEchoStudio.AppImage mcp --root FOLDER   the MCP server for AI
+#                                               assistants (duck-echo-mcp)
+#   DuckEchoStudio.AppImage cli validate x.toml the command-line tool
+#                                               (duck-echo)
+#
+# So an AI assistant can always use the AppImage, wherever it is kept.
+HERE="$(dirname "$(readlink -f "$0")")"
+case "$1" in
+    mcp)
+        shift
+        exec "$HERE/usr/bin/duck-echo-mcp" "$@"
+        ;;
+    cli)
+        shift
+        exec "$HERE/usr/bin/duck-echo" "$@"
+        ;;
+    *)
+        exec "$HERE/usr/bin/DuckEchoStudio" "$@"
+        ;;
+esac

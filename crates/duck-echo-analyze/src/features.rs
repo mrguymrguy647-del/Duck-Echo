@@ -392,6 +392,15 @@ pub mod words {
     pub const LONG_TAIL_SHARE: f64 = 0.2;
 }
 
+/// "ends cleanly" or "ENDS WITH A CLICK", from [`Analysis::ending`].
+pub fn ending_words(a: &Analysis) -> &'static str {
+    if a.ending.clean {
+        "ends cleanly"
+    } else {
+        "ENDS WITH A CLICK"
+    }
+}
+
 /// A short, human-readable description of an analysis, built only from its
 /// numbers with the thresholds in [`words`].
 pub fn summary(a: &Analysis) -> String {
@@ -477,6 +486,7 @@ pub fn summary(a: &Analysis) -> String {
     } else {
         parts.push("no clipping".into());
     }
+    parts.push(ending_words(a).into());
     if a.duration_seconds > 0.0 && a.trailing_silence_seconds / a.duration_seconds > LONG_TAIL_SHARE
     {
         parts.push(format!("{:.2} s silent tail", a.trailing_silence_seconds));

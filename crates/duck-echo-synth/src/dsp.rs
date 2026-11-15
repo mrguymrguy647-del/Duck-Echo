@@ -222,6 +222,24 @@ impl Sweep {
         }
     }
 
+    /// The value the sweep starts at.
+    pub fn start(&self) -> f32 {
+        self.start
+    }
+
+    /// The value the sweep ends at (the same as [`Self::start`] when the
+    /// value is constant).
+    pub fn end(&self) -> f32 {
+        self.end
+    }
+
+    /// The same sweep (its time and curve) between other values. Used by
+    /// live playback to slide a filter's cutoff; the offline renderer never
+    /// calls it.
+    pub fn with_ends(&self, start: f32, end: Option<f32>) -> Self {
+        Self::new(start, end, self.time, self.curve)
+    }
+
     /// Value at time `t` seconds.
     #[inline]
     pub fn at(&self, t: f32) -> f32 {
@@ -311,6 +329,11 @@ pub struct Oscillator {
     /// Pitched noise: the random value being held, or `None` for white
     /// noise (a new value every sample).
     held: Option<f32>,
+    /// `rng` and `held` as they were when the oscillator was made, so
+    /// [`Self::rewind`] can start the same noise again. Not read while
+    /// making sound.
+    first_rng: Rng,
+    first_held: Option<f32>,
 }
 
 impl Oscillator {
@@ -329,11 +352,24 @@ impl Oscillator {
             pulse_high: 1.0,
             pulse_low: -1.0,
             phase: 0.0,
+            first_rng: rng.clone(),
+            first_held: held,
             rng,
             held,
         };
         osc.set_duty(duty);
         osc
+    }
+
+    /// Go back to the state [`Self::new`] left, with pulse width `duty`:
+    /// phase 0 and the same noise from its first value. Allocates nothing.
+    /// Used by live playback to repeat a sound; the offline renderer never
+    /// calls it.
+    pub fn rewind(&mut self, duty: f32) {
+        self.phase = 0.0;
+        self.rng.clone_from(&self.first_rng);
+        self.held = self.first_held;
+        self.set_duty(duty);
     }
 
     /// Set the pulse width of a square wave (the part of each cycle that
@@ -509,6 +545,14 @@ impl Biquad {
         self.b2 = b2 * inv;
         self.a1 = -2.0 * cos * inv;
         self.a2 = (1.0 - alpha) * inv;
+    }
+
+    /// Forget the samples that went through, as in a new filter. The
+    /// coefficients stay; the next cutoff update sets them. Used by live
+    /// playback to repeat a sound.
+    pub fn reset(&mut self) {
+        self.z1 = 0.0;
+        self.z2 = 0.0;
     }
 
     /// Filter one sample.

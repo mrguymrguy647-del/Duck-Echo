@@ -452,9 +452,16 @@ impl Arranger<'_> {
         }
     }
 
-    fn range_f32(&mut self, path: &str, value: f32, min: f32, max: f32) -> bool {
-        let clean = crate::validate::f64_clean;
-        self.range(path, clean(value), clean(min), clean(max))
+    /// Check `value` against its range from the table in
+    /// [`crate::ranges`].
+    fn check(&mut self, path: &str, value: f64, r: crate::ranges::Range) -> bool {
+        self.range(path, value, r.min, r.max)
+    }
+
+    /// The same for an `f32` field. The value is widened to the `f64`
+    /// that prints the same digits.
+    fn check_f32(&mut self, path: &str, value: f32, r: crate::ranges::Range) -> bool {
+        self.range(path, crate::validate::f64_clean(value), r.min, r.max)
     }
 
     fn run(&mut self) -> Option<Arrangement> {
@@ -473,10 +480,19 @@ impl Arranger<'_> {
                 .one_of([CURRENT_VERSION.to_string()]),
             );
         }
-        let tempo_ok = self.range("tempo", song.tempo, 20.0, 400.0);
-        let bpb_ok = self.range("beats_per_bar", song.beats_per_bar as f64, 1.0, 16.0);
-        self.range("sample_rate", song.sample_rate as f64, 8000.0, 192_000.0);
-        self.range("channels", song.channels as f64, 1.0, 2.0);
+        use crate::ranges;
+        let tempo_ok = self.check("tempo", song.tempo, ranges::SONG_TEMPO);
+        let bpb_ok = self.check(
+            "beats_per_bar",
+            song.beats_per_bar as f64,
+            ranges::SONG_BEATS_PER_BAR,
+        );
+        self.check(
+            "sample_rate",
+            song.sample_rate as f64,
+            ranges::SONG_SAMPLE_RATE,
+        );
+        self.check("channels", song.channels as f64, ranges::SONG_CHANNELS);
         if let Some(bars) = song.bars {
             if bars == 0 {
                 self.error(
@@ -559,8 +575,12 @@ impl Arranger<'_> {
                     .got(track.name.clone()),
                 );
             }
-            self.range_f32(&format!("{tp}.volume"), track.volume, 0.0, 2.0);
-            self.range_f32(&format!("{tp}.pan"), track.pan, -1.0, 1.0);
+            self.check_f32(
+                &format!("{tp}.volume"),
+                track.volume,
+                crate::ranges::TRACK_VOLUME,
+            );
+            self.check_f32(&format!("{tp}.pan"), track.pan, crate::ranges::TRACK_PAN);
             if song.channels == 1 && track.pan != 0.0 {
                 self.warn(
                     Code::Unused,
@@ -877,11 +897,10 @@ impl Arranger<'_> {
                     "`bars` is empty, so the pattern is never played; list the bars it starts at, such as [1, 2]",
                 ));
             }
-            self.range(
+            self.check(
                 &format!("{pp}.transpose"),
                 placement.transpose as f64,
-                -48.0,
-                48.0,
+                crate::ranges::PLACEMENT_TRANSPOSE,
             );
             if placement.transpose != 0 && matches!(instrument, Some(Instrument::Kit(_))) {
                 self.warn(
@@ -960,9 +979,10 @@ impl Arranger<'_> {
     ) {
         let song = self.song;
         let bpb = song.beats_per_bar as f64;
-        let mut ok = self.range(&format!("{np}.beat"), beat, 0.0, 100_000.0);
+        // A note and a pattern's note share their ranges.
+        let mut ok = self.check(&format!("{np}.beat"), beat, crate::ranges::NOTE_BEAT);
         let length = length.unwrap_or(1.0);
-        if !(length > 0.0 && length <= 100_000.0) {
+        if !crate::ranges::NOTE_LENGTH.contains(length) {
             self.error(
                 Issue::error(
                     Code::OutOfRange,
@@ -973,7 +993,11 @@ impl Arranger<'_> {
             );
             ok = false;
         }
-        ok &= self.range_f32(&format!("{np}.velocity"), velocity, 0.0, 1.0);
+        ok &= self.check_f32(
+            &format!("{np}.velocity"),
+            velocity,
+            crate::ranges::NOTE_VELOCITY,
+        );
         let start = bar_start + beat;
         if let (true, Some(total)) = (ok, song.bars) {
             if start >= total as f64 * bpb {
@@ -1065,10 +1089,11 @@ impl Arranger<'_> {
             }
             (Instrument::Sound(_), NotePitch::Hz(hz)) => {
                 let moved = note::transpose_hz(*hz as f32, transpose);
-                if !self.range(path, *hz, 1.0, 20_000.0) {
+                let allowed = crate::ranges::NOTE_PITCH_HZ;
+                if !self.check(path, *hz, allowed) {
                     return None;
                 }
-                if !(1.0..=20_000.0).contains(&moved) {
+                if !allowed.contains(moved as f64) {
                     self.error(
                         Issue::error(
                             Code::OutOfRange,
@@ -1076,7 +1101,7 @@ impl Arranger<'_> {
                             format!("{hz} Hz moved by {transpose} semitones is {moved} Hz, outside 1..=20000"),
                         )
                         .got(*hz)
-                        .range(1.0, 20_000.0),
+                        .range(allowed.min, allowed.max),
                     );
                     return None;
                 }

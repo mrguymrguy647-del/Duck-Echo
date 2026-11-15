@@ -1,0 +1,6 @@
+/target
+# Screenshots that differ from the committed ones (egui_kittest writes
+# these next to the originals when a screen changes).
+*.new.png
+*.diff.png
+*.old.png

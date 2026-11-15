@@ -22,7 +22,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 |---|---|---|
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
 | 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops, the agent guide | done |
-| 2 | Duck Echo Studio: an app for people, with no terminal | |
+| 2 | Duck Echo Studio: an app for people, with no terminal | done |
 | 3 | Link with Duck Forge, the game engine | |
 | 4 | Duck Ear: listening models | |
 | 5 | Voices made from math only | |
@@ -419,20 +419,27 @@ Progress:
   check ignores a pitch that was already sounding before an onset (a
   resonant filter sweeping past), tested on the agent's own tune.
 
-Bigger confusions, for Phase 2:
+Bigger confusions, for Phase 2 (the first four done in Phase 2 step 2):
 
-* Copying a preset means pasting the whole recipe back into `create`.
-  Allow `create` from `preset:NAME` or `instrument:NAME`, or `edit` with a
-  new output path, and clear the copied `name` and `description`.
-* A song's summary uses sound-effect words ("pitch rising from 110 to
-  784 Hz", an onset count that changes with a track's volume). Give songs
-  their own summary: key-free facts such as bars, loop, notes heard,
-  loudest and quietest track.
-* A number for a click at the end of a one-shot sound, as `loop_seam`
-  does for loops.
-* The guide and the specs cannot be read through the MCP server. A
-  `get_guide` (or `get_doc`) tool would serve agents outside the
-  repository.
+* [x] Copying a preset means pasting the whole recipe back into `create`.
+  Now `create` takes `from` (`preset:NAME`, `instrument:NAME` or a file),
+  which runs the `file_copy_from` command: the copy is named after its
+  file, its description says "Copy of the coin preset.", and its comments
+  are kept.
+* [x] A song's summary uses sound-effect words ("pitch rising from 110 to
+  784 Hz", an onset count that changes with a track's volume). Songs now
+  have their own summary: shape, length, loudness, clipping, the loop
+  join or the ending, notes heard, and the loudest and quietest track.
+* [x] A number for a click at the end of a one-shot sound, as `loop_seam`
+  does for loops. Now `ending` (`jump`, `largest_step_near_end`,
+  `last_level_dbfs`, `clean`), and "ends cleanly" or "ENDS WITH A CLICK"
+  in the summary. Analysis only: no render changes. Every preset and
+  example ends cleanly.
+* [x] The guide and the specs cannot be read through the MCP server. Now
+  `get_guide` (and `duck-echo guide`) returns the guide and the pages
+  `recipe_spec`, `song_spec`, `analysis`, `instruments` and `presets`,
+  compiled in from the repository's own files. The server's instructions
+  say to call it first.
 * A playtest that starts from broken files, to try the error reports and
   the `missing`, `quiet`, `wrong_pitch` and `uncertain` statuses, which
   this one never met.
@@ -468,7 +475,7 @@ MCP tools come for free instead of being added to each button later), then
 and widget toolkit, audio output to the speakers, an installer builder);
 justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
 
-### 22. Launcher and installer
+### 22. Launcher and installer [done: Phase 2 step 4]
 
 * A `setup.exe` for Windows (and a matching package for other systems
   later) that installs Duck Echo Studio with a desktop icon. Starting it
@@ -476,14 +483,115 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
 * Accept: installs and starts on a clean Windows machine; uninstalls
   cleanly.
 
-### 23. Home screen
+Done in Phase 2 step 4:
+
+* [x] `studio/`, a workspace of its own: the window (egui 0.37) with the
+  Duck Echo icon and brand colours, the Theme menu (Dark, Light, Same as
+  Windows or the system), Help > About with the version, Settings (the
+  project folder, the new-version tick box, and on Linux the app menu),
+  and a first list of the 30 built-in sounds with Play.
+* [x] Sound out loud: the step 3 mixer through `tinyaudio`, DirectSound on
+  Windows and ALSA linked normally on Linux (no `unsafe` code of ours).
+  The speakers open on the first Play, so a PC with none still opens the
+  Studio and says "No speakers were found" in plain words.
+* [x] The project folder `Duck Echo` in the real Documents (`dirs`), the
+  settings in `%APPDATA%\Duck Echo Studio` or
+  `~/.config/duck-echo-studio`.
+* [x] `DuckEchoStudioSetup.exe` (Inno Setup): per user, no administrator
+  rights, Start menu, desktop icon and "add to PATH" tick boxes (both off
+  at first, as in Duck Quill), the three ready-made programs.
+* [x] `DuckEchoStudio.AppImage`: one file, three programs (`AppRun`
+  picks the Studio, `mcp` or `cli` by the first word), the menu entry and
+  icon, and the first-start "Add Duck Echo Studio to your app menu?"
+  (Settings removes it; a moved AppImage is followed).
+* [x] The update banner on both systems: GitHub's release list through
+  `curl`; drafts, pre-releases and older versions ignored; **Update**
+  checks the download against the release's `SHA256SUMS` and refuses a
+  mismatch; Windows starts the installer, Linux swaps the AppImage in one
+  rename and starts again.
+* [x] The `Studio` workflow: on Windows it tests (with screenshots),
+  builds the installer, installs it silently with both tick boxes, starts
+  the installed Studio (which draws its window and closes itself),
+  installs a newer copy over it, and uninstalls it, checking that
+  `Documents\Duck Echo` and the settings stay and the Path is as before.
+  On Linux (Ubuntu 22.04, so the AppImage runs on older systems too) it
+  tests (with screenshots), builds the AppImage, runs its three programs,
+  plays a sound into ALSA's null device, and starts its window on a
+  virtual screen. On both, the update check against pretend release lists.
+  The **Run workflow** button publishes the setup, the AppImage and
+  `SHA256SUMS`.
+* [ ] Home (step 5): cards, the gallery, Make a copy.
+
+Lessons for the next builder:
+
+* **ALSA's null device does not keep time.** It took about 70 million
+  frames a second, so a sound started and ended between two looks at
+  "is it playing?". `Status::starts` counts sounds that started, and the
+  wait uses it.
+* **egui's own fonts have no ▶.** egui stops with "No glyph" on a missing
+  letter, which the screen tests caught. Keep button words plain, or add
+  a font.
+* **The test harness resets the theme** when it builds an eframe app: set
+  the theme after building, or a "light" picture comes out dark.
+* **The window needs `libxkbcommon-x11`** at run time on Linux. Every
+  desktop has it; a bare container or CI machine does not.
+* **Hover text is not a button's name** for the screen tests: thirty
+  buttons are all "Play". Find a row by its sound's name instead.
+* **`dirs` instead of `windows-sys`** for Documents: the same Windows
+  call, without `unsafe` code of ours, and the XDG folders on Linux.
+* **The AppImage is built on Ubuntu 22.04**, the oldest GitHub offers: an
+  AppImage only runs on systems with the same or a newer C library.
+* **GitHub only shows the Run workflow button for a workflow on the main
+  branch.** Until this is merged, the installer and the AppImage are
+  downloads on each run's page.
+
+### 23. Home screen [done: Phase 2 step 5]
 
 * Sound cards for the user's recipes and songs (name, length, a small
   picture, a play button) and a gallery of presets and instruments to
   start from.
 * Accept: a new user can find, play and copy a preset in under a minute.
 
-### 11. Sliders that change the sound while it plays
+Done in Phase 2 step 5:
+
+* [x] "My sounds and songs": a card per recipe and song in the project
+  folder, with a picture of its level over time (the same render and
+  `energy_over_time` agents read, made on a background thread and kept
+  until the file changes), its length or bars, Play, and `...` with
+  Rename, Duplicate and Delete. The folder is read again every second, so
+  an agent's new file appears by itself.
+* [x] The gallery: Presets (by category: Pickup, Impact, Weapon, Alert,
+  Movement, UI, Ambient), Instruments (and the drum kit) and Example songs,
+  each with Play and **Make a copy**. Songs play from a background render.
+* [x] New sound, New song, Search, and Undo and Redo (buttons with the
+  step's title, Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z). Every change is a named
+  command run as the person: one step of the shared history each.
+* [x] `example:NAME` for `file_copy_from` and the MCP `create`'s `from`:
+  the example songs, compiled into the tools crate.
+* [x] Screen tests walk the checklist: Impact, Make a copy of coin with
+  its picture and length, Rename to "my coin" (the `name` field follows),
+  Delete, Ctrl+Z brings it back, Redo deletes it again, and three steps in
+  the history; New sound, New song, Duplicate, Search; instruments and
+  example songs copied. `--play` takes songs, and CI plays two into ALSA's
+  null device.
+* [x] Clicking a card opens it, and Export WAV in `...`: done in step 6,
+  with the sound editor.
+
+Lessons for the next builder:
+
+* **egui's wrapping row does not wrap a framed card.** The cards ran off
+  the right edge of the window, where they cannot be clicked; a screen
+  test caught it because the test clicked a card that was off screen.
+  Home makes its own rows (`cards_per_row`).
+* **Thirty buttons are all called "Play".** The screen tests find a
+  card's button by its position: the nearest one below the card's name
+  (`button_on`).
+* **A looping song never ends.** `--play` stops a loop after it has gone
+  round once.
+* **Good news is not a warning.** The status line shows problems in
+  orange and everything else plainly (`say` and `warn`).
+
+### 11. Sliders that change the sound while it plays [done: Phase 2 steps 3 and 6]
 
 * A recipe editor with sliders made from the JSON Schema, next to the text
   with validation messages inline, plus waveform and spectrogram views and
@@ -495,21 +603,285 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
   views always agree because both edit the same `Recipe`; no allocation in
   the audio callback (checked by a debug counter).
 
-### 12. Smooth live changes
+Done in Phase 2 step 3 (no window yet; see `ARCHITECTURE.md`, "Realtime
+playback"):
+
+* [x] `duck-echo-live`: the mixer. A pool of 32 slots, two `rtrb`
+  queues, clipping to -1..=1, play heads as atomics. Finished sounds go
+  back to the control thread to be dropped.
+* [x] No allocation and no free in the audio block, checked by
+  `assert_no_alloc` in `crates/duck-echo-live/tests/realtime.rs`: 60
+  seconds of busy playback, a stalled control thread with every queue
+  full, and two real threads. A first test shows the detector catching
+  an allocation and the freeing of a voice.
+* [x] What plays is the rendered file, sample for sample, for every
+  preset and example, once and repeated (`tests/matches_render.rs`).
+* [x] Ranges in one table (`duck-echo-core/src/ranges.rs`) that
+  validation and the schema both read; the schema has `minimum` and
+  `maximum` for every number, ready for sliders.
+* [x] The background song player (`SongPlayback`): plays the song's
+  render, and swaps in a new render at the play head after an edit.
+* [x] The window: sliders, text, pictures, Play (step 6, below).
+
+Done in Phase 2 step 6 (the sound editor):
+
+* [x] Click a sound's card (or `...` > Open) to open it: the text on the
+  left with line numbers, the sliders on the right, the picture and the
+  summary line below, and Play, Loop, Stop, History and `...` along the
+  top.
+* [x] **Sliders made from the schema** (`studio/crates/app/src/controls.rs`):
+  each number with a range is a slider with that range (times and Hz move
+  by ratio), fixed choices are drop-downs, a pitch is a slider in Hz with
+  a note picker, yes-or-no fields are tick boxes, a table that may be left
+  out (`filter`, `lfo`, `vibrato`, `arpeggio`) has "+" and "x" buttons,
+  and layers and effects have add and remove buttons. Nothing in it names
+  a recipe field, so a new field appears by itself.
+* [x] **The text and the sliders always agree**: both change the one file
+  through commands (`sound_set`, `file_set_text`, `sound_add_layer`...).
+  Typing is saved 0.6 s after the last key, and only when the text works;
+  a slider shows its value in the text at once. The editor reads the file
+  again twice a second, so an Undo, an agent or a text editor shows up.
+* [x] **Problems under their line**, in a light band, with the suggestion
+  as a button ("Use `volume`").
+* [x] **A drag never floods the disk**: while a slider is held the file is
+  saved at most every 200 ms and once more on release, all as one stroke
+  (one Undo step). A test drags through 200 values in one second: at most
+  6 saves, one Undo step, the file ends at the last value, and only that
+  number changed.
+* [x] **What you hear is the file**: each change is rendered on a
+  background thread (the newest change wins), and the new sound takes
+  over from the one playing at the same place with the mixer's 10 ms
+  cross-fade (`Player::replace`). The same render draws the analyze
+  picture and the summary line.
+* [x] **Ctrl+Z in the editor** undoes a step of the shared history even
+  while the text box is in use, so the text box's own Undo never
+  disagrees with it. Typing with a mistake (never saved) is taken back
+  instead.
+* [x] **History panel**: every step, newest first, with "You" or "AI
+  assistant" and how long ago.
+* [x] **Export WAV** (`...` in the editor and on a card): the system's
+  Save As window (`rfd`), opening in Music; or "Export WAV to my Duck Echo
+  folder", which needs no window (`exports/` in the project). The bytes
+  are exactly what `duck-echo render` writes, through the path rules of
+  the chosen folder and a one-step write.
+* [x] **Comments survive every command** (`toml_edit`, in
+  `duck-echo-tools/src/edit.rs`): a command changes only the values that
+  changed, inside the text. The result is read back and must be exactly
+  the new data, else the file is written whole as before. This also
+  fixed `to_toml_document` writing an empty list (`effects = []`) after a
+  `[table]`, where it belonged to that table.
+* [x] `ParamUpdate` for the volume, cutoff and gain sliders: done in step
+  7.
+
+Lessons for the next builder (step 6):
+
+* **egui may "change" a slider by drawing it.** A slider rounds its value
+  to the decimals it shows and reports a change: opening the coin turned
+  `start = "B5"` into `987.8`. The panel only counts a change while the
+  person drags, clicks or has focus on the slider, and a screen test
+  opens every preset and instrument and checks no file changed.
+* **egui draws an underline in the wrong place on a tall line**, and a
+  newline's line height is ignored. The problem band and its underline are
+  painted by hand.
+* **A label takes the click.** egui's labels are selectable, so a click on
+  a card's name selected the name instead of opening the card. Card words
+  are not selectable.
+* **Run the keys before the text box.** Ctrl+Z is taken from the input
+  before the text box draws, or the text box's own Undo would run too.
+* **The libraries' Rust 1.80 promise is not checked.** `toml` 1.2 and
+  `toml_parser` in the lock file already need Rust 1.85, and so does
+  `toml_edit` 0.25.18. CI builds with the newest Rust only. Either raise
+  `rust-version` to 1.85 or add a CI job on 1.80 and pin older versions.
+
+### 12. Smooth live changes [done: Phase 2 steps 3 and 7]
 
 * `ParamUpdate` messages let a slider drag change the running `Voice`
   (volume, cutoff, gain) without rebuilding it; structure changes still
   rebuild.
 * Accept: no clicks on a volume drag in a recorded loopback test.
 
-### 24. Song timeline
+Done in Phase 2 step 3:
+
+* [x] `ParamUpdate` (a layer's volume, a filter's cutoff, the master
+  gain) slides to its target over 10 ms, in `duck-echo-synth/src/live.rs`.
+  `Voice::process` was not edited: `process_live` wraps it.
+* [x] Structure changes build a new voice, which takes over at the same
+  place with a 10 ms cross-fade (`Player::replace`); Stop, and Play over
+  a playing sound, fade out.
+* [x] The click test (`crates/duck-echo-live/tests/clicks.rs`): the
+  volume dragged from 0.2 to 1.0 and back in 30 steps on a repeating 55
+  Hz tone. Smoothed, the biggest step between two samples is 0.00784,
+  the tone's own; with smoothing off it is 0.0538, seven times bigger.
+  A stop or a swap with no fade steps 0.78 to 0.98, a hundred times
+  bigger; faded, 0.00784. Every scene is run both ways, so the test is
+  known to fail without smoothing.
+* [x] Every render and fingerprint is unchanged: the pinned fingerprint
+  tests pass, and all 104 renders of presets, instruments, examples and
+  the playtest files hash the same as before the step.
+* [x] The sliders in the window send these (step 7, below).
+
+Done in Phase 2 step 7:
+
+* [x] Play and Loop in the editor play a live voice, not finished
+  samples, so a slider can change it while it plays.
+* [x] `ParamUpdate::between(before, after)`: the live changes between two
+  recipes, or `None` when anything else changed. The editor sends a
+  volume, cutoff or gain change at once, and slides the level to the
+  file's new level when the render arrives. Other changes (a wave, an
+  envelope, a filter added) wait for their render and cross-fade.
+* [x] The click test through the editor (`studio/.../tests/smooth.rs`):
+  the volume slider dragged from 0.2 to 1.0 and back in 30 steps on a
+  repeating 55 Hz tone, through `Editor::slide` and `Live::changed` into
+  a mixer with no sound card. The biggest step is the tone's own; with
+  the 10 ms slide off, the same drag clicks.
+* [x] Settings that do nothing for a layer's source are hidden (a square
+  has no noise settings, noise has no duty), from `x-applies-when` in
+  the schema (`duck-echo-core/src/applies.rs`).
+* [x] Every slider, number box, drop-down and tick box is named by its
+  field for screen readers (egui_kittest checks it).
+
+Lessons for the next builder:
+
+* **Do not put live changes inside `process`.** The first idea was a
+  "smoothed value" read in the sample loop. Moving values between
+  one-frame calls of the untouched `process` keeps every render safe by
+  construction, and the cost is too small to measure.
+* **`assert_no_alloc` is off in release by default.** Its default
+  feature `disable_release` makes it do nothing without debug
+  assertions. The crate turns default features off and the two `warn`
+  features on, so it always counts, and a test can assert the count.
+  In abort mode a violation kills the test program with no message.
+* **Prove the detector, then break the code on purpose.** While
+  building, the mixer was changed to drop a finished sound itself, and
+  to allocate in the block; both times the tests failed. Without that a
+  green test says little.
+* **Freeing is the easy mistake.** Every path that takes a sound out of
+  a slot (ended, faded, replaced, refused, never heard) must hand it
+  back. The test "every sound sent comes back exactly once" counts them.
+* **A lock cannot be counted.** There is no `assert_no_lock`. The rule
+  rests on the ring buffer's own guarantee, a source-reading tripwire
+  test, the stall test, and review. Say so, do not pretend.
+* **Pick the test tone for the measure.** A step measure only sees a
+  click if the sound's own steps are small: a 55 Hz sine. A square or a
+  saw has steps as big as any click. And stop it near the top of a wave
+  (8 blocks in), not at a zero crossing (9 blocks in), where a cut makes
+  no step at all.
+* **Presets are normalized, so the voice alone is not the file.** The
+  mixer needs the mastering gain and the trimmed length (`Sound`), and
+  step 7 must refresh the level after a live change (see the design,
+  6.4).
+* **The structure walker must not read the ranges.** With `minimum` and
+  `maximum` in its schema it reported whole-number fields itself, with a
+  slightly different `got`, and pruned the value. It now reads the
+  schema without ranges; the published schema adds them.
+
+Lessons for the next builder (step 7):
+
+* **A normalized sound fights a volume slider.** Turning a layer up
+  makes `normalize` turn the whole sound down, so the speakers would be
+  louder than the file. The live volume change is followed, when the
+  render arrives, by a slide of the level to the file's new gain.
+* **Only the newest render plays.** A drag asks for many renders; an
+  older one arriving late would undo the live changes for a moment.
+* **Name every control, or the screen tests fail.** egui_kittest checks
+  that every widget has a name. A slider's own number box cannot be
+  named, so the panel draws its own number box beside the slider.
+
+### 24. Song timeline [done: Phase 2 steps 8 and 9]
 
 * Tracks as lanes, notes as blocks, patterns as reusable clips, a play
   head, and loop markers; edits change the song document.
 * Accept: a song made in the timeline renders the same bytes as the same
   song written as text.
 
-### 25. Every button is a command, with Undo
+Done in Phase 2 step 8 (to look at and play):
+
+* [x] Click a song's card to open it in the timeline
+  (`studio/crates/app/src/song_view.rs` for what it knows,
+  `song_screen.rs` to draw it). It is drawn from the song's
+  arrangement, the very list of notes the renderer plays, so what you
+  see is what you hear.
+* [x] A lane per track (name, volume, instrument, **Mute** and
+  **Solo**); notes as blocks at their beat and length, higher for a
+  higher pitch, with their names; a drum kit's pieces on rows of their
+  own; each placed pattern as a clip with its name and transpose.
+* [x] The ruler of bars, the loop marker ("loop: bars 1 to 8") for a
+  song with `loop = true`, and the play head while it plays.
+* [x] Play (once, or looping as the song says) and Loop (always
+  repeats), through the background song player. Mute and Solo play the
+  stem of the tracks heard at their level in the full mix, as `render
+  --solo` writes it (`SongPlayback::set_heard`, `set_looping`), and a
+  change takes over at the play head.
+* [x] The note check, the same one `analyze` runs, on a background
+  thread: the summary line under the lanes, and every note that is
+  missing, quiet or at the wrong pitch outlined in red with the reason
+  in its tooltip.
+* [x] Hover over a note: its name, bar and beat, how long it is held and
+  how hard it is played.
+* [x] The file is read again twice a second, so an agent's change shows
+  (and is heard, if it plays).
+* [x] Editing in the timeline: step 9, below.
+
+Done in Phase 2 step 9 (editing the song):
+
+* [x] Double-click an empty spot of a lane: a note there, a beat long,
+  on the row's pitch (or kit piece), and you hear it.
+* [x] Drag a note to move it in time and pitch (you hear each new
+  pitch as it moves; a chord moves together); drag its right edge to
+  make it longer; click it and press Delete, or right-click > Delete
+  note.
+* [x] Drag a pattern clip to another bar; right-click it > Take this
+  clip off; right-click an empty spot > Place a pattern at bar N.
+* [x] Each track's instrument (a drop-down of the built-in instruments
+  and the song's own) and its volume (drag or type).
+* [x] Every change is one named command run as the person
+  (`song_add_note`, `song_move_note`, `song_resize_note`,
+  `song_remove_note`, `song_place_pattern`, `song_move_pattern`,
+  `song_remove_pattern`, `song_set`), built in
+  `studio/crates/app/src/song_edit.rs`, so each is one Undo step shared
+  with agents, and a playing song is heard with the change at the play
+  head.
+* [x] "A song made in the timeline renders the same bytes as the same
+  song written as text": `studio/crates/app/tests/song_edit.rs` makes a
+  song with the timeline's commands and compares its WAV bytes with a
+  hand-written one.
+* [x] From the approval of step 8: beats are shown counted from 1, like
+  bars ("bar 1, beat 1"), in labels, tooltips and messages; the file
+  keeps counting from 0. A lane is as tall as its notes need: a row per
+  semitone (with two spare rows above and below), and on a kit a row
+  per piece of the kit, named. The Height slider makes the rows taller
+  or shorter, and Snap sets the grid (1, 1/2 or 1/4 beat).
+* [x] The add-note command's title no longer names a beat ("Add note E5
+  to keys in bar 3"), since people and the file count beats
+  differently and both read titles.
+* [ ] Notes inside a pattern are changed in the pattern's text for now;
+  the timeline moves and places whole clips.
+
+Lessons for the next builder (step 8):
+
+* **Draw from the arrangement, not the file.** Patterns, chords,
+  transposes and bars are already worked out there; a note's `path`
+  says where it was written, so a clip's notes are known by their
+  `patterns.` path.
+* **Painted shapes are invisible to tests and screen readers.** Each
+  note block is also an invisible widget named "keys: E5, bar 1, beat
+  0", so a test can hover it and a screen reader can read it.
+* **A tooltip waits half a second.** A test that hovers must let that
+  much time pass before it looks.
+
+Lessons for the next builder (step 9):
+
+* **A drag starts a few pixels after the press.** Measure it from
+  `pointer.press_origin()`, not from where egui says the drag started, or
+  every move comes out a row short.
+* **egui counts three quick clicks as a triple-click**, even when the
+  first was elsewhere moments before; a test that double-clicks lets
+  half a second pass first. egui_kittest moves its clock a quarter of a
+  second a frame unless told otherwise (`with_step_dt`).
+* **Hearing a note is a help, not the change.** With no speakers the
+  note is still added and said; only Play says why nothing is heard.
+
+### 25. Every button is a command, with Undo [done: Phase 2 steps 1 to 10]
 
 * Each action in the Studio is a named command (for example
   `set_layer_volume`, `add_note`) with arguments, recorded on an undo
@@ -517,6 +889,143 @@ justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
   work on the same project and undo each other's steps.
 * Accept: every button's action can be undone and redone; each command is
   listed by the MCP server with the same name and arguments.
+
+Done in Phase 2 step 1 (see `docs/phase2-design.md`, section 3):
+
+* [x] 30 commands in `duck-echo-tools/src/commands.rs`, one table, in
+  four groups: `file_*` (new sound, new song, copy from a preset,
+  instrument or file, rename, duplicate, delete, restore, set the whole
+  text), `sound_*` (set or remove a field by path, add, remove and move
+  layers, add and remove effects), `song_*` (set or remove a field, add
+  and remove tracks, add, move, resize and remove notes, place, move and
+  remove patterns, set the loop) and `edit_undo`, `edit_redo`,
+  `edit_history`. Names use `_` because Claude's tool names cannot hold
+  a dot.
+* [x] The MCP server lists one tool per command, same name and arguments
+  (schemas from `schemars`); the CLI has `duck-echo commands`, `do` and
+  `run`. `create` and `edit` are Undo steps too.
+* [x] The Undo history is on disk in `<project>/.duck-echo/history`, so
+  the Studio, the CLI and the MCP server share it. Steps say who made
+  them; slider strokes join one step; 500 are kept; deleted files go to
+  `.duck-echo/recycle`. Changes made by other programs become their own
+  step, and Undo never overwrites them.
+* [x] No change is lost: compare-before-write under a project lock, one
+  retry, then a plain refusal; every file is written to a temporary file
+  and renamed into place.
+* [x] `Root` (the path rules) moved from the MCP server into
+  `duck-echo-tools`, and refuses the `.duck-echo` folder.
+* [x] Tests: every command undone and redone gives back every file
+  exactly; the real CLI and the real MCP server add 40 layers each to one
+  file at the same moment and none is lost; retry-then-refuse; a stale
+  lock; Undo after an outside change.
+* [x] The Studio's buttons build these commands (steps 5 to 9): Home,
+  the sound editor and the song timeline run them as the person.
+
+Done in Phase 2 step 10 (a person and an agent together):
+
+* [x] The Studio notices an AI assistant's change to the open sound or
+  song (it looks twice a second), and a note says so for three seconds,
+  with Undo right there: "AI assistant: Set layers[0].envelope.decay to
+  0.5 in coin.toml" (`studio/crates/app/src/together.rs`).
+* [x] A change made by a program that is not Duck Echo (a text editor, a
+  sync tool) is recorded as its own step, "Changed outside Duck Echo",
+  when the Studio sees it (`Project::notice_outside`), noted the same
+  way, and undoable.
+* [x] History lists every step with "You", "AI assistant" or "Outside
+  Duck Echo", in the sound editor and now in the song timeline too.
+* [x] Settings > Connect an AI assistant: the lines for Claude Desktop's
+  config (the MCP server next to the Studio on Windows, the AppImage with
+  `mcp` on Linux, `--root` set to the sounds folder), a Copy button and
+  the steps (`studio/crates/app/src/connect.rs`).
+* [x] Playtest 3 (`docs/playtest-3.md`): the real MCP server and the real
+  Studio code on one sound and one song; scripted in
+  `studio/crates/app/tests/together.rs`, so CI plays it on Windows and
+  Linux.
+* [x] Found in the playtest and fixed: typing saved over an assistant's
+  change made meanwhile (now **Keep mine** or **Use theirs**); a new step
+  after an Undo was not noticed (steps are now known by number, time and
+  title).
+
+Lessons for the next builder (step 10):
+
+* **Step numbers come back after an Undo.** The next new step takes the
+  undone step's number. Anything that remembers "the steps I have seen"
+  must remember more than the number.
+* **Whole-text saves need a look first.** `file_set_text` writes the
+  text it is given; a command that changes data merges by itself, but
+  typed text does not. Check the file still holds what the typing
+  started from.
+* **A new window settles over its first frames.** egui sizes and centres
+  a window over a few frames; a test (or a very quick person) clicking
+  at once can miss. The tests let it settle for half a second.
+* **Test with the real other program.** The playtest found both bugs
+  only because the MCP server ran as its own process on the same folder.
+
+### Phase 2 is done
+
+The Studio: install on Windows (setup) or Linux (AppImage), Home with
+your sounds and the gallery, the sound editor (text, sliders from the
+schema, live sound, Export WAV), the song timeline (look, play, edit),
+one Undo history shared with AI assistants, and Connect an AI
+assistant. Every change is a named command that agents have too.
+
+Lessons for Phase 3, from the whole of Phase 2:
+
+* **Build the shared layer first.** The command layer (step 1) made
+  every later screen small: each button is a command, Undo and agent
+  access came free.
+* **Every screen gets a screen test that walks its checklist**, with the
+  mouse where it can, and pictures in CI. Most bugs of Phase 2 were found
+  there, not by hand.
+* **egui is quick to build with, but check what it does by itself**:
+  rounding slider values, selectable labels, triple clicks, settling
+  windows. Each cost an hour once.
+* **What you hear must be the file.** Every preview, slider and song
+  edit plays the render the file makes; tests compare samples. Keep that
+  rule when the game engine plays these files.
+
+Lessons for the next builder:
+
+* **Retry the second time while holding the lock.** The first version
+  retried without the lock, and the concurrency test showed two Duck Echo
+  programs refusing each other's changes under load. Working the change
+  out again under the lock means only a program that is not Duck Echo can
+  make a change fail.
+* **A test cannot run cargo.** Cargo holds its build lock while tests
+  run, so a nested `cargo build` waits forever. The concurrency test
+  needs the `duck-echo` binary from another package; it checks the binary
+  is newer than every source file and otherwise says to run
+  `cargo test --workspace`. An old binary once made this test fail with
+  code that was already fixed.
+* **Close a child's stdin to end it.** A closure that writes to a child
+  only borrows its stdin; dropping the closure does not close the pipe,
+  and `wait()` then hangs.
+* **Commands rewrite a file from its data, so `#` comments go** (as the
+  `edit` tool always did). `file_set_text` and `file_copy_from` keep the
+  text. Step 6 added `toml_edit`, so comments now stay on every edit.
+* **Errors keep the field path but drop line numbers** when the text was
+  made by a command, since nobody has seen those lines.
+
+Phase 2 step 2 (the four playtest-2 items, listed under task 10 above)
+is done. Lessons for the next builder:
+
+* **The renderer stops a fading tail at -60 dBFS**, so "near silence" for
+  the click check had to be above that: -50 dBFS. At -60 dBFS half the
+  presets read as clicks that nobody can hear.
+* **A click test needs a cut at the top of a wave.** A 220 Hz tone cut
+  at exactly 0.1 s ends on a zero crossing and is clean; the test cuts a
+  quarter wave later. A square wave or loud noise never reads as a
+  click, because its own steps are as big as the cut: that is the rule
+  the design chose, and `ANALYSIS.md` says so.
+* **A loop's `ending` is not its click check.** Its last sample leads
+  into its first, so `loop_seam` decides, and a loop's summary never says
+  "ENDS WITH A CLICK". The `ending` field stays, measured truthfully.
+* **One spec file, two pages.** `get_guide` splits `RECIPE_SPEC.md` at
+  its "Songs" heading, and a test checks the two parts add up to the
+  whole file, so nothing is lost or doubled when the spec grows.
+* **Changing summary words means changing the guide.** The guide said
+  to check "the summary's brightness word" for a song; songs no longer
+  have one, so it now says `spectral_centroid_hz`.
 
 ## Phase 3: link with Duck Forge
 
