@@ -10,8 +10,14 @@ use duck_echo_live::Sound;
 use eframe::egui::{self, RichText};
 
 use crate::app::StudioApp;
-use crate::editor::{self, Editor};
+use crate::editor::{self, Arrival, Editor, Heard};
 use crate::theme;
+
+/// A live voice of a render: it plays exactly the file's samples, and a
+/// slider can change it while it plays.
+fn voice_of(heard: &Heard) -> Result<Sound, String> {
+    Sound::from_recipe_mastered(&heard.recipe, &heard.mastering).map_err(|r| r.to_string())
+}
 
 /// The key of the sound playing from the editor, in [`StudioApp::playing`].
 fn key_of(rel: &str) -> String {
@@ -59,10 +65,11 @@ impl StudioApp {
         editor.looping = looping;
         match &editor.heard {
             Some(heard) if !editor.rendering() => {
-                let sound = Sound::from_samples(heard.buffer.clone());
                 let key = key_of(&editor.rel);
-                match self.speakers.play(sound, looping) {
+                let result = voice_of(heard).and_then(|sound| self.speakers.play(sound, looping));
+                match result {
                     Ok(()) => {
+                        editor.live.started(heard);
                         self.playing = Some(key);
                         self.note = None;
                     }
@@ -73,6 +80,27 @@ impl StudioApp {
         }
     }
 
+    /// Send the live changes of the newest edit to the playing voice (a
+    /// volume, a cutoff or the master gain slides there at once).
+    fn send_live_changes(&mut self) {
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+        if self.playing.as_deref() != Some(key_of(&editor.rel).as_str()) {
+            editor.live.stopped();
+            return;
+        }
+        let Some(recipe) = editor.recipe().cloned() else {
+            return;
+        };
+        for update in editor.live.changed(&recipe) {
+            if let Err(why) = self.speakers.update(update) {
+                self.warn(why);
+                break;
+            }
+        }
+    }
+
     /// Hand a new render to the speakers: it takes over from the sound
     /// playing (a slider was moved), or starts if Play was waiting for it.
     fn hear_changes(&mut self) {
@@ -80,18 +108,30 @@ impl StudioApp {
             return;
         };
         let key = key_of(&editor.rel);
-        let Some(heard) = editor.poll() else {
+        if editor.poll().is_none() {
+            return;
+        }
+        let Some(heard) = editor.heard.as_ref().filter(|h| editor.is_newest(h)) else {
             return;
         };
-        let sound = Sound::from_samples(heard.buffer.clone());
-        if let Some(looping) = editor.play_when_ready.take() {
-            match self.speakers.play(sound, looping) {
-                Ok(()) => self.playing = Some(key),
-                Err(why) => self.warn(why),
+        let playing_here = self.playing.as_deref() == Some(key.as_str());
+        let result = if let Some(looping) = editor.play_when_ready.take() {
+            let started = voice_of(heard).and_then(|sound| self.speakers.play(sound, looping));
+            if started.is_ok() {
+                editor.live.started(heard);
+                self.playing = Some(key);
             }
-        } else if self.playing.as_deref() == Some(key.as_str())
-            && let Err(why) = self.speakers.replace(sound)
-        {
+            started
+        } else if playing_here {
+            match editor.live.rendered(heard) {
+                Arrival::Replace => voice_of(heard).and_then(|sound| self.speakers.replace(sound)),
+                Arrival::Level(level) => self.speakers.set_level(level),
+                Arrival::Nothing => Ok(()),
+            }
+        } else {
+            Ok(())
+        };
+        if let Err(why) = result {
             self.warn(why);
         }
     }
@@ -342,6 +382,8 @@ impl StudioApp {
         }
         let rel = editor.rel.clone();
         self.editor = Some(editor);
+        // A volume, a cutoff or the gain is heard sliding at once.
+        self.send_live_changes();
         if let Some(looping) = play {
             self.play_open_sound(looping);
         }

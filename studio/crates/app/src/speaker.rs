@@ -151,6 +151,30 @@ impl Speakers {
             .map_err(|error| error.to_string())
     }
 
+    /// A live change to the sound playing in the preview slot: it slides
+    /// to the new value over 10 ms.
+    pub fn update(&mut self, update: duck_echo_live::ParamUpdate) -> Result<(), String> {
+        match self.speaker.as_mut() {
+            Some(speaker) => speaker
+                .player()
+                .update(PREVIEW, update)
+                .map_err(|error| error.to_string()),
+            None => Ok(()),
+        }
+    }
+
+    /// Slide the level of the sound in the preview slot to `level` (the
+    /// file's level after a live change to a normalized sound).
+    pub fn set_level(&mut self, level: f32) -> Result<(), String> {
+        match self.speaker.as_mut() {
+            Some(speaker) => speaker
+                .player()
+                .set_level(PREVIEW, level)
+                .map_err(|error| error.to_string()),
+            None => Ok(()),
+        }
+    }
+
     /// Play a song: it is rendered in the background (the same render as
     /// its file) and starts when that is ready. A sound that plays stops.
     pub fn play_song(&mut self, song: Song, arrangement: Arrangement) -> Result<(), String> {

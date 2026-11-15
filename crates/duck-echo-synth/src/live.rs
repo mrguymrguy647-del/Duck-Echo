@@ -21,6 +21,7 @@
 //! sliding state is a few plain numbers that live inside the voice.
 
 use crate::Voice;
+use duck_echo_core::Recipe;
 
 /// How long a live change takes to arrive: 10 ms. Short enough to feel
 /// instant, long enough that the step from one sample to the next is far
@@ -53,6 +54,64 @@ pub enum ParamUpdate {
         /// The new gain.
         gain: f32,
     },
+}
+
+impl ParamUpdate {
+    /// The live changes that turn a voice made from `before` into what
+    /// `after` would make, or `None` when anything else changed too (then
+    /// a new voice is needed, with a cross-fade).
+    ///
+    /// The editor of Duck Echo Studio calls this after every edit, so a
+    /// slider for a volume, a cutoff or the master gain is heard sliding,
+    /// and every other edit is heard through a new voice.
+    pub fn between(before: &Recipe, after: &Recipe) -> Option<Vec<ParamUpdate>> {
+        if before.layers.len() != after.layers.len() {
+            return None;
+        }
+        // Put the live fields of `after` back to their `before` values: if
+        // that gives `before`, nothing else changed.
+        let mut rest = after.clone();
+        rest.master.gain = before.master.gain;
+        for (r, b) in rest.layers.iter_mut().zip(&before.layers) {
+            r.volume = b.volume;
+            match (&mut r.filter, &b.filter) {
+                (Some(rf), Some(bf)) => {
+                    rf.cutoff = bf.cutoff;
+                    rf.cutoff_end = bf.cutoff_end;
+                }
+                (None, None) => {}
+                // A filter added or taken away is a new voice.
+                _ => return None,
+            }
+        }
+        if rest != *before {
+            return None;
+        }
+        let mut updates = Vec::new();
+        if after.master.gain != before.master.gain {
+            updates.push(ParamUpdate::MasterGain {
+                gain: after.master.gain,
+            });
+        }
+        for (layer, (a, b)) in after.layers.iter().zip(&before.layers).enumerate() {
+            if a.volume != b.volume {
+                updates.push(ParamUpdate::LayerVolume {
+                    layer,
+                    volume: a.volume,
+                });
+            }
+            if let (Some(af), Some(bf)) = (&a.filter, &b.filter) {
+                if af.cutoff != bf.cutoff || af.cutoff_end != bf.cutoff_end {
+                    updates.push(ParamUpdate::FilterCutoff {
+                        layer,
+                        cutoff: af.cutoff,
+                        cutoff_end: af.cutoff_end,
+                    });
+                }
+            }
+        }
+        Some(updates)
+    }
 }
 
 /// One number sliding to a target in equal steps.
@@ -313,6 +372,45 @@ mod tests {
     use super::*;
     use crate::{prepare, RENDER_BLOCK};
     use duck_echo_core::{load_str, Format, Recipe};
+
+    #[test]
+    fn only_volume_cutoff_and_gain_are_live_changes() {
+        let text = "version = 0\n[[layers]]\nsource = \"saw\"\nfilter = { cutoff = 800 }\n[[layers]]\nsource = \"noise\"\n";
+        let before = load_str(text, Format::Toml).unwrap().recipe;
+        let mut after = before.clone();
+        assert_eq!(ParamUpdate::between(&before, &after), Some(vec![]));
+        after.layers[1].volume = 0.3;
+        after.layers[0].filter.as_mut().unwrap().cutoff = 1200.0;
+        after.master.gain = 2.0;
+        assert_eq!(
+            ParamUpdate::between(&before, &after),
+            Some(vec![
+                ParamUpdate::MasterGain { gain: 2.0 },
+                ParamUpdate::FilterCutoff {
+                    layer: 0,
+                    cutoff: 1200.0,
+                    cutoff_end: None
+                },
+                ParamUpdate::LayerVolume {
+                    layer: 1,
+                    volume: 0.3
+                },
+            ])
+        );
+        // Anything else needs a new voice.
+        let mut other = after.clone();
+        other.layers[0].envelope.decay = 0.9;
+        assert_eq!(ParamUpdate::between(&before, &other), None);
+        let mut other = after.clone();
+        other.layers[1].filter = Some(before.layers[0].filter.clone().unwrap());
+        assert_eq!(ParamUpdate::between(&before, &other), None);
+        let mut other = after.clone();
+        other.layers.pop();
+        assert_eq!(ParamUpdate::between(&before, &other), None);
+        let mut other = after;
+        other.layers[1].source = duck_echo_core::Source::Saw;
+        assert_eq!(ParamUpdate::between(&before, &other), None);
+    }
 
     /// A stereo recipe with everything that keeps state: noise, an LFO on
     /// the pulse width, a swept filter with an LFO, and all four effects.

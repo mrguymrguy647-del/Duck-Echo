@@ -311,8 +311,14 @@ fn open_a_sound_and_edit_it_as_the_checklist_does() {
         "+ Add a layer",
         "WHAT IT SOUNDS LIKE",
     ] {
-        harness.get_by_label(label);
+        // A field's name also labels its slider and its number box.
+        assert!(
+            harness.query_all_by_label(label).next().is_some(),
+            "{label} is not on the screen"
+        );
     }
+    // A square layer has no noise settings.
+    assert!(harness.query_by_label("noise mode").is_none());
     heard(&mut harness);
     harness.get_by_label_contains("0.31 s,");
     shoot(&mut harness, "05-sound-editor");

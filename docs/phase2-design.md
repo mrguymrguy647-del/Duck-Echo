@@ -798,6 +798,11 @@ can: clicks are easier to hear there. If you hear crackles even without
 touching a slider, open **Help > About** and note what it says under
 "Sound output" for me.
 
+**As built** (step 7): `ParamUpdate::between` decides, after each edit,
+whether the playing voice can slide or a new one must take over. The
+panel also hides settings that do nothing for a layer's source, from the
+schema's `x-applies-when` (asked for on approval of step 6).
+
 ### Step 8: the song timeline, to look at and play (task 24, part 1)
 
 * Lanes, note blocks, pattern clips, the play head, loop markers,

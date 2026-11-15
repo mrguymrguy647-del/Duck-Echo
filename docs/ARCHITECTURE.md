@@ -572,11 +572,21 @@ one stroke number (one Undo step), because the Documents folder is often
 synced by OneDrive and every save is an upload. The sliders are made from
 `recipe_schema()` (`controls.rs`), so they have the ranges validation
 enforces. Each change is rendered on a background thread with the same
-code as `render` (the newest change wins); the finished sound takes over
-from the one playing at the same place with the mixer's cross-fade, and
-the same render draws the analyze picture (`picture::draw_image`, the
+code as `render` (the newest change wins), and the same render draws the
+analyze picture (`picture::draw_image`, the
 pixels of the PNG agents get) and the summary line. Export WAV writes the
 bytes `render` writes, through `Root::write` in the chosen folder.
+
+**Live changes** (`editor::Live`). Play and Loop play a live voice
+(`Sound::from_recipe_mastered`, the file's samples exactly). After each
+edit, `ParamUpdate::between(playing, new)` (in `duck-echo-synth`) says
+whether the change is only to a layer's volume, a filter's cutoff or the
+master gain. If so, the updates go to the playing voice at once and slide
+over 10 ms; when the edit's render arrives, only the level slides to the
+file's new level (a normalized sound keeps its loudness). Any other
+change waits for its render, and the new voice takes over at the same
+place with a 10 ms cross-fade (`Player::replace`). A render that is not
+the newest change's is shown but never played.
 
 **Home runs commands, nothing else.** Every button on Home that changes a
 file (New sound, New song, Make a copy, Rename, Duplicate, Delete, Undo,
@@ -633,6 +643,14 @@ limits that validation enforces. The walker reads the schema *without*
 the ranges, so a range error is still reported once, by validation, in
 the same words as before. A test puts every field of the table just
 outside its range and reads the table's limits back from the error.
+**"Only for this source" rules live in one table too**,
+`duck-echo-core/src/applies.rs`: `duty` only for `square`, `aliasing`
+for `square` and `saw`, `noise_mode` for `noise`, `pitch` for every wave
+and pitched noise. Validation's `unused` warnings read it, the schema
+carries each rule on its field as `x-applies-when`, and the Studio's
+panel hides a setting whose rule does not hold. A test checks the table
+against `Layer::has_pitch`, which the renderer uses.
+
 Two rules keep the report free of echoes: a value replaced by a placeholder
 suppresses later issues at or under its path, and a misspelled field with a
 suggestion suppresses complaints about the suggested field's default.

@@ -3,12 +3,14 @@
 //! The recipe is the source of truth for every sound. This crate owns the
 //! types ([`recipe`]), turns TOML or JSON text into them with exact error
 //! paths ([`load`]), checks ranges and structure ([`validate`], with every
-//! range in one table, [`ranges`]), reports
+//! range in one table, [`ranges`], and every "only for this source" rule
+//! in another, [`applies`]), reports
 //! problems in a machine-readable shape ([`report`]) and exports a JSON
 //! Schema for agents ([`schema`]).
 //!
 //! It does no audio work. See `duck-echo-synth` for rendering.
 
+pub mod applies;
 pub mod load;
 pub mod note;
 pub mod ranges;

@@ -325,6 +325,7 @@ impl Walker<'_> {
         let mut fields: Vec<(&String, &Value)> = props
             .iter()
             .filter(|(f, _)| !WORDS.contains(&f.as_str()) && f.as_str() != "effects")
+            .filter(|(_, s)| applies(s, props, values))
             .collect();
         fields.sort_by_key(|(_, s)| match self.shape(s).0 {
             Shape::Choice(_) => 0,
@@ -401,13 +402,20 @@ impl Walker<'_> {
             }
             shape => {
                 ui.horizontal(|ui| {
+                    // The name first, so every control can be labelled by
+                    // it for screen readers.
+                    let name =
+                        ui.add_sized([120.0, 18.0], egui::Label::new(label_of(field)).truncate());
+                    let name_id = name.id;
+                    if let Some(h) = hint(&spec) {
+                        name.on_hover_text(h);
+                    }
                     let mut on = value.is_some();
                     if optional {
-                        let tick = ui.checkbox(&mut on, "").on_hover_text(if on {
-                            "Take it out"
-                        } else {
-                            "Put it in"
-                        });
+                        let tick = ui
+                            .checkbox(&mut on, "")
+                            .labelled_by(name_id)
+                            .on_hover_text(if on { "Take it out" } else { "Put it in" });
                         if tick.changed() {
                             if on {
                                 let start = start_of(&shape, default);
@@ -421,14 +429,9 @@ impl Walker<'_> {
                             }
                         }
                     }
-                    let name =
-                        ui.add_sized([120.0, 18.0], egui::Label::new(label_of(field)).truncate());
-                    if let Some(h) = hint(&spec) {
-                        name.on_hover_text(h);
-                    }
                     let current = value.or(default);
                     ui.add_enabled_ui(!optional || on, |ui| {
-                        control(ui, path, &shape, current, edits);
+                        control(ui, path, name_id, &shape, current, edits);
                     });
                 });
             }
@@ -503,6 +506,27 @@ impl Walker<'_> {
     }
 }
 
+/// True when a field does something here. A field whose schema has
+/// `x-applies-when` (written from `duck_echo_core::applies`) does
+/// something only when one of the siblings it names holds one of the
+/// listed values; a sibling that is not written has its default. So a
+/// square layer shows no noise settings, and a noise layer no duty.
+fn applies(spec: &Value, props: &Map<String, Value>, values: &Map<String, Value>) -> bool {
+    let Some(rule) = spec["x-applies-when"].as_object() else {
+        return true;
+    };
+    rule.iter().any(|(sibling, allowed)| {
+        let now = values
+            .get(sibling)
+            .or_else(|| props.get(sibling).and_then(|s| s.get("default")))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        allowed
+            .as_array()
+            .is_some_and(|list| list.iter().any(|v| v.as_str() == Some(now)))
+    })
+}
+
 /// The value a field that was left out starts at when it is ticked.
 fn start_of(shape: &Shape, default: Option<&Value>) -> Value {
     if let Some(d) = default {
@@ -537,6 +561,7 @@ fn logarithmic(min: f64, max: f64) -> bool {
 fn control(
     ui: &mut egui::Ui,
     path: &str,
+    name: egui::Id,
     shape: &Shape,
     value: Option<&Value>,
     edits: &mut Vec<Edit>,
@@ -554,25 +579,48 @@ fn control(
                 .and_then(Value::as_f64)
                 .unwrap_or(*min)
                 .clamp(*min, *max);
+            let log = logarithmic(*min, *max);
             let mut slider = egui::Slider::new(&mut v, *min..=*max)
                 .clamping(egui::SliderClamping::Always)
-                .max_decimals(if *integer { 0 } else { 4 });
+                .show_value(false);
             if *integer {
                 slider = slider.integer();
             }
-            if logarithmic(*min, *max) {
+            if log {
                 slider = slider.logarithmic(true).smallest_positive(0.001);
             }
-            let response = ui.add(slider);
-            slid(edits, &response, path, number(v, *integer), set);
+            let response = ui.add(slider).labelled_by(name);
+            slid(edits, &response, number(v, *integer), set);
+            // The number beside it, to read and to type: egui's own box
+            // inside the slider cannot be named for screen readers.
+            let speed = if log {
+                v.abs().max(0.001) * 0.01
+            } else {
+                (max - min) / 300.0
+            };
+            let typed = ui
+                .add(
+                    egui::DragValue::new(&mut v)
+                        .range(*min..=*max)
+                        .speed(speed)
+                        .max_decimals(if *integer { 0 } else { 4 })
+                        // As the file writes it: 0.06, not 0.0600.
+                        .custom_formatter(|v, _| tidy(v).to_string()),
+                )
+                .labelled_by(name);
+            slid(edits, &typed, number(v, *integer), set);
         }
         Shape::Count => {
             let mut v = value.and_then(Value::as_u64).unwrap_or(0);
-            if ui.add(egui::DragValue::new(&mut v)).changed() {
+            if ui
+                .add(egui::DragValue::new(&mut v))
+                .labelled_by(name)
+                .changed()
+            {
                 set(edits, json!(v), false);
             }
         }
-        Shape::Pitch => pitch(ui, path, value, edits),
+        Shape::Pitch => pitch(ui, path, name, value, edits),
         Shape::Choice(words) => {
             let current = value
                 .and_then(Value::as_str)
@@ -585,14 +633,16 @@ fn control(
                     for word in words {
                         ui.selectable_value(&mut chosen, word.clone(), word);
                     }
-                });
+                })
+                .response
+                .labelled_by(name);
             if chosen != current {
                 set(edits, json!(chosen), false);
             }
         }
         Shape::Flag => {
             let mut on = value.and_then(Value::as_bool).unwrap_or(false);
-            if ui.checkbox(&mut on, "").changed() {
+            if ui.checkbox(&mut on, "").labelled_by(name).changed() {
                 set(edits, json!(on), false);
             }
         }
@@ -605,7 +655,6 @@ fn control(
 fn slid(
     edits: &mut Vec<Edit>,
     response: &egui::Response,
-    _path: &str,
     value: Value,
     set: impl Fn(&mut Vec<Edit>, Value, bool),
 ) {
@@ -624,7 +673,13 @@ fn slid(
 
 /// A pitch: a slider in Hz and a note picker. The slider writes a number
 /// of Hz; the picker writes a note name such as `"B5"`.
-fn pitch(ui: &mut egui::Ui, path: &str, value: Option<&Value>, edits: &mut Vec<Edit>) {
+fn pitch(
+    ui: &mut egui::Ui,
+    path: &str,
+    name: egui::Id,
+    value: Option<&Value>,
+    edits: &mut Vec<Edit>,
+) {
     let (hz, written_note) = match value {
         Some(Value::String(name)) => (
             note::parse_note(name).map(f64::from).ok(),
@@ -634,21 +689,33 @@ fn pitch(ui: &mut egui::Ui, path: &str, value: Option<&Value>, edits: &mut Vec<E
         None => (None, None),
     };
     let mut v = hz.unwrap_or(440.0).clamp(20.0, 20_000.0);
-    let response = ui.add(
-        egui::Slider::new(&mut v, 20.0..=20_000.0)
-            .logarithmic(true)
-            .clamping(egui::SliderClamping::Always)
-            .suffix(" Hz")
-            .max_decimals(1),
-    );
-    let hz_value = json!((v * 10.0).round() / 10.0);
-    slid(edits, &response, path, hz_value, |edits, value, held| {
+    let set = |edits: &mut Vec<Edit>, value: Value, held: bool| {
         edits.push(Edit::Set {
             path: path.into(),
             value,
             held,
         })
-    });
+    };
+    let response = ui
+        .add(
+            egui::Slider::new(&mut v, 20.0..=20_000.0)
+                .logarithmic(true)
+                .clamping(egui::SliderClamping::Always)
+                .show_value(false),
+        )
+        .labelled_by(name);
+    slid(edits, &response, json!((v * 10.0).round() / 10.0), set);
+    let speed = v * 0.005;
+    let typed = ui
+        .add(
+            egui::DragValue::new(&mut v)
+                .range(20.0..=20_000.0)
+                .speed(speed)
+                .suffix(" Hz")
+                .max_decimals(1),
+        )
+        .labelled_by(name);
+    slid(edits, &typed, json!((v * 10.0).round() / 10.0), set);
     let nearest = nearest_note(hz.unwrap_or(440.0));
     let shown = written_note.unwrap_or_else(|| format!("~{nearest}"));
     let mut chosen: Option<String> = None;
@@ -657,13 +724,15 @@ fn pitch(ui: &mut egui::Ui, path: &str, value: Option<&Value>, edits: &mut Vec<E
         .width(64.0)
         .show_ui(ui, |ui| {
             for number in 24..=108 {
-                if let Some(name) = note::note_name(number)
-                    && ui.selectable_label(name == nearest, &name).clicked()
+                if let Some(note) = note::note_name(number)
+                    && ui.selectable_label(note == nearest, &note).clicked()
                 {
-                    chosen = Some(name);
+                    chosen = Some(note);
                 }
             }
-        });
+        })
+        .response
+        .labelled_by(name);
     if let Some(name) = chosen {
         edits.push(Edit::Set {
             path: path.into(),
@@ -688,6 +757,50 @@ pub fn nearest_note(hz: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The panel drawn for `doc`, with no window.
+    fn panel_for(doc: Value) -> egui_kittest::Harness<'static> {
+        let schema = duck_echo_core::schema::recipe_schema();
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(500.0, 2000.0))
+            .build_ui(move |ui| {
+                panel(ui, &schema, &doc);
+            });
+        harness.run();
+        harness
+    }
+
+    fn shows(harness: &egui_kittest::Harness<'static>, label: &str) -> bool {
+        use egui_kittest::kittest::Queryable;
+        // The name and the controls it labels all answer to it.
+        harness.query_all_by_label(label).next().is_some()
+    }
+
+    #[test]
+    fn a_layer_shows_only_the_settings_its_source_uses() {
+        use egui_kittest::kittest::Queryable;
+        let square = panel_for(json!({"version": 0, "layers": [{"source": "square"}]}));
+        assert!(shows(&square, "duty"));
+        assert!(shows(&square, "aliasing"));
+        assert!(shows(&square, "PITCH"));
+        assert!(!shows(&square, "noise mode"));
+        assert_eq!(square.query_all_by_label_contains("noise").count(), 0);
+
+        let noise = panel_for(json!({"version": 0, "layers": [{"source": "noise"}]}));
+        assert!(shows(&noise, "noise mode"));
+        assert!(!shows(&noise, "duty"));
+        assert!(!shows(&noise, "aliasing"));
+        // Plain hiss has no pitch; pitched noise has one.
+        assert!(!shows(&noise, "PITCH"));
+        let pitched = panel_for(json!({"version": 0, "layers": [
+            {"source": "noise", "noise_mode": "pitched"}
+        ]}));
+        assert!(shows(&pitched, "PITCH"));
+
+        // A layer with no `source` is a square (the default).
+        let plain = panel_for(json!({"version": 0, "layers": [{}]}));
+        assert!(shows(&plain, "duty"));
+    }
 
     #[test]
     fn slider_values_are_tidy() {

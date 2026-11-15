@@ -1,6 +1,7 @@
 //! Semantic validation: range checks and structural rules that serde cannot
 //! express. Collects every problem instead of stopping at the first.
 
+use crate::applies::{self, Applies};
 use crate::ranges::{self, Range};
 use crate::recipe::*;
 use crate::report::{Code, Issue, Report};
@@ -184,7 +185,7 @@ impl Validator {
         self.check(&format!("{p}.offset"), l.offset, ranges::LAYER_OFFSET);
         self.check(&format!("{p}.duty"), l.duty, ranges::LAYER_DUTY);
         self.check(&format!("{p}.pan"), l.pan, ranges::LAYER_PAN);
-        if l.aliasing == Aliasing::Retro && !matches!(l.source, Source::Square | Source::Saw) {
+        if l.aliasing == Aliasing::Retro && !does_something(&applies::LAYER_ALIASING, l) {
             self.warn(
                 Code::Unused,
                 &format!("{p}.aliasing"),
@@ -194,7 +195,7 @@ impl Validator {
                 ),
             );
         }
-        if l.source != Source::Square && l.duty != 0.5 {
+        if l.duty != 0.5 && !does_something(&applies::LAYER_DUTY, l) {
             self.warn(
                 Code::Unused,
                 &format!("{p}.duty"),
@@ -205,7 +206,7 @@ impl Validator {
             );
         }
 
-        if l.noise_mode == NoiseMode::Pitched && l.source != Source::Noise {
+        if l.noise_mode == NoiseMode::Pitched && !does_something(&applies::LAYER_NOISE_MODE, l) {
             self.warn(
                 Code::Unused,
                 &format!("{p}.noise_mode"),
@@ -445,6 +446,28 @@ fn lfo_target_name(t: LfoTarget) -> &'static str {
     }
 }
 
+/// True when the field of `rule` does something on layer `l`.
+fn does_something(rule: &Applies, l: &Layer) -> bool {
+    rule.holds(|sibling| layer_word(l, sibling).to_string())
+}
+
+/// The value of one of a layer's word fields, as written in a recipe.
+/// Only the siblings that the rules of [`applies`] name are needed.
+fn layer_word(l: &Layer, field: &str) -> &'static str {
+    match field {
+        "source" => source_name(l.source),
+        "noise_mode" => match l.noise_mode {
+            NoiseMode::White => "white",
+            NoiseMode::Pitched => "pitched",
+        },
+        "aliasing" => match l.aliasing {
+            Aliasing::Clean => "clean",
+            Aliasing::Retro => "retro",
+        },
+        _ => "",
+    }
+}
+
 fn source_name(s: Source) -> &'static str {
     match s {
         Source::Sine => "sine",
@@ -504,4 +527,36 @@ pub fn estimate_length(r: &Recipe) -> f32 {
         .map(|l| l.offset + l.envelope.length() + chain_tail_seconds(&l.effects))
         .fold(0.0f32, f32::max);
     layers + chain_tail_seconds(&r.effects)
+}
+
+#[cfg(test)]
+mod applies_tests {
+    use super::*;
+
+    #[test]
+    fn the_applies_table_agrees_with_the_renderer() {
+        use crate::applies::{LAYER_DUTY, LAYER_NOISE_MODE, LAYER_PITCH};
+        for source in [
+            Source::Sine,
+            Source::Square,
+            Source::Saw,
+            Source::Triangle,
+            Source::Noise,
+        ] {
+            for noise_mode in [NoiseMode::White, NoiseMode::Pitched] {
+                let l = Layer {
+                    source,
+                    noise_mode,
+                    ..Layer::default()
+                };
+                // `has_pitch` is what songs and the synth use.
+                assert_eq!(does_something(&LAYER_PITCH, &l), l.has_pitch());
+                assert_eq!(does_something(&LAYER_DUTY, &l), source == Source::Square);
+                assert_eq!(
+                    does_something(&LAYER_NOISE_MODE, &l),
+                    source == Source::Noise
+                );
+            }
+        }
+    }
 }

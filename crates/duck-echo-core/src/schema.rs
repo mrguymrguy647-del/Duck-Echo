@@ -1,5 +1,6 @@
 //! JSON Schema generation from the Rust recipe types.
 
+use crate::applies::{Applies, ALL as APPLIES};
 use crate::ranges::{Range, ALL};
 use crate::recipe::Recipe;
 use crate::song::Song;
@@ -10,6 +11,7 @@ use crate::song::Song;
 pub fn recipe_schema() -> serde_json::Value {
     let mut value = recipe_structure();
     apply_ranges(&mut value, "Recipe");
+    apply_applies(&mut value);
     value
 }
 
@@ -58,6 +60,22 @@ fn apply_ranges(schema: &mut serde_json::Value, root: &str) -> Vec<Range> {
         }
         if !found {
             unused.push(*range);
+        }
+    }
+    unused
+}
+
+/// Write every rule of [`crate::applies::ALL`] into the schema, on the
+/// field it is about, as `x-applies-when` (see [`crate::applies`]).
+/// Returns the rules that found no place in this schema.
+fn apply_applies(schema: &mut serde_json::Value) -> Vec<Applies> {
+    let mut unused = Vec::new();
+    for rule in APPLIES {
+        match schema["$defs"][rule.owner]["properties"].get_mut(rule.field) {
+            Some(serde_json::Value::Object(field)) => {
+                field.insert("x-applies-when".into(), rule.to_json());
+            }
+            _ => unused.push(*rule),
         }
     }
     unused
@@ -168,6 +186,7 @@ pub fn recipe_schema_json() -> String {
 pub fn song_schema() -> serde_json::Value {
     let mut value = song_structure();
     apply_ranges(&mut value, "Song");
+    apply_applies(&mut value);
     value
 }
 
@@ -193,6 +212,19 @@ pub fn song_schema_json() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_applies_rule_is_written_into_both_schemas() {
+        let mut recipe = recipe_structure();
+        let mut song = song_structure();
+        assert_eq!(apply_applies(&mut recipe), []);
+        assert_eq!(apply_applies(&mut song), []);
+        let duty = &recipe_schema()["$defs"]["Layer"]["properties"]["duty"];
+        assert_eq!(
+            duty["x-applies-when"],
+            serde_json::json!({"source": ["square"]})
+        );
+    }
 
     #[test]
     fn every_range_is_written_into_a_schema() {

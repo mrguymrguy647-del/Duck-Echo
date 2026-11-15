@@ -31,6 +31,8 @@ use std::time::{Duration, Instant};
 
 use duck_echo_audio::AudioBuffer;
 use duck_echo_core::{Format, Issue, Recipe, Severity};
+use duck_echo_live::ParamUpdate;
+use duck_echo_synth::Mastering;
 use duck_echo_tools::commands::{self, Command};
 use duck_echo_tools::edit::{self, EditOp};
 use duck_echo_tools::history::Who;
@@ -77,6 +79,11 @@ pub struct Heard {
     pub summary: String,
     /// The length in seconds.
     pub seconds: f64,
+    /// The recipe it is the render of.
+    pub recipe: Recipe,
+    /// Its level and length as a file, for a live voice that sounds the
+    /// same (see `duck_echo_live::Sound::from_recipe_mastered`).
+    pub mastering: Mastering,
 }
 
 /// The background thread that renders each change.
@@ -140,16 +147,10 @@ impl Preview {
 
 /// Render `recipe` and draw its picture, on the background thread.
 fn hear(generation: u64, recipe: &Recipe) -> Result<Heard, String> {
-    let m = duck_echo_tools::measure::measure_recipe(recipe, &[], &Default::default())
-        .map_err(|e| e.into_report().to_string())?;
-    let onsets: Vec<f64> = m
-        .measured
-        .analysis
-        .onsets
-        .iter()
-        .map(|o| o.time_seconds)
-        .collect();
-    let buffer = m.buffer;
+    let (buffer, mastering) =
+        duck_echo_synth::render_mastered(recipe).map_err(|r| r.to_string())?;
+    let analysis = duck_echo_tools::analyze_buffer(&buffer);
+    let onsets: Vec<f64> = analysis.onsets.iter().map(|o| o.time_seconds).collect();
     let (_, image) = duck_echo_analyze::picture::draw_image(
         &buffer.samples,
         buffer.sample_rate,
@@ -173,7 +174,9 @@ fn hear(generation: u64, recipe: &Recipe) -> Result<Heard, String> {
         seconds: buffer.duration_seconds(),
         buffer,
         picture,
-        summary: m.measured.analysis.summary,
+        summary: analysis.summary,
+        recipe: recipe.clone(),
+        mastering,
     })
 }
 
@@ -216,6 +219,10 @@ pub struct Editor {
     pub gone: bool,
     /// Play this once the render arrives: `Some(looping)`.
     pub play_when_ready: Option<bool>,
+    /// The recipe of the newest text that works.
+    recipe: Option<Recipe>,
+    /// What the speakers play, kept in step with each edit.
+    pub live: Live,
 }
 
 impl Editor {
@@ -244,6 +251,8 @@ impl Editor {
             schema: duck_echo_core::schema::recipe_schema(),
             gone: false,
             play_when_ready: None,
+            recipe: None,
+            live: Live::default(),
         };
         editor.check_text(true);
         editor.read_history(root);
@@ -279,6 +288,7 @@ impl Editor {
             Ok(loaded) => {
                 self.problems = loaded.report.warnings.clone();
                 self.doc = edit::parse_document(&self.text, self.format).ok();
+                self.recipe = Some(loaded.recipe.clone());
                 if render {
                     self.preview.ask(loaded.recipe);
                 }
@@ -639,6 +649,17 @@ impl Editor {
         self.picture.as_ref().map(|(_, t)| t.clone())
     }
 
+    /// The recipe of the newest text that works.
+    pub fn recipe(&self) -> Option<&Recipe> {
+        self.recipe.as_ref()
+    }
+
+    /// True when `heard` is the render of the newest change (a drag asks
+    /// for many; one that is already old is only shown, never played).
+    pub fn is_newest(&self, heard: &Heard) -> bool {
+        heard.generation == self.preview.asked
+    }
+
     /// The schema the sliders are made from.
     pub fn schema(&self) -> &Value {
         &self.schema
@@ -647,6 +668,93 @@ impl Editor {
     /// The recipe as written (for the sliders).
     pub fn doc(&self) -> Option<&Value> {
         self.doc.as_ref()
+    }
+}
+
+/// What the speakers play from the editor, kept in step with each edit.
+///
+/// A change to a layer's volume, a filter's cutoff or the master gain is
+/// sent to the playing voice at once as a [`ParamUpdate`], which slides to
+/// the new value over 10 ms: you hear the slider move, with no click.
+/// When its render arrives, only the level is slid to the file's new
+/// level (a normalized sound keeps its loudness). Any other change waits
+/// for its render, and the new voice takes over at the same place with a
+/// 10 ms cross-fade.
+#[derive(Debug, Default)]
+pub struct Live {
+    /// The recipe the playing voice makes now (with the live changes
+    /// sent to it), or `None` when nothing plays.
+    playing: Option<Recipe>,
+    /// A change was made that only a new voice can play.
+    rebuild: bool,
+    /// The length of the playing voice, in frames.
+    frames: usize,
+}
+
+/// What to do when the newest render arrives.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Arrival {
+    /// Nothing plays.
+    Nothing,
+    /// A new voice of the render takes over, with a cross-fade.
+    Replace,
+    /// The voice already sounds like the render: slide its level to this.
+    Level(f32),
+}
+
+impl Live {
+    /// A voice of `heard` started playing.
+    pub fn started(&mut self, heard: &Heard) {
+        self.playing = Some(heard.recipe.clone());
+        self.frames = heard.mastering.frames;
+        self.rebuild = false;
+    }
+
+    /// Nothing plays any more.
+    pub fn stopped(&mut self) {
+        self.playing = None;
+        self.rebuild = false;
+    }
+
+    /// True while a voice from the editor plays.
+    pub fn is_playing(&self) -> bool {
+        self.playing.is_some()
+    }
+
+    /// The text now makes `recipe`. Returns the live changes to send to
+    /// the playing voice now: none when nothing changed, or when only a
+    /// new voice can play the change (it then takes over when its render
+    /// arrives).
+    pub fn changed(&mut self, recipe: &Recipe) -> Vec<ParamUpdate> {
+        let Some(playing) = &self.playing else {
+            return Vec::new();
+        };
+        if self.rebuild || playing == recipe {
+            return Vec::new();
+        }
+        match ParamUpdate::between(playing, recipe) {
+            Some(updates) => {
+                self.playing = Some(recipe.clone());
+                updates
+            }
+            None => {
+                self.rebuild = true;
+                Vec::new()
+            }
+        }
+    }
+
+    /// The newest render arrived: what to do with it.
+    pub fn rendered(&mut self, heard: &Heard) -> Arrival {
+        let Some(playing) = &self.playing else {
+            return Arrival::Nothing;
+        };
+        if self.rebuild || *playing != heard.recipe || heard.mastering.frames != self.frames {
+            self.started(heard);
+            Arrival::Replace
+        } else {
+            Arrival::Level(heard.mastering.gain)
+        }
     }
 }
 

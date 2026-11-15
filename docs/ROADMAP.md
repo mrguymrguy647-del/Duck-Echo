@@ -670,8 +670,8 @@ Done in Phase 2 step 6 (the sound editor):
   the new data, else the file is written whole as before. This also
   fixed `to_toml_document` writing an empty list (`effects = []`) after a
   `[table]`, where it belonged to that table.
-* [ ] `ParamUpdate` for the volume, cutoff and gain sliders: step 7. In
-  step 6 every change is a new render with a cross-fade.
+* [x] `ParamUpdate` for the volume, cutoff and gain sliders: done in step
+  7.
 
 Lessons for the next builder (step 6):
 
@@ -693,7 +693,7 @@ Lessons for the next builder (step 6):
   `toml_edit` 0.25.18. CI builds with the newest Rust only. Either raise
   `rust-version` to 1.85 or add a CI job on 1.80 and pin older versions.
 
-### 12. Smooth live changes [done without a window: step 3]
+### 12. Smooth live changes [done: Phase 2 steps 3 and 7]
 
 * `ParamUpdate` messages let a slider drag change the running `Voice`
   (volume, cutoff, gain) without rebuilding it; structure changes still
@@ -718,7 +718,27 @@ Done in Phase 2 step 3:
 * [x] Every render and fingerprint is unchanged: the pinned fingerprint
   tests pass, and all 104 renders of presets, instruments, examples and
   the playtest files hash the same as before the step.
-* [ ] The sliders in the window send these (step 7).
+* [x] The sliders in the window send these (step 7, below).
+
+Done in Phase 2 step 7:
+
+* [x] Play and Loop in the editor play a live voice, not finished
+  samples, so a slider can change it while it plays.
+* [x] `ParamUpdate::between(before, after)`: the live changes between two
+  recipes, or `None` when anything else changed. The editor sends a
+  volume, cutoff or gain change at once, and slides the level to the
+  file's new level when the render arrives. Other changes (a wave, an
+  envelope, a filter added) wait for their render and cross-fade.
+* [x] The click test through the editor (`studio/.../tests/smooth.rs`):
+  the volume slider dragged from 0.2 to 1.0 and back in 30 steps on a
+  repeating 55 Hz tone, through `Editor::slide` and `Live::changed` into
+  a mixer with no sound card. The biggest step is the tone's own; with
+  the 10 ms slide off, the same drag clicks.
+* [x] Settings that do nothing for a layer's source are hidden (a square
+  has no noise settings, noise has no duty), from `x-applies-when` in
+  the schema (`duck-echo-core/src/applies.rs`).
+* [x] Every slider, number box, drop-down and tick box is named by its
+  field for screen readers (egui_kittest checks it).
 
 Lessons for the next builder:
 
@@ -846,6 +866,18 @@ is done. Lessons for the next builder:
   have one, so it now says `spectral_centroid_hz`.
 
 ## Phase 3: link with Duck Forge
+
+Lessons for the next builder (step 7):
+
+* **A normalized sound fights a volume slider.** Turning a layer up
+  makes `normalize` turn the whole sound down, so the speakers would be
+  louder than the file. The live volume change is followed, when the
+  render arrives, by a slide of the level to the file's new gain.
+* **Only the newest render plays.** A drag asks for many renders; an
+  older one arriving late would undo the live changes for a moment.
+* **Name every control, or the screen tests fail.** egui_kittest checks
+  that every widget has a name. A slider's own number box cannot be
+  named, so the panel draws its own number box beside the slider.
 
 ### 13. Save into a game, with live reload
 
