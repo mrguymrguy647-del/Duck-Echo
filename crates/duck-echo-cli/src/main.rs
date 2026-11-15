@@ -160,9 +160,50 @@ enum Command {
         #[command(flatten)]
         project: ProjectArgs,
     },
-    /// Print the JSON Schema for recipes, or for songs with `schema song`.
+    /// Mix a cue list and check it: overs with the sounds behind them and
+    /// volumes that fix them, loudness each second and per section, buried
+    /// cues, and a picture with a marker for each cue. The cue list is
+    /// Duck Forge's log.json, or a JSON list with times in seconds. The
+    /// same as `duck-echo do mix_check`.
+    Mix {
+        /// The cue list, a .json file inside the project folder.
+        cues: String,
+        /// The mix's length in seconds. Default: the end of the last sound.
+        #[arg(long)]
+        length: Option<f64>,
+        /// Sections as JSON, seconds: '[{"name": "intro", "start": 0, "end": 12}]'.
+        /// Default: every 10 s.
+        #[arg(long)]
+        sections: Option<String>,
+        /// The folder for the mix, the report and the picture. Default:
+        /// the cue list's folder.
+        #[arg(short, long)]
+        out: Option<String>,
+        /// Print the whole report as JSON instead of a few lines.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+    /// Render a set of sounds (a folder or a set file) and write a table,
+    /// a contact sheet and a loudness report per tag. The same as
+    /// `duck-echo do set_check`.
+    SetCheck {
+        /// The set: a set file (film.set.toml) or a folder.
+        set: String,
+        /// The folder for the WAVs and the reports. Default checks/<name>.
+        #[arg(short, long)]
+        out: Option<String>,
+        /// Print the whole report as JSON instead of a few lines.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+    /// Print the JSON Schema for recipes, songs (`schema song`) or sound
+    /// sets (`schema set`).
     Schema {
-        /// Which schema: `recipe` (default) or `song`.
+        /// Which schema: `recipe` (default), `song` or `set`.
         #[arg(value_enum, default_value_t = SchemaKind::Recipe)]
         kind: SchemaKind,
     },
@@ -254,6 +295,8 @@ enum SchemaKind {
     Recipe,
     /// The schema of a song.
     Song,
+    /// The schema of a sound set file (`set_check`).
+    Set,
 }
 
 #[derive(Subcommand)]
@@ -364,12 +407,71 @@ fn main() -> ExitCode {
             project,
         } => do_command(&name, &arguments, &project),
         Command::Run { script, project } => run_script(&script, &project),
+        Command::Mix {
+            cues,
+            length,
+            sections,
+            out,
+            json,
+            project,
+        } => {
+            let mut args = serde_json::json!({ "cues": cues });
+            if let Some(l) = length {
+                args["length_seconds"] = l.into();
+            }
+            if let Some(o) = out {
+                args["out"] = o.into();
+            }
+            if let Some(text) = sections {
+                match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(v) => args["sections"] = v,
+                    Err(e) => {
+                        return tool_error(
+                            ToolError::issue(duck_echo_core::Issue::error(
+                                duck_echo_core::Code::Syntax,
+                                "--sections",
+                                format!("the sections are not JSON: {e}"),
+                            )),
+                            json,
+                        )
+                    }
+                }
+            }
+            check_command(
+                "mix_check",
+                &args,
+                &project,
+                json,
+                &["mix_wav", "picture_png", "report_json"],
+            )
+        }
+        Command::SetCheck {
+            set,
+            out,
+            json,
+            project,
+        } => {
+            let mut args = serde_json::json!({ "set": set });
+            if let Some(o) = out {
+                args["out"] = o.into();
+            }
+            check_command(
+                "set_check",
+                &args,
+                &project,
+                json,
+                &["table_csv", "sheet_png", "check_json"],
+            )
+        }
         Command::Schema { kind } => {
             println!(
                 "{}",
                 match kind {
                     SchemaKind::Recipe => duck_echo_core::schema::recipe_schema_json(),
                     SchemaKind::Song => duck_echo_core::schema::song_schema_json(),
+                    SchemaKind::Set =>
+                        serde_json::to_string_pretty(&duck_echo_tools::sets::set_schema())
+                            .expect("schema serializes"),
                 }
             );
             ExitCode::SUCCESS
@@ -430,6 +532,41 @@ fn do_command(name: &str, arguments: &str, args: &ProjectArgs) -> ExitCode {
     match result {
         Ok(v) => print_json(&v, false),
         Err(e) => tool_error(e, true),
+    }
+}
+
+/// Run a check command and print its summary and the files it wrote (or,
+/// with `json`, its whole answer). Arguments are named as the command's
+/// (`arguments.cues`), the same as `duck-echo do`.
+fn check_command(
+    name: &str,
+    arguments: &serde_json::Value,
+    args: &ProjectArgs,
+    json: bool,
+    files: &[&str],
+) -> ExitCode {
+    let result = open_root(args).and_then(|root| {
+        let command = commands::parse(name, arguments, "arguments.")?;
+        commands::run(
+            &Project::new(&root),
+            command,
+            args.by.into(),
+            None,
+            "arguments.",
+        )
+    });
+    match result {
+        Ok(v) if json => print_json(&v, false),
+        Ok(v) => {
+            println!("{}", v["summary"].as_str().unwrap_or_default());
+            for key in files {
+                if let Some(f) = v[*key].as_str() {
+                    println!("wrote {f}");
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => tool_error(e, json),
     }
 }
 

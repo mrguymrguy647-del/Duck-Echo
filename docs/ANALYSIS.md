@@ -278,6 +278,83 @@ piercing; `laser`, `missile` and the explosions move.
 
 The thresholds live in `duck_echo_analyze::features::words`.
 
+## Rendered facts (`<name>.wav.json`)
+
+Every WAV that `render`, `sound_variants`, `set_check` or the Studio's
+Export writes has a facts file beside it, and `render` returns the same
+object as `asset`: `duration_seconds`, `frames`, `sample_rate`,
+`channels`, `loudness_lufs` and `loudness_method`, `peak_dbfs`,
+`leading_silence_seconds` (below -60 dBFS), `hit_seconds` (the middle of
+the loudest 5 ms, rounded to the millisecond: start the sound this much
+before the frame its hit should land on), `loops`, `seed` and
+`recipe_hash` (`sha256:` of the recipe's data as JSON with defaults
+filled in, its random ranges included: comments and layout do not change
+it).
+
+## Sound sets (`set_check`)
+
+`set_check` renders a folder of sounds, or a set file (see `RECIPE_SPEC.md`,
+Sound sets), and writes into its `out` folder every WAV with its facts
+file and three reports:
+
+| File | What it holds |
+|---|---|
+| `<name>.table.csv` | One row per sound: `name, file, kind, tags, length_s, lufs, peak_dbfs, clipping, ending, target_lufs, off_lu, on_target, summary`. `ending` is `clean` or `click` (see Ending), or for a loop `loop clean` or `loop click` (see Loop seam). |
+| `<name>.sheet.png` | The contact sheet: three pictures to a row (each the same picture as `analyze --picture`), each under its name and a line of numbers (length, LUFS, peak, target, problems). A sound with a problem (clipping, a click, off target, did not render) has its numbers in red and a red frame. |
+| `<name>.check.json` | All of it, as the command's answer: `sounds` (the rows), `loudness` (per tag: `target_lufs`, where it came from, `tolerance`, how many `met` it, and each sound's `off_by_lu` with a `fix` in words) and `no_target` (sounds none of whose tags has a target). |
+
+A sound is held to the target of its first tag that the set's `targets`
+names, or else of its first category tag (impact -16, weapon -17, alert
+-18, pickup -19, movement -20, ui -22, ambient -24 LUFS), within
+`tolerance` (default 2 LU). A sound that does not load or render is a row
+with its `error`, so one broken file does not hide the others. The
+`summary` names every problem: "8 sounds; did not render: broken;
+clipping: loud; off target: loud (+16.7 LU), wind (+6.0 LU)".
+
+## Mix check (`mix_check`, `duck-echo mix`)
+
+`mix_check` mixes a cue list and checks the mix. The cue list is JSON in
+one of two forms:
+
+* **Duck Forge's `log.json`**: `{"updates_per_second": 60, "sounds":
+  [{"frame", "sound", "file", "volume", "pan"}], "loops": [{"loop",
+  "file", "start", "stop", "volume": [[frame, level], ...]}]}`. Times are
+  frames. A loop's `volume` points are joined by straight lines; before
+  the first it is at the first level; no points is 1. A loop with no
+  `stop` plays to the end of the mix.
+* **A plain list**, times in seconds: `[{"time", "file", "name",
+  "volume", "pan", "loop", "stop"}]`; only `time` and `file` are needed.
+
+A `file` is a WAV, a recipe or a song (rendered first) or `preset:NAME`,
+relative to the cue list's folder. Volumes are linear, 0..=16; pan is
+-1..=1. Unknown fields are errors with their path (`sounds[0].vol`).
+
+The mix is made at 44.1 kHz in stereo: mono files go to both sides, other
+rates are read with straight lines between samples, and pan is
+equal-power, as Duck Echo's own stereo (a centred sound is -3 dB on each
+side, as loud as in mono). It is written as `<name>.mix.wav` (32-bit
+float, so a mix over full volume is kept as it is) beside
+`<name>.mix.json` (the answer) and `<name>.mix.png` (the picture).
+
+| Field | Meaning |
+|---|---|
+| `summary` | Length, loudness, peak, and every problem by name and time: "6.0 s, -16.8 LUFS, peak +0.2 dBFS; 1 moment over full volume: at 2.54 s (latch + door + wind); buried: step 2 at 1.50 s, 17 dB under". |
+| `overs` | Every moment a sample goes over full volume (moments closer than 50 ms are one). Each has `start_seconds`, `end_seconds`, `peak_dbfs`, the `sounds` playing in it (loudest first, with their volume at that moment and their own peak there), and two fixes that bring the peak to -1 dBFS: `all_down` (every one of them down by `all_down_db`) and `loudest_alone` (only the loudest, found by halving until no sample of the moment is over; `null` when that alone cannot do it). |
+| `cues` | Every cue in time order: `start_seconds`, `end_seconds`, `volume`, `loudness_lufs` (its own loudness as it plays, K-weighted over its sounding part) and `rest_lufs` (everything else over the same part). A one-shot more than 15 dB under the rest is `buried`, with the sounds it is `under` and `lift_to`, the volume that puts it 10 dB under (`null` above 16: lower the others). Loops are beds and are never called buried. |
+| `short_term_lufs` | Short-term loudness at the end of each second: the 3 s before it (EBU R 128), K-weighted and ungated; `null` for silence. |
+| `sections` | The loudness (gated BS.1770) and peak of each section: the `sections` given (seconds), or every 10 s. |
+| `loudness_lufs`, `peak_dbfs` | The whole mix. |
+
+The rest of the mix under a cue is the K-weighted mix minus the cue's own
+K-weighted sound, which is exact because K-weighting is a linear filter.
+
+The picture: at the top, the mix's peak level per column (light blue,
+red above full volume, -60 to +6 dBFS, a red line at full volume) and its
+short-term loudness, a step per second (dark blue), with red bars over
+each over; below it every cue on a lane of its own, a tick and its name
+at its start, a light bar for a loop's length, buried cues in red; along
+the bottom the seconds, and each section's name with its loudness.
+
 ## `compare` fields
 
 | Field | Meaning |

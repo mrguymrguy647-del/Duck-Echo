@@ -1,0 +1,43 @@
+{
+  "$id": "https://github.com/mrguymrguy647-del/Duck-Echo/schema/set.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A set file: the sounds, and the loudness each tag should have.",
+  "properties": {
+    "name": {
+      "description": "A name for the set, used for its report files. Default: the set\nfile's name (`film` for `film.set.toml`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sounds": {
+      "description": "The sounds, in order: files (`sfx/door.toml`), folders (`sfx`:\nevery sound and song in it and below) or `preset:NAME`. Paths are\nrelative to the project folder.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "targets": {
+      "additionalProperties": {
+        "format": "float",
+        "type": "number"
+      },
+      "description": "Loudness target per tag, LUFS, -60..=0: `{ ambient = -30, hit =\n-16 }`. A sound is held to the target of its first tag that has\none here, or else of its first category tag (impact -16, weapon\n-17, alert -18, pickup -19, movement -20, ui -22, ambient -24).",
+      "type": "object"
+    },
+    "tolerance": {
+      "description": "How far from its target a sound may be, LU, 0..=20. Default 2.",
+      "format": "float",
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "sounds"
+  ],
+  "title": "Duck Echo sound set",
+  "type": "object"
+}

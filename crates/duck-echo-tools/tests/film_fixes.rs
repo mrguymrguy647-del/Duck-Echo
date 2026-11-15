@@ -420,3 +420,396 @@ fn sound_variants_exports_numbered_files_and_a_list_to_pick_from() {
     let e = run(serde_json::json!({"file": "../step.toml", "count": 2})).unwrap_err();
     assert_eq!(e.into_report().errors[0].path, "arguments.file");
 }
+
+/// A project folder for a test, empty.
+fn project(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("duck-echo-film-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Run a named command in `dir`, as an agent does.
+fn run_in(
+    dir: &std::path::Path,
+    name: &str,
+    args: serde_json::Value,
+) -> Result<serde_json::Value, duck_echo_core::Report> {
+    let root = duck_echo_tools::root::Root::new(dir).unwrap();
+    let project = duck_echo_tools::project::Project::new(&root);
+    duck_echo_tools::commands::parse(name, &args, "arguments.")
+        .and_then(|c| {
+            duck_echo_tools::commands::run(
+                &project,
+                c,
+                duck_echo_tools::history::Who::Agent,
+                None,
+                "arguments.",
+            )
+        })
+        .map_err(|e| e.into_report())
+}
+
+/// Item 4: a set of sounds rendered and checked side by side.
+#[test]
+fn set_check_writes_a_table_a_contact_sheet_and_a_loudness_report() {
+    let dir = project("set");
+    std::fs::create_dir_all(dir.join("sfx")).unwrap();
+    let coin = duck_echo_tools::presets::get("coin").unwrap().source;
+    std::fs::write(dir.join("sfx/coin.toml"), coin).unwrap();
+    std::fs::write(
+        dir.join("sfx/loud.toml"),
+        "version = 0\ntags = [\"impact\"]\n[[layers]]\nsource = \"square\"\nvolume = 1.6\npitch = { start = 110 }\nenvelope = { attack = 0.001, hold = 0.3, decay = 0.05 }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("sfx/broken.toml"),
+        "version = 0\n[[layers]]\nsource = \"sine\"\nvolume = 9\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("film.set.toml"),
+        "name = \"pick a door\"\nsounds = [\"sfx\", \"preset:wind\"]\ntargets = { impact = -18 }\n",
+    )
+    .unwrap();
+
+    let answer = run_in(
+        &dir,
+        "set_check",
+        serde_json::json!({"set": "film.set.toml"}),
+    )
+    .unwrap();
+    let out = dir.join("checks/pick_a_door");
+    assert_eq!(answer["out"], "checks/pick_a_door");
+    let names: Vec<&str> = answer["sounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["broken", "coin", "loud", "wind"]);
+    let row = |n: usize| &answer["sounds"][n];
+    // The broken one is a row with its error, not a failed check.
+    assert!(row(0)["error"]
+        .as_str()
+        .unwrap()
+        .contains("layers[0].volume"));
+    assert!(row(0)["wav"].is_null());
+    // The coin: on its category's target, ends cleanly.
+    assert_eq!(row(1)["target"]["tag"], "pickup");
+    assert_eq!(row(1)["target"]["from"], "category");
+    assert_eq!(row(1)["on_target"], true);
+    assert_eq!(row(1)["ending"], "clean");
+    // The loud one clips and is far over the set's own impact target.
+    assert_eq!(row(2)["clipping"], true);
+    assert_eq!(row(2)["target"]["from"], "set");
+    assert_eq!(row(2)["on_target"], false);
+    assert!(row(2)["off_by_lu"].as_f64().unwrap() > 10.0);
+    assert!(out.join("loud.wav").is_file() && out.join("loud.wav.json").is_file());
+    // The loudness report, tag by tag, with the fix in words.
+    let impact = answer["loudness"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["tag"] == "impact")
+        .unwrap();
+    assert_eq!(impact["target_lufs"], -18.0);
+    assert_eq!(impact["met"], 0);
+    let fix = impact["sounds"][0]["fix"].as_str().unwrap();
+    assert!(
+        fix.contains("master.normalize_lufs = -18") && fix.contains("sfx/loud.toml"),
+        "{fix}"
+    );
+    // The summary names every problem.
+    let summary = answer["summary"].as_str().unwrap();
+    for words in [
+        "4 sounds",
+        "did not render: broken",
+        "clipping: loud",
+        "off target: loud",
+    ] {
+        assert!(summary.contains(words), "{summary}");
+    }
+    // The three files.
+    let csv = std::fs::read_to_string(out.join("pick_a_door.table.csv")).unwrap();
+    assert_eq!(csv.lines().count(), 5);
+    assert!(csv.starts_with("name,file,kind,tags,length_s,lufs,peak_dbfs,clipping,ending"));
+    assert!(csv
+        .lines()
+        .nth(2)
+        .unwrap()
+        .starts_with("coin,sfx/coin.toml,sound,"));
+    let png = std::fs::read(out.join("pick_a_door.sheet.png")).unwrap();
+    assert_eq!(&png[1..4], b"PNG");
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("pick_a_door.check.json")).unwrap())
+            .unwrap();
+    assert_eq!(json["kind"], "duck-echo-set-check");
+    // A folder is a set too, held to the category targets; its own
+    // checks folder is left out the next time.
+    let folder = run_in(
+        &dir,
+        "set_check",
+        serde_json::json!({"set": "sfx", "out": "sfx/checked"}),
+    )
+    .unwrap();
+    assert_eq!(folder["name"], "sfx");
+    let again = run_in(
+        &dir,
+        "set_check",
+        serde_json::json!({"set": "sfx", "out": "sfx/checked"}),
+    )
+    .unwrap();
+    assert_eq!(again["sounds"].as_array().unwrap().len(), 3);
+    assert_eq!(folder["sounds"], again["sounds"]);
+}
+
+#[test]
+fn a_set_file_with_mistakes_says_where() {
+    let dir = project("set-errors");
+    let check = |text: &str| {
+        std::fs::write(dir.join("bad.set.toml"), text).unwrap();
+        run_in(
+            &dir,
+            "set_check",
+            serde_json::json!({"set": "bad.set.toml"}),
+        )
+        .unwrap_err()
+    };
+    let paths = |r: &duck_echo_core::Report| -> Vec<String> {
+        r.errors.iter().map(|e| e.path.clone()).collect()
+    };
+    let r = check("sond = [\"sfx\"]\n");
+    assert_eq!(paths(&r), ["sond"], "{r}");
+    assert_eq!(r.errors[0].suggestion.as_deref(), Some("sounds"));
+    let r = check(
+        "sounds = [\"preset:coin\"]\ntargets = { ambient = 5 }\ntolerance = { min = 1, max = 2 }\n",
+    );
+    assert_eq!(paths(&r), ["tolerance"], "{r}");
+    let r = check("sounds = [\"preset:coin\"]\ntargets = { ambient = 5 }\n");
+    assert_eq!(paths(&r), ["targets.ambient"], "{r}");
+    let r = check("sounds = [\"preset:coin\", \"sfx/missing.toml\"]\n");
+    assert_eq!(paths(&r), ["sounds[1]"], "{r}");
+    let r = run_in(&dir, "set_check", serde_json::json!({"set": "nowhere"})).unwrap_err();
+    assert_eq!(paths(&r), ["arguments.set"]);
+}
+
+/// A mono WAV of a sine at `level` (linear) for `seconds`.
+fn tone_wav(path: &std::path::Path, hz: f32, level: f32, seconds: f32) {
+    let sr = 44_100u32;
+    let n = (seconds * sr as f32) as usize;
+    let samples = (0..n)
+        .map(|i| level * (std::f32::consts::TAU * hz * i as f32 / sr as f32).sin())
+        .collect();
+    let buffer = duck_echo_audio::AudioBuffer {
+        sample_rate: sr,
+        channels: 1,
+        samples,
+    };
+    duck_echo_audio::write_wav(path, &buffer, duck_echo_audio::WavFormat::Float32).unwrap();
+}
+
+/// Item 2: a mix checked from its cue list.
+#[test]
+fn mix_check_finds_overs_with_the_volumes_that_fix_them() {
+    let dir = project("mix-overs");
+    tone_wav(&dir.join("hit.wav"), 220.0, 0.9, 0.5);
+    tone_wav(&dir.join("ring.wav"), 220.0, 0.8, 0.5);
+    let cues = |hit: f32, ring: f32| {
+        serde_json::json!([
+            {"time": 1.0, "file": "hit.wav", "name": "hit", "volume": hit},
+            {"time": 1.2, "file": "ring.wav", "name": "ring", "volume": ring},
+        ])
+    };
+    std::fs::write(dir.join("cues.json"), cues(1.0, 1.0).to_string()).unwrap();
+    let a = run_in(&dir, "mix_check", serde_json::json!({"cues": "cues.json"})).unwrap();
+    assert_eq!(a["form"], "plain_list");
+    assert!((a["length_seconds"].as_f64().unwrap() - 1.7).abs() < 0.001);
+    let overs = a["overs"].as_array().unwrap();
+    assert_eq!(overs.len(), 1, "{overs:?}");
+    let over = &overs[0];
+    // Both play from 1.2 s to 1.5 s; centred, each side gets 0.707 of each.
+    assert!((over["start_seconds"].as_f64().unwrap() - 1.2).abs() < 0.01);
+    assert!((over["end_seconds"].as_f64().unwrap() - 1.5).abs() < 0.01);
+    assert_eq!(over["sounds"][0]["name"], "hit");
+    assert_eq!(over["sounds"][1]["name"], "ring");
+    assert!(a["summary"]
+        .as_str()
+        .unwrap()
+        .contains("at 1.20 s (hit + ring)"));
+    // Both down together: the mix peaks at -1 dBFS and is never over.
+    let to = |c: &serde_json::Value| c["to"].as_f64().unwrap() as f32;
+    let all = &over["all_down"];
+    std::fs::write(
+        dir.join("cues.json"),
+        cues(to(&all[0]), to(&all[1])).to_string(),
+    )
+    .unwrap();
+    let fixed = run_in(&dir, "mix_check", serde_json::json!({"cues": "cues.json"})).unwrap();
+    assert!(fixed["overs"].as_array().unwrap().is_empty());
+    assert!(
+        (fixed["peak_dbfs"].as_f64().unwrap() + 1.0).abs() < 0.15,
+        "{}",
+        fixed["peak_dbfs"]
+    );
+    // Or the loudest alone.
+    let alone = &over["loudest_alone"];
+    assert_eq!(alone["name"], "hit");
+    std::fs::write(dir.join("cues.json"), cues(to(alone), 1.0).to_string()).unwrap();
+    let fixed = run_in(&dir, "mix_check", serde_json::json!({"cues": "cues.json"})).unwrap();
+    assert!(fixed["overs"].as_array().unwrap().is_empty());
+    // The mix, its picture and its report are written.
+    for f in ["cues.mix.wav", "cues.mix.png", "cues.mix.json"] {
+        assert!(dir.join(f).is_file(), "{f}");
+    }
+    let mix = duck_echo_audio::read_wav(&dir.join("cues.mix.wav")).unwrap();
+    assert_eq!((mix.sample_rate, mix.channels), (44_100, 2));
+}
+
+#[test]
+fn mix_check_reads_duck_forges_log_and_finds_a_buried_cue() {
+    let dir = project("mix-forge");
+    std::fs::create_dir_all(dir.join("sfx")).unwrap();
+    tone_wav(&dir.join("sfx/bed.wav"), 110.0, 0.5, 2.0);
+    tone_wav(&dir.join("sfx/step.wav"), 2000.0, 0.02, 0.3);
+    std::fs::write(
+        dir.join("sfx/blip.toml"),
+        "version = 0\n[master]\nnormalize_lufs = -20\n[[layers]]\nsource = \"sine\"\npitch = { start = 880 }\nenvelope = { attack = 0.005, decay = 0.2 }\n",
+    )
+    .unwrap();
+    let log = |step: f32| {
+        serde_json::json!({
+            "updates_per_second": 60,
+            "sounds": [
+                {"frame": 90, "sound": "step", "file": "sfx/step.wav", "volume": step, "pan": 0.5},
+                {"frame": 600, "sound": "blip", "file": "sfx/blip.toml"}
+            ],
+            "loops": [
+                {"loop": "bed", "file": "sfx/bed.wav", "start": 0, "stop": 720,
+                 "volume": [[0, 1.0], [600, 1.0], [720, 0.0]]}
+            ]
+        })
+    };
+    std::fs::write(dir.join("log.json"), log(1.0).to_string()).unwrap();
+    let a = run_in(&dir, "mix_check", serde_json::json!({"cues": "log.json"})).unwrap();
+    assert_eq!(a["form"], "duck_forge_log");
+    // Frames are read at 60 a second: the bed stops at 12 s.
+    assert!((a["length_seconds"].as_f64().unwrap() - 12.0).abs() < 0.001);
+    let cue = |name: &str| {
+        a["cues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(cue("step")["start_seconds"], 1.5);
+    assert_eq!(cue("bed")["looping"], true);
+    // The step is buried under the bed, the blip is not.
+    let step = cue("step");
+    assert_eq!(step["buried"], true, "{step}");
+    assert_eq!(step["under"], serde_json::json!(["bed"]));
+    assert!(a["summary"]
+        .as_str()
+        .unwrap()
+        .contains("buried: step at 1.50 s"));
+    assert_eq!(cue("blip")["buried"], false);
+    // Loudness each second, and every 10 s when no sections are given.
+    assert_eq!(a["short_term_lufs"].as_array().unwrap().len(), 12);
+    let sections = a["sections"].as_array().unwrap();
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections[1]["name"], "10-12 s");
+    // The bed fades out from 10 s to 12 s: the last second is quieter.
+    let st: Vec<f64> = a["short_term_lufs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    assert!(st[11] < st[5] - 2.0, "{st:?}");
+    // Lifted as suggested, it is not buried any more.
+    let lift = step["lift_to"].as_f64().unwrap() as f32;
+    std::fs::write(dir.join("log.json"), log(lift).to_string()).unwrap();
+    let lifted = run_in(&dir, "mix_check", serde_json::json!({"cues": "log.json"})).unwrap();
+    assert!(lifted["cues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|c| c["buried"] == false));
+    // Sections given by name.
+    let named = run_in(
+        &dir,
+        "mix_check",
+        serde_json::json!({"cues": "log.json", "sections": [{"name": "door", "start": 0, "end": 4}], "out": "reports"}),
+    )
+    .unwrap();
+    assert_eq!(named["sections"][0]["name"], "door");
+    assert!(dir.join("reports/log.mix.png").is_file());
+}
+
+#[test]
+fn a_cue_list_with_mistakes_says_where() {
+    let dir = project("mix-errors");
+    tone_wav(&dir.join("a.wav"), 440.0, 0.5, 0.2);
+    let check = |cues: serde_json::Value| {
+        std::fs::write(dir.join("c.json"), cues.to_string()).unwrap();
+        run_in(&dir, "mix_check", serde_json::json!({"cues": "c.json"})).unwrap_err()
+    };
+    let paths = |r: &duck_echo_core::Report| -> Vec<String> {
+        r.errors.iter().map(|e| e.path.clone()).collect()
+    };
+    let r = check(
+        serde_json::json!({"updates_per_second": 60, "sounds": [{"frame": 1, "sound": "a", "file": "a.wav", "vol": 1}]}),
+    );
+    assert_eq!(paths(&r), ["sounds[0].vol"], "{r}");
+    let r = check(
+        serde_json::json!({"updates_per_second": 60, "sounds": [{"frame": 1, "sound": "a", "file": "nope.wav"}]}),
+    );
+    assert_eq!(paths(&r), ["sounds[0].file"], "{r}");
+    let r = check(serde_json::json!([{"time": 0, "file": "a.wav", "stop": 3, "pan": 2}]));
+    assert_eq!(paths(&r), ["[0].stop", "[0].pan"], "{r}");
+    let r = check(serde_json::json!({"updates_per_second": 0, "sounds": []}));
+    assert_eq!(paths(&r), ["updates_per_second"], "{r}");
+    let r = check(
+        serde_json::json!({"updates_per_second": 60, "loops": [{"loop": "x", "file": "a.wav", "start": 0}]}),
+    );
+    assert_eq!(paths(&r), ["arguments.length_seconds"], "{r}");
+}
+
+/// The worked example in examples/film runs as its comments say, and
+/// shows each kind of problem once: an over (the door and its latch), a
+/// buried step, and a wind louder than the set wants.
+#[test]
+fn the_film_example_runs_and_shows_its_problems() {
+    let dir = project("example");
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/film");
+    for f in ["film.set.toml", "cues.json"] {
+        std::fs::copy(examples.join(f), dir.join(f)).unwrap();
+    }
+    let set = run_in(
+        &dir,
+        "set_check",
+        serde_json::json!({"set": "film.set.toml"}),
+    )
+    .unwrap();
+    assert!(dir.join("checks/door_scene/door_scene.sheet.png").is_file());
+    let summary = set["summary"].as_str().unwrap();
+    assert!(
+        summary.starts_with("4 sounds; off target: wind (+6.0 LU)"),
+        "{summary}"
+    );
+    let mix = run_in(&dir, "mix_check", serde_json::json!({"cues": "cues.json"})).unwrap();
+    let summary = mix["summary"].as_str().unwrap();
+    assert!(summary.contains("over full volume: at 2.5"), "{summary}");
+    let over = &mix["overs"][0];
+    let names: Vec<&str> = over["sounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(&names[..2], ["latch", "door"], "{over}");
+    assert!(summary.contains("buried: step 2 at 1.50 s"), "{summary}");
+    assert!(!summary.contains("step 1"), "{summary}");
+}

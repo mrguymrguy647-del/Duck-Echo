@@ -370,6 +370,44 @@ pub struct VariantsArgs {
     pub variation: Option<f32>,
 }
 
+/// A set of sounds to check together.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetCheckArgs {
+    /// The set: a set file (`film.set.toml`, see `duck-echo schema set`)
+    /// or a folder (every sound and song in it and below, held to the
+    /// category loudness targets), relative to the project folder.
+    pub set: String,
+    /// The folder for the WAVs and the reports, relative to the project
+    /// folder. Default `checks/<the set's name>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub out: Option<String>,
+}
+
+/// A cue list to mix and check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MixCheckArgs {
+    /// The cue list, relative to the project folder: Duck Forge's
+    /// `log.json` (`updates_per_second`, `sounds`, `loops`), or a plain
+    /// JSON list of `{"time": seconds, "file", "name", "volume", "pan"}`.
+    /// Each cue's `file` (a WAV, a recipe, a song or `preset:NAME`) is
+    /// relative to the cue list's folder.
+    pub cues: String,
+    /// Parts of the film or game to measure on their own, in seconds:
+    /// `[{"name": "intro", "start": 0, "end": 12.5}]`. Default: every 10 s.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections: Option<Vec<crate::mix::Section>>,
+    /// The mix's length in seconds, up to 600. Default: the end of the
+    /// last sound (or the last loop's stop).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length_seconds: Option<f64>,
+    /// The folder for the mix, its picture and its report, relative to
+    /// the project folder. Default: the cue list's folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub out: Option<String>,
+}
+
 // ---------------------------------------------------------------------
 // The commands.
 // ---------------------------------------------------------------------
@@ -436,6 +474,10 @@ pub enum Command {
     SongSetLoop(SetLoopArgs),
     #[serde(rename = "sound_variants")]
     SoundVariants(VariantsArgs),
+    #[serde(rename = "set_check")]
+    SetCheck(SetCheckArgs),
+    #[serde(rename = "mix_check")]
+    MixCheck(MixCheckArgs),
     #[serde(rename = "edit_undo")]
     EditUndo(NoArgs),
     #[serde(rename = "edit_redo")]
@@ -505,6 +547,10 @@ pub const TABLE: &[Entry] = &[
         description: "Remove one effect from a layer, or from the whole sound." },
     Entry { name: "sound_variants", changes_files: false, schema: schema_of::<VariantsArgs>,
         description: "Export a sound as `count` variants for a game or film to pick from at random: `<name>_1.wav` ... `<name>_N.wav` (variant N is seed N), each with its facts file (`<name>_1.wav.json`: length, loudness, peak, hit_seconds), and one list `<name>.variants.json` naming them all with their loudness. What differs between variants is what the recipe lets the seed change: random ranges (`volume = { min = 0.6, max = 0.9 }`), `variation` and noise; the list's `seeds_matter` is false, with a `note`, when nothing does. It writes audio, not recipes, so it is not an Undo step." },
+    Entry { name: "set_check", changes_files: false, schema: schema_of::<SetCheckArgs>,
+        description: "Render a set of sounds (a folder, or a set file naming sounds, folders and presets with a loudness target per tag) and check them side by side. Writes into `out`: every WAV with its facts file; `<name>.table.csv` (name, length, LUFS, peak, clipping, how it ends or how its loop joins, summary); `<name>.sheet.png`, a contact sheet of every sound's picture with its name, problems in red; and `<name>.check.json`, all of it plus the loudness report per tag (each sound against its target, with the change that fixes it). A sound that does not render is a row with its error. Writes reports, not recipes, so it is not an Undo step." },
+    Entry { name: "mix_check", changes_files: false, schema: schema_of::<MixCheckArgs>,
+        description: "Mix a cue list (Duck Forge's log.json, or a plain list with times in seconds) at 44.1 kHz stereo and check it: every moment over full volume with the sounds behind it and volumes that fix it, the short-term loudness each second, the loudness of each section, and every cue buried more than 15 dB under what plays with it (with the volume that lifts it). Writes `<name>.mix.wav` (to listen to), `<name>.mix.json` (the report) and `<name>.mix.png` (the mix's level over time with a marker and a name for each cue). Not an Undo step." },
     Entry { name: "song_set", changes_files: true, schema: schema_of::<SetArgs>,
         description: "Set one field of a song by its path, such as `tempo`, `tracks[1].volume` or `tracks[0].notes[3].note`. The result must be a valid song." },
     Entry { name: "song_remove", changes_files: true, schema: schema_of::<RemoveArgs>,
@@ -887,6 +933,21 @@ pub fn run(
         }
         Command::SoundVariants(a) => {
             return Ok(serde_json::to_value(r.variants(&a)?).expect("serializes"))
+        }
+        Command::SetCheck(a) => {
+            let checked = crate::sets::check(project.root(), &a.set, a.out.as_deref(), prefix)?;
+            return Ok(serde_json::to_value(checked).expect("serializes"));
+        }
+        Command::MixCheck(a) => {
+            let checked = crate::mix::check(
+                project.root(),
+                &a.cues,
+                a.sections.as_deref(),
+                a.length_seconds,
+                a.out.as_deref(),
+                prefix,
+            )?;
+            return Ok(serde_json::to_value(checked).expect("serializes"));
         }
         Command::EditUndo(_) => project.undo(by)?,
         Command::EditRedo(_) => project.redo(by)?,
@@ -1591,7 +1652,7 @@ mod tests {
         for c in sample {
             assert!(entry(&c.name()).is_some(), "{}", c.name());
         }
-        assert_eq!(TABLE.len(), 31);
+        assert_eq!(TABLE.len(), 33);
     }
 
     #[test]

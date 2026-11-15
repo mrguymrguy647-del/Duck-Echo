@@ -116,6 +116,8 @@ Compare short sounds with short sounds. When the two methods differ,
 | How does it fade? | `energy_over_time` (20 slices, dBFS) |
 | Is it broken? | `clipping.clipped`, `dc_offset`, `is_silent` |
 | Does it end with a click? | `ending.clean`, summary words "ends cleanly" or "ENDS WITH A CLICK" |
+| Is it rough, piercing, booming, moving? | `feel` (`low`, `medium`, `high` each) and the numbers `roughness`, `sharpness`, `boom`, `movement`; summary words "rough", "piercing", "booming", "moving" |
+| Which tones are in it? | `peaks`: the strongest frequencies with their level |
 
 A sound that is still loud when the file ends clicks when it stops. Let
 it fade: a longer `release`, or a `duration` long enough for the
@@ -128,6 +130,39 @@ louder, it can read "soft attack" although it starts hard, and
 shortening an envelope's `attack` may not move it. Then read
 `per_layer` (each layer's own attack) and the first `energy_over_time`
 slices instead.
+
+### Say what it should measure: `expect`
+
+Write what the sound is for into the recipe, and every `analyze` and
+`render` says whether it still is:
+
+```toml
+version = 0
+name = "growl"
+expect = { roughness = "high", loudness_lufs = [-20, -16] }
+
+[master]
+normalize_lufs = -18
+
+[[layers]]
+source = "saw"
+pitch = { start = 90 }
+envelope = { attack = 0.02, hold = 0.6, decay = 0.3 }
+lfo = { target = "volume", rate = 70, depth = 0.8 }
+```
+
+The answer's `expect` lists each line with what was wanted and what was
+measured, and the summary ends with "expect: all 2 met" or "EXPECT: 1 of
+2 met (roughness is low, wanted high)". Lines: `roughness`, `sharpness`,
+`boom`, `movement` (`low`, `medium` or `high`), and `loudness_lufs`,
+`peak_dbfs`, `duration_seconds` as `[lowest, highest]`.
+
+That growl uses an **audio-rate LFO**: `volume` and `pitch` may move up to
+2000 times a second (cutoff and duty up to 50). At 20 to 150 a second a
+volume LFO is a growl or a rasp (it reads as `roughness`); faster, it
+adds side tones at the note plus and minus the rate (they show in
+`peaks`), for metal, bells and radio voices. A layer may last up to the
+60 s limit; a longer one is an error that says how long it is.
 
 ### When the summary is not enough
 
@@ -176,6 +211,25 @@ about 3 LU, or the quiet ones get lost. If
 the answer's `seeds_matter` is false, nothing in the recipe changes with
 the seed: add a range or a `variation`. Errors in a range name the end at
 fault, such as `layers[0].volume.max`.
+
+### Many sounds, and a whole mix
+
+Sounds made one at a time end up at many levels. `set_check` with
+`{"set": "sfx"}` (a folder) or `{"set": "film.set.toml"}` (a set file
+with a loudness target per tag) renders them all and writes a table, a
+contact sheet (read it: every picture with its name, problems in red)
+and a loudness report per tag whose `fix` says what to change. Fix the
+red ones and run it again.
+
+When the sounds play together (a film, a level), check the mix too:
+`mix_check` with `{"cues": "log.json"}` reads Duck Forge's log (or a list
+of `{"time", "file", "volume", "pan"}` in seconds), mixes it and answers
+with every moment over full volume (`overs`, with the volumes that fix
+it), the loudness each second and per section, and every cue `buried`
+more than 15 dB under what plays with it (`lift_to` is its fix). Change
+the volumes in the cue list, or `master.normalize_lufs` in a recipe, and
+check again until `overs` is empty and nothing is buried. Read
+`<name>.mix.png` once: it shows where in time the trouble is.
 
 ### A small example
 

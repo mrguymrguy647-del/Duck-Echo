@@ -1,0 +1,9 @@
+# A sound set: the sounds of a short scene, checked side by side.
+#   duck-echo set-check film.set.toml
+# writes checks/door_scene/: every WAV, a table, a contact sheet and the
+# loudness of each sound against its tag's target.
+name = "door scene"
+sounds = ["preset:thud", "preset:metal_clang", "preset:footstep", "preset:wind"]
+# Wind is a bed under the scene: quieter than the category's -24.
+targets = { ambient = -30 }
+tolerance = 2

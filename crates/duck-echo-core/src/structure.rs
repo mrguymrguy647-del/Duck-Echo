@@ -58,18 +58,26 @@ fn song_schema() -> &'static J {
     SCHEMA.get_or_init(crate::schema::song_structure)
 }
 
-/// Check a document against the recipe schema.
+/// Check a document against the recipe schema. Numbers may be random
+/// ranges.
 pub fn check(root: &Node) -> Checked {
-    check_against(root, recipe_schema())
+    walk_document(root, recipe_schema(), true)
 }
 
-/// Check a document against the song schema.
+/// Check a document against the song schema. Numbers may be random
+/// ranges (the loader keeps those in the song's own instruments).
 pub fn check_song(root: &Node) -> Checked {
-    check_against(root, song_schema())
+    walk_document(root, song_schema(), true)
 }
 
-/// Check a document against an arbitrary schema of the supported subset.
+/// Check a document against an arbitrary schema of the supported subset
+/// (a set file, a cue list). Its numbers are plain numbers: a table where
+/// a number goes is a type mismatch.
 pub fn check_against(root: &Node, schema: &J) -> Checked {
+    walk_document(root, schema, false)
+}
+
+fn walk_document(root: &Node, schema: &J, ranges: bool) -> Checked {
     let empty = Map::new();
     let defs = schema.get("$defs").and_then(J::as_object).unwrap_or(&empty);
     let mut w = Walker {
@@ -83,6 +91,7 @@ pub fn check_against(root: &Node, schema: &J) -> Checked {
         poisoned: Vec::new(),
         renames: Vec::new(),
         ranges: Vec::new(),
+        allow_ranges: ranges,
     };
     let pruned = w.walk(schema, root, "");
     Checked {
@@ -131,6 +140,8 @@ struct Walker<'s> {
     poisoned: Vec<String>,
     renames: Vec<(String, String)>,
     ranges: Vec<(Pos, crate::random::RandomRange)>,
+    /// Whether a `{ min, max }` table may stand for a number.
+    allow_ranges: bool,
 }
 
 impl<'s> Walker<'s> {
@@ -155,7 +166,8 @@ impl<'s> Walker<'s> {
 
         // A table where a number goes: a random range.
         if let Value::Table(entries) = &node.value {
-            if self.takes_number(s)
+            if self.allow_ranges
+                && self.takes_number(s)
                 && !self.accepts_kind(s, &node.value)
                 && !is_under(path, "expect")
             {

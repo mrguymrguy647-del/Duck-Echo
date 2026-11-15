@@ -127,7 +127,7 @@ to keep their level in mono.
 | Command | What it does |
 |---|---|
 | `duck-echo validate <recipe> [--json]` | Reports every problem with its field path, allowed range and a suggestion. Exit 1 when invalid. |
-| `duck-echo render <recipe> [-o out.wav] [--seed N] [--format pcm16\|pcm24\|float32] [--json]` | Renders to WAV. `--json` adds the analysis of the result. Takes the same `--per-layer`, `--solo`, `--mute` and `--picture` options as `analyze`; with `--solo` or `--mute` the WAV holds only the heard layers. |
+| `duck-echo render <recipe> [-o out.wav] [--seed N] [--format pcm16\|pcm24\|float32] [--json]` | Renders to WAV. `--json` adds the analysis of the result. Takes the same `--per-layer`, `--solo`, `--mute` and `--picture` options as `analyze`; with `--solo` or `--mute` the WAV holds only the heard layers. Beside the WAV it writes `<out>.wav.json`: its length, loudness, peak, leading silence, `hit_seconds` and a hash of the recipe, for a game engine. |
 | `duck-echo analyze <wav-or-recipe> [--compact] [--per-layer] [--solo 0,2] [--mute 1] [--picture out.png]` | JSON measurements headed by a one-line `summary`: duration, peak, RMS, loudness in LUFS with its method, clipping, silence, attack, decay, crest factor, brightness, tonality, a pitch track, energy over time and note onsets. A recipe is rendered in memory. `--per-layer` also analyzes each layer as heard in the mix; `--solo`/`--mute` hear only some layers; `--picture` draws level over time above a spectrogram. See `docs/ANALYSIS.md`. |
 | `duck-echo compare <a> <b> [--compact]` | What changed from A to B (loudness, brightness, length, attack, ...), waveform correlation, and both analyses. WAV files or recipes. |
 | `duck-echo presets list [--tag T] [--json]` | The 30 built-in presets with category, loudness target and description. |
@@ -135,9 +135,11 @@ to keep their level in mono.
 | `duck-echo instruments list [--json]` | The built-in instruments a song can play (piano, pad, bass, chip_lead and the kit `drums`), with their useful range. |
 | `duck-echo instruments show <name> [--json]` | An instrument's recipe, to copy and edit. |
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
+| `duck-echo set-check <set.toml or folder> [-o out] [--json]` | Render a set of sounds and write a table, a contact sheet of their pictures and a loudness report per tag (`do set_check`). See `examples/film`. |
+| `duck-echo mix <cues.json> [--length S] [--sections '[...]'] [-o out] [--json]` | Mix a cue list (Duck Forge's `log.json`, or a list with times in seconds) and report every moment over full volume with the volumes that fix it, the loudness each second and per section, buried cues, and a picture with each cue marked (`do mix_check`). |
 | `duck-echo guide [topic]` | The agent guide, or a reference page: `recipe_spec`, `song_spec`, `analysis`, `instruments`, `presets`. Built into the program. |
-| `duck-echo schema [song]` | The JSON Schema for recipes, or for songs, with descriptions and defaults. |
-| `duck-echo commands [--json]` | The named commands that change a project: make, copy, rename and delete files, set a field, add a layer, effect, track or note, place a pattern, undo and redo. The Studio's buttons and the MCP server use the same ones. |
+| `duck-echo schema [song\|set]` | The JSON Schema for recipes, songs or sound sets, with descriptions and defaults. |
+| `duck-echo commands [--json]` | The named commands: make, copy, rename and delete files, set a field, add a layer, effect, track or note, place a pattern, undo and redo, export variants (`sound_variants`), check a set (`set_check`) and a mix (`mix_check`). The Studio's buttons and the MCP server use the same ones. |
 | `duck-echo do <command> ['{json}'] [--root DIR] [--by person\|agent]` | Run one command, such as `duck-echo do sound_set '{"file": "coin.toml", "path": "layers[0].volume", "value": 0.6}'`, then `duck-echo do edit_undo` to take it back. Prints JSON. |
 | `duck-echo run <script.json> [--root DIR] [--by person\|agent]` | Run a list of commands from a JSON file, in order; the first failure stops it. |
 

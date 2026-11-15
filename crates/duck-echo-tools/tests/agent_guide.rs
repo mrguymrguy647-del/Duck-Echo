@@ -38,8 +38,8 @@ fn every_toml_example_is_valid_with_no_warnings() {
     let examples = blocks("toml");
     assert_eq!(
         examples.len(),
-        3,
-        "a recipe with ranges, a recipe and a song"
+        4,
+        "a recipe with ranges, a growl with expect, a recipe and a song"
     );
     let files = files_next_to(Path::new("guide.toml"));
     for (i, src) in examples.iter().enumerate() {
@@ -57,6 +57,11 @@ fn every_toml_example_is_valid_with_no_warnings() {
         let m = measure_document(&doc, None, &options, "").unwrap().measured;
         let a = &m.analysis;
         assert!(!a.clipping.clipped, "example {i}");
+        // An example that says what it should measure measures it.
+        if let Some(expected) = &m.expect {
+            assert!(expected.pass, "example {i}: {}", a.summary);
+            assert!(a.summary.contains("expect: all 2 met"), "{}", a.summary);
+        }
         match &doc {
             Document::Recipe(r) => {
                 // The step and the coin: at the level they ask for (their

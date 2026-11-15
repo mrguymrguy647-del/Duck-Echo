@@ -23,7 +23,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
 | 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops, the agent guide | done |
 | 2 | Duck Echo Studio: an app for people, with no terminal | done |
-| 3 | Link with Duck Forge, the game engine | |
+| 3 | Link with Duck Forge, the game engine | started: the film fixes (below) and task 5 are done |
 | 4 | Duck Ear: listening models | |
 | 5 | Voices made from math only | |
 | Later | Sample layers, video editor link | |
@@ -39,7 +39,8 @@ Where the unfinished Phase 0 tasks went:
   agents.
 * **Task 5 (random ranges) moved to Phase 3**: it matters most when a game
   plays the same sound many times (footsteps, hits) and wants each one a
-  little different.
+  little different. It was then done at the start of Phase 3, with the
+  film fixes.
 
 ## Phase 0: sound effects foundation (done)
 
@@ -1029,6 +1030,75 @@ is done. Lessons for the next builder:
 
 ## Phase 3: link with Duck Forge
 
+### Film fixes: what "Pick a Door: Blocks" taught us [done]
+
+Making the sound for "Pick a Door: Blocks", a 58.6 s horror film made with
+Duck Forge, showed seven gaps. Each is a named command or a recipe field,
+so the CLI, the MCP server and the Studio all have it, and each has tests
+in `crates/duck-echo-tools/tests/film_fixes.rs`.
+
+1. **A layer longer than 30 s was cut at 30 s without a word.** Layers
+   now run to the 60 s limit; one that would run past it is an error at
+   `layers[n].envelope` with the length and a shorter `hold`.
+2. **Mix check** (`mix_check`, `duck-echo mix cues.json`): Duck Forge's
+   `log.json` as it is, or a plain list in seconds; every moment over full
+   volume with the sounds behind it and volumes that fix it; short-term
+   loudness each second and per section; buried cues (15 dB under the
+   rest) with the volume that lifts them; a picture with a marker and a
+   name for each cue; the mix itself as a WAV. Studio: Home > Check >
+   Check a mix from a cue list.
+3. **Facts beside every WAV** (`<name>.wav.json`, and `asset` in
+   `render --json`): length, loudness, peak, leading silence,
+   `hit_seconds`, loops, seed, `recipe_hash`. The Studio's Export writes
+   it too.
+4. **Sound sets** (`set_check`, `duck-echo set-check`): a folder or a set
+   file (`schema/set.schema.json`); a table (CSV), a contact sheet (PNG,
+   problems in red) and a loudness report per tag with the fix in words.
+   Studio: Home > Check > Check all my sounds.
+5. **Audio-rate LFO**: volume and the new `pitch` target up to 2000 Hz
+   (cutoff and duty stay at 50). Rates up to 50 use the old math, so every
+   pinned render is byte-identical.
+6. **How it feels**: `roughness`, `sharpness`, `boom`, `movement` and
+   `feel` in `analyze`, the words in its summary, and `expect` in a recipe
+   (`expect = { roughness = "high", loudness_lufs = [-20, -16] }`) with a
+   pass or fail line for each.
+7. **Random ranges** (task 5 below) and `sound_variants`: N numbered
+   variants with their facts and a `.variants.json` list for Duck Forge to
+   pick from at random. Studio: the sound's ... > Export 8 variants.
+
+What the next builder needs to know:
+
+* Ranges ride on the structure walker: a `{ min, max }` table where the
+  schema takes a decimal number is recorded on `Recipe::ranges` and
+  decoded as its `min`; `structure::check_against` (set files, cue lists)
+  keeps them off. Validation checks two corners, all-min and all-max, so a
+  rule that joins two ranged fields can still fail at a mixed corner (a
+  long ranged attack with a short ranged decay). No such rule bites today;
+  check all four corners if one is added.
+* The song schema shares its `Master` and `Effect` types with the
+  instruments inside it, so it shows the range form on a song's own
+  `master` too, where the loader refuses it. Splitting those types would
+  make the schema exact.
+* The Duck Forge log is read exactly as described when the film was made;
+  any other field is an error with its path. When Duck Forge writes more
+  (a total frame count, a bus), add it to `mix::ForgeLog` rather than
+  loosening the check.
+* The mix check holds the whole mix in memory (f32 sides plus f64
+  K-weighted copies: about 11 MB a second of mix). It is capped at 600 s;
+  a feature film would need it to work in pieces.
+* The rest of the mix under a cue is the K-weighted mix minus the cue's
+  own K-weighted sound, exact because K-weighting is linear
+  (`analyze::k_weighted`). Keep it that way rather than mixing twice.
+* The board's font (`analyze::board`) has capital letters only; small
+  letters are drawn as capitals. The sound pictures keep their own font,
+  so they did not change.
+* The Studio shows a ranged field in words ("random, 0.3 to 0.9") instead
+  of a slider; ranges are edited in the text. A slider for each end is
+  the obvious next step.
+* `list_files` now tells `asset_facts`, `variant_list`, `sound_set` and
+  `report` files apart from recipes, which keeps them off the Studio's
+  Home screen. Any new file Duck Echo writes beside sounds needs a kind.
+
 ### 13. Save into a game, with live reload
 
 * **Known gap, found in Phase 1:** Duck Forge reads 44.1 kHz WAV but
@@ -1053,8 +1123,18 @@ is done. Lessons for the next builder:
 * Accept: a Duck Forge project hears a sound change within a second of
   saving it in Duck Echo; the export is idempotent; the recipe path or hash
   is recorded with the asset.
+* Done already (film fixes): the recipe hash, loudness and hit time are
+  recorded with every rendered asset (`<name>.wav.json`), which is what
+  per-sound volume needs; variants with a list to pick from. Still to do:
+  the game's sounds folder, live reload, stereo in the engine, resampling
+  and OGG.
 
-### 5. Random ranges (moved here from Phase 0)
+### 5. Random ranges (moved here from Phase 0) [done: film fixes]
+
+Done as written, with one change: each field picks from its own stream
+(the seed mixed with the field's path) rather than one stream in field
+order, so adding a range never changes another field's value. Songs take
+ranges inside their own instruments, picked note by note.
 
 * Any number in a recipe may be written as `{ min = x, max = y }`;
   `prepare` picks the value from the seed (its own stream, in field

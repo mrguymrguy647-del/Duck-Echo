@@ -1178,3 +1178,15 @@ fn cli_renders_a_loop_to_its_exact_length() {
     // from silence.
     assert!(wav.samples[..4410].iter().any(|s| s.abs() > 0.001));
 }
+
+#[test]
+fn checked_in_set_schema_is_current() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/set.schema.json");
+    let on_disk = std::fs::read_to_string(&path).expect("schema file");
+    let fresh = serde_json::to_string_pretty(&duck_echo_tools::sets::set_schema()).unwrap();
+    assert_eq!(
+        on_disk.trim(),
+        fresh.trim(),
+        "schema/set.schema.json is stale; run `duck-echo schema set > schema/set.schema.json`"
+    );
+}

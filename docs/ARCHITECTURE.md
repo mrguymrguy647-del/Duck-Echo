@@ -34,15 +34,21 @@ crates/
                            and the song player (one Voice per note).
   duck-echo-analyze/       measurements over f32 samples -> JSON report, plus
                            compare (deltas and cross-correlation), onsets and
-                           energy over time, a picture (spectrogram and level)
-                           as PNG, and its own small FFT and PNG encoder.
+                           energy over time, how a sound feels (character),
+                           a picture (spectrogram and level) as PNG, a board
+                           with a small font for labelled pictures (board),
+                           and its own small FFT and PNG encoder.
   duck-echo-tools/         operations shared by the CLI and the MCP server:
                            load a WAV or render a recipe, compare, presets,
                            variations, edits, analysis extras (per layer,
                            solo, mute, picture) and file listings; the path
                            rules (`root`), the named commands (`commands`),
                            the shared Undo history (`project`, `history`)
-                           and writing files in one step (`save`).
+                           and writing files in one step (`save`); a
+                           rendered WAV's facts file (`asset`), `expect`
+                           lines, the variant export (`variants`), the
+                           sound-set check (`sets`) and the mix check from
+                           a cue list (`mix`).
   duck-echo-live/          the realtime mixer for playing through speakers:
                            a pool of 32 voice slots, two lock-free queues,
                            fades and clipping, and the background song
@@ -78,12 +84,14 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 examples/recipes/          the example recipes (TOML, plus coin.json)
 examples/songs/            the example songs
+examples/film/             a sound set and a cue list to check (set-check, mix)
 presets/                   tagged starting-point recipes, compiled into the
                            tools crate with include_str!
 instruments/               the starter instruments for songs, compiled in the
                            same way (see instruments/README.md)
 schema/recipe.schema.json  generated from the Rust types; a test fails when stale
 schema/song.schema.json    the same, for songs
+schema/set.schema.json     the same, for sound set files
 ```
 
 Dependency direction (arrows point at what is depended on):

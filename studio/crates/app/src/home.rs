@@ -86,6 +86,57 @@ impl StudioApp {
         answer
     }
 
+    /// Check every sound and song of the project together (the
+    /// `set_check` command), into `checks/all`.
+    pub fn check_all_sounds(&mut self) {
+        let args = json!({ "set": ".", "out": "checks/all" });
+        if let Some(answer) = self.run_command("set_check", args) {
+            self.say(format!(
+                "{} The table, the contact sheet and the loudness report are in checks/all.",
+                sentence(answer["summary"].as_str().unwrap_or_default())
+            ));
+        }
+    }
+
+    /// Choose a cue list with the system's Open window and check its mix.
+    fn choose_and_check_mix(&mut self) {
+        let Some(root) = &self.root else {
+            return;
+        };
+        let chosen = rfd::FileDialog::new()
+            .set_title("Check a mix from a cue list")
+            .add_filter("Cue list", &["json"])
+            .set_directory(root.dir())
+            .pick_file();
+        let Some(path) = chosen else {
+            return;
+        };
+        match path.canonicalize().ok().and_then(|p| {
+            p.strip_prefix(root.dir())
+                .ok()
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+        }) {
+            Some(rel) => self.check_mix(&rel),
+            None => self.warn(format!(
+                "Put the cue list and its sounds in your Duck Echo folder ({}) first.",
+                root.dir().display()
+            )),
+        }
+    }
+
+    /// Check the mix of the cue list `rel` (the `mix_check` command): the
+    /// mix, its picture and its report go next to it.
+    pub fn check_mix(&mut self, rel: &str) {
+        if let Some(answer) = self.run_command("mix_check", json!({ "cues": rel })) {
+            self.say(format!(
+                "{} Listen to {}; its picture is {}.",
+                sentence(answer["summary"].as_str().unwrap_or_default()),
+                answer["mix_wav"].as_str().unwrap_or_default(),
+                answer["picture_png"].as_str().unwrap_or_default(),
+            ));
+        }
+    }
+
     /// New sound or New song: a fresh file, named "new sound" (or "new
     /// sound 2"...), to rename later.
     pub fn new_file(&mut self, kind: Kind) {
@@ -387,6 +438,39 @@ impl StudioApp {
                     }
                     if ui.add(theme::primary_button("New song")).clicked() {
                         self.new_file(Kind::Song);
+                    }
+                    let mut check_sounds = false;
+                    let mut check_mix = false;
+                    ui.menu_button("Check", |ui| {
+                        if ui
+                            .button("Check all my sounds")
+                            .on_hover_text(
+                                "Render every sound and song side by side: a table, a picture \
+                                 of each, and their loudness against the targets of their tags.",
+                            )
+                            .clicked()
+                        {
+                            check_sounds = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button("Check a mix from a cue list...")
+                            .on_hover_text(
+                                "Choose Duck Forge's log.json (or a list of cues in seconds) in \
+                                 your Duck Echo folder: hear the mix, and see where it is too \
+                                 loud and which sounds are buried.",
+                            )
+                            .clicked()
+                        {
+                            check_mix = true;
+                            ui.close();
+                        }
+                    });
+                    if check_sounds {
+                        self.check_all_sounds();
+                    }
+                    if check_mix {
+                        self.choose_and_check_mix();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let edit = ui.add(

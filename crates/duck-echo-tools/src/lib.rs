@@ -17,10 +17,12 @@ pub mod guide;
 pub mod history;
 pub mod instruments;
 pub mod measure;
+pub mod mix;
 pub mod notecheck;
 pub mod project;
 pub mod root;
 pub mod save;
+pub mod sets;
 pub mod song;
 pub mod variants;
 

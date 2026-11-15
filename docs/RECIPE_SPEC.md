@@ -420,10 +420,31 @@ Rules:
   numbers; a range there is a `type_mismatch` error.
 * The schema says this with `type: ["number", "object"]` and `properties`
   `min` and `max` under the field's own limits, marked
-  `x-random-range: true`.
+  `x-random-range: true`. (The song schema shares `master` and `effects`
+  with the instruments inside it, so it shows the range form on a song's
+  own `master` and `effects` too; there the loader refuses it.)
 
 `sound_variants` exports N seeds of a sound as numbered WAVs for a game to
 pick from at random (see `AGENT_GUIDE.md`).
+
+## Sound sets
+
+A set file names sounds to check together with `set_check` (see
+`ANALYSIS.md`). It is TOML (`film.set.toml`) or JSON (`film.set.json`),
+with its own schema (`duck-echo schema set`, `schema/set.schema.json`);
+unknown fields are errors, as in a recipe.
+
+```toml
+name = "door scene"                      # default: the file's name
+sounds = ["sfx", "music/bed.toml", "preset:wind"]
+targets = { ambient = -30, impact = -18 }  # LUFS per tag, -60..=0
+tolerance = 2                             # LU, 0..=20, default 2
+```
+
+`sounds` are files, folders (every sound and song in them and below) and
+presets, relative to the project folder. A sound is held to the target of
+its first tag in `targets`, or else of its first category tag. Numbers in
+a set file are plain numbers: random ranges are for recipes.
 
 ## Validation
 
