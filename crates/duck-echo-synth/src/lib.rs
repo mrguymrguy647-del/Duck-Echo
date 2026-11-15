@@ -237,7 +237,9 @@ impl LayerVoice {
             Some(g) => EnvShape::gated(&layer.envelope, time_scale, g),
             None => EnvShape::new(&layer.envelope, time_scale),
         };
-        let env_len = env.length().min(30.0);
+        // A layer may last as long as a whole recipe may (60 s). It used
+        // to be cut at 30 s without a word, though validation allowed more.
+        let env_len = env.length().min(duck_echo_core::validate::MAX_DURATION);
         let tail = chain_tail_seconds(&layer.effects);
         let start_frame = (layer.offset * sr).round() as usize;
         let env_frames = (env_len * sr).round() as usize;

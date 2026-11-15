@@ -158,6 +158,35 @@ impl Validator {
             self.effect(&format!("effects[{i}]"), effect, r.sample_rate);
         }
 
+        // Each layer on its own: its offset and envelope must fit in the
+        // 60 s limit (a `duration` cuts the sound anyway, so then it is
+        // not an error). Reported at the envelope, the usual thing to
+        // shorten.
+        if r.duration.is_none() && self.report.errors.is_empty() {
+            for (i, l) in r.layers.iter().enumerate() {
+                let lasts = l.offset + l.envelope.length();
+                if lasts > MAX_DURATION {
+                    self.report.push(
+                        Issue::error(
+                            Code::OutOfRange,
+                            format!("layers[{i}].envelope"),
+                            format!(
+                                "this layer lasts {lasts:.2} s (offset {} s plus an envelope of {:.2} s), past the {MAX_DURATION} s limit of a recipe; shorten the envelope or the offset, or set `duration` to cut the sound",
+                                l.offset,
+                                l.envelope.length()
+                            ),
+                        )
+                        .got(f64_clean(lasts))
+                        .range(0.0, MAX_DURATION as f64)
+                        .suggest(format!(
+                            "hold = {:.2}",
+                            (l.envelope.hold - (lasts - MAX_DURATION)).max(0.0)
+                        )),
+                    );
+                }
+            }
+        }
+
         // Total length check uses the un-jittered values; variation may
         // stretch times by up to 30%, which the renderer caps separately.
         // Skipped when any individual value is already out of range: the
@@ -558,5 +587,27 @@ mod applies_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use crate::{load_str, Format};
+
+    #[test]
+    fn a_layer_past_60_seconds_is_an_error_at_its_envelope() {
+        // Each envelope time may be up to 30 s; together they may not
+        // pass 60 s.
+        let text = "version = 0\n[[layers]]\nsource = \"noise\"\nenvelope = { attack = 30, hold = 30, decay = 10 }\n";
+        let report = load_str(text, Format::Toml).unwrap_err();
+        let issue = &report.errors[0];
+        assert_eq!(issue.path, "layers[0].envelope", "{report:?}");
+        assert!(issue.message.contains("70.00 s"), "{}", issue.message);
+        // 45 s is fine: a recipe may last 60 s.
+        let text = "version = 0\n[[layers]]\nsource = \"noise\"\nenvelope = { attack = 2, hold = 25, decay = 18 }\n";
+        assert!(load_str(text, Format::Toml).is_ok());
+        // With `duration` the sound is cut on purpose: no error.
+        let text = "version = 0\nduration = 10\n[[layers]]\nsource = \"noise\"\nenvelope = { attack = 30, hold = 30, decay = 10 }\n";
+        assert!(load_str(text, Format::Toml).is_ok());
     }
 }
