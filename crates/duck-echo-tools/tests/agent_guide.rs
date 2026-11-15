@@ -36,7 +36,11 @@ fn no_problems(report: &Report, what: &str) {
 #[test]
 fn every_toml_example_is_valid_with_no_warnings() {
     let examples = blocks("toml");
-    assert_eq!(examples.len(), 2, "a recipe and a song");
+    assert_eq!(
+        examples.len(),
+        3,
+        "a recipe with ranges, a recipe and a song"
+    );
     let files = files_next_to(Path::new("guide.toml"));
     for (i, src) in examples.iter().enumerate() {
         let dir = std::env::temp_dir().join(format!("duck-echo-guide-{}", std::process::id()));
@@ -54,10 +58,12 @@ fn every_toml_example_is_valid_with_no_warnings() {
         let a = &m.analysis;
         assert!(!a.clipping.clipped, "example {i}");
         match &doc {
-            Document::Recipe(_) => {
-                // The coin example: at the pickup target.
+            Document::Recipe(r) => {
+                // The step and the coin: at the level they ask for (their
+                // category's target).
+                let target = r.loaded.recipe.master.normalize_lufs.unwrap();
                 assert!(
-                    (a.loudness_lufs.unwrap() + 19.0).abs() < 0.1,
+                    (a.loudness_lufs.unwrap() - target).abs() < 0.1,
                     "{}",
                     a.summary
                 );

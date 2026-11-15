@@ -17,7 +17,37 @@ const TAIL_FLOOR: f32 = 0.001;
 
 /// Validate a parsed recipe. Errors mean it must not render; warnings mean it
 /// renders but something looks off.
+///
+/// A recipe with random ranges is checked twice, with every range at its
+/// `min` and at its `max`. A problem with a range's own value is reported
+/// at that end, such as `layers[0].volume.max`; any other problem once.
 pub fn validate(recipe: &Recipe) -> Report {
+    if recipe.ranges.is_empty() {
+        return validate_values(recipe);
+    }
+    use crate::random::{at, End};
+    let mut out = Report::new();
+    for (end, word) in [(End::Min, "min"), (End::Max, "max")] {
+        let report = validate_values(&at(recipe, end));
+        for mut issue in report.errors.into_iter().chain(report.warnings) {
+            if recipe.ranges.iter().any(|r| r.path == issue.path) {
+                issue.path = format!("{}.{word}", issue.path);
+            }
+            let seen = out
+                .errors
+                .iter()
+                .chain(&out.warnings)
+                .any(|i| i.path == issue.path && i.message == issue.message);
+            if !seen {
+                out.push(issue);
+            }
+        }
+    }
+    out
+}
+
+/// [`validate`] for one set of values (no ranges left to pick).
+fn validate_values(recipe: &Recipe) -> Report {
     let mut v = Validator {
         report: Report::new(),
     };

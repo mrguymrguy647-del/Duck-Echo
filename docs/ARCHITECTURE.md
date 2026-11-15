@@ -115,16 +115,20 @@ server and a future UI reuse the libraries rather than shelling out.
         ▼
  core::structure walk the tree against the generated JSON Schema: every
         │        unknown field, bad enum value, missing field and type
-        │        mismatch at once; prune them
+        │        mismatch at once; prune them. A `{ min, max }` table where
+        │        a number goes is a random range: recorded on
+        │        `Recipe::ranges`, decoded as its `min`
         ▼
  typed decode    clean documents straight from the source with serde;
         │        documents with structural errors from the pruned tree
         ▼
- core::validate  range and rule checks, all collected, warnings separate;
+ core::validate  range and rule checks, all collected, warnings separate
+        │        (a recipe with random ranges twice: all at min, all at max);
         │        issues under an already-reported path are dropped
         │        -> Issue { code, path, message, got, allowed, suggestion, line }
         ▼
- synth::prepare  variation jitter from seed, lengths, allocations -> Voice
+ synth::prepare  random ranges picked from the seed (core::random), then
+        │        variation jitter from seed, lengths, allocations -> Voice
         │
         ▼
  Voice::process  block by block, allocation-free, f32 (interleaved if stereo)
@@ -192,7 +196,11 @@ with multiplication only so every platform agrees on the frame count.
 
 * All randomness comes from the recipe `seed` through SplitMix64. Each layer
   gets its own forked stream, so adding a layer does not change the noise of
-  the others. `variation` draws its jitter from a separate stream.
+  the others. `variation` draws its jitter from a separate stream. A random
+  range's pick (`core::random`) is SplitMix64 seeded with the render's (or
+  the note's) seed mixed with an FNV-1a hash of the field's path, so every
+  field has a stream of its own; a recipe without ranges skips this step
+  entirely, so its bytes are as before.
 * The audio path never calls platform libm. `synth::math` provides
   polynomial `sin`, `exp2`, `log2` and `pow` built from `+ - * /`, `floor`,
   `sqrt` and bit casts, all of which are IEEE-754 exact. Rust does not
@@ -523,7 +531,9 @@ Names use `_`, not `.`, because Claude's tool names must match
 `file_copy_from`, `file_rename`, `file_delete`, `file_restore`,
 `file_set_text`...), sound commands (`sound_set`, `sound_add_layer`...),
 song commands (`song_add_note`, `song_place_pattern`, `song_set_loop`...)
-and `edit_undo`, `edit_redo`, `edit_history`. A command checks its result
+and `edit_undo`, `edit_redo`, `edit_history`. `sound_variants` writes
+audio and lists, not recipes or songs, so it is not an Undo step
+(`changes_files: false`). A command checks its result
 (a recipe, or a song with its instruments) before it writes; an invalid
 result changes nothing and returns the usual report. Commands that change
 data (and the MCP `edit` tool) change only the values that changed,

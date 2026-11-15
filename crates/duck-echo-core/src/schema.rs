@@ -12,7 +12,89 @@ pub fn recipe_schema() -> serde_json::Value {
     let mut value = recipe_structure();
     apply_ranges(&mut value, "Recipe");
     apply_applies(&mut value);
+    allow_random_ranges(&mut value, true);
     value
+}
+
+/// Let every number of a sound be written as a random range,
+/// `{ min = x, max = y }` (see [`crate::random`]): its `type` gains
+/// `object`, with `min` and `max` under the number's own limits. JSON
+/// Schema applies `minimum` only to numbers and `properties` only to
+/// objects, so one entry describes both forms. The numbers of `expect`
+/// and of a song's own fields stay plain; `root` says whether the top of
+/// the schema is a recipe.
+fn allow_random_ranges(schema: &mut serde_json::Value, root: bool) {
+    let recipe_defs: Vec<String> = recipe_structure()["$defs"]
+        .as_object()
+        .map(|d| d.keys().filter(|k| *k != "Expect").cloned().collect())
+        .unwrap_or_default();
+    if root {
+        if let Some(props) = schema["properties"].as_object_mut() {
+            for field in props.values_mut() {
+                add_range_form(field);
+            }
+        }
+    }
+    if let Some(defs) = schema["$defs"].as_object_mut() {
+        for (name, def) in defs.iter_mut() {
+            if recipe_defs.contains(name) {
+                visit_numbers(def);
+            }
+        }
+    }
+}
+
+/// Every number inside one type: its properties, an effect's shapes and
+/// the number branch of a number-or-name.
+fn visit_numbers(def: &mut serde_json::Value) {
+    for key in ["oneOf", "anyOf"] {
+        for shape in def[key].as_array_mut().into_iter().flatten() {
+            if shape.get("properties").is_some() {
+                visit_numbers(shape);
+            } else {
+                add_range_form(shape);
+            }
+        }
+    }
+    if let Some(props) = def["properties"].as_object_mut() {
+        for field in props.values_mut() {
+            add_range_form(field);
+        }
+    }
+}
+
+/// Give one number entry its range form. Anything else is left alone.
+fn add_range_form(field: &mut serde_json::Value) {
+    let types = match &field["type"] {
+        serde_json::Value::String(t) => vec![t.clone()],
+        serde_json::Value::Array(ts) => ts
+            .iter()
+            .filter_map(|t| t.as_str().map(str::to_string))
+            .collect(),
+        _ => return,
+    };
+    if !types.iter().any(|t| t == "number") {
+        return;
+    }
+    let mut end = serde_json::json!({ "type": "number" });
+    for limit in ["minimum", "exclusiveMinimum", "maximum"] {
+        if let Some(v) = field.get(limit) {
+            end[limit] = v.clone();
+        }
+    }
+    let mut new_types = types;
+    new_types.push("object".into());
+    let Some(obj) = field.as_object_mut() else {
+        return;
+    };
+    obj.insert("type".into(), serde_json::json!(new_types));
+    obj.insert(
+        "properties".into(),
+        serde_json::json!({ "min": end.clone(), "max": end }),
+    );
+    obj.insert("required".into(), serde_json::json!(["min", "max"]));
+    obj.insert("additionalProperties".into(), false.into());
+    obj.insert("x-random-range".into(), true.into());
 }
 
 /// The recipe schema without the ranges: what the Rust types alone say.
@@ -187,6 +269,7 @@ pub fn song_schema() -> serde_json::Value {
     let mut value = song_structure();
     apply_ranges(&mut value, "Song");
     apply_applies(&mut value);
+    allow_random_ranges(&mut value, false);
     value
 }
 

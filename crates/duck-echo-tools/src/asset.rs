@@ -128,6 +128,28 @@ pub fn info(
     }
 }
 
+/// A recipe's data for [`info`]'s hash: the recipe as JSON, plus its
+/// random ranges (which are not fields of the decoded recipe), so changing
+/// a range changes the hash.
+pub fn recipe_data(recipe: &duck_echo_core::Recipe) -> serde_json::Value {
+    let mut data = serde_json::to_value(recipe).expect("a recipe is JSON");
+    if !recipe.ranges.is_empty() {
+        data["ranges"] = serde_json::to_value(&recipe.ranges).expect("ranges are JSON");
+    }
+    data
+}
+
+/// A song's data for [`info`]'s hash, with its instruments' ranges.
+pub fn song_data(song: &duck_echo_core::Song) -> serde_json::Value {
+    let mut data = serde_json::to_value(song).expect("a song is JSON");
+    for (name, recipe) in &song.instruments {
+        if !recipe.ranges.is_empty() {
+            data["instruments"][name] = recipe_data(recipe);
+        }
+    }
+    data
+}
+
 /// Where the facts of `wav` go: `<wav>.json`, such as `coin.wav.json`
 /// (`coin.json` could be a recipe).
 pub fn sidecar_path(wav: &Path) -> PathBuf {

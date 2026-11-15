@@ -22,6 +22,7 @@ pub mod project;
 pub mod root;
 pub mod save;
 pub mod song;
+pub mod variants;
 
 pub use measure::{Extras, LayerAnalysis, Measured, Options, TrackAnalysis};
 pub use song::{load_document, load_document_value, Document, FileResolver, SongFacts, SongRef};
@@ -296,7 +297,7 @@ pub fn render_to_file(
     }
     let m = measure::measure_recipe(&recipe, &loaded.report.warnings, extras)?;
     write_wav_file(output, &m.buffer, format)?;
-    let data = serde_json::to_value(&recipe).expect("a recipe is JSON");
+    let data = asset::recipe_data(&recipe);
     let info = asset::info(
         &m.buffer,
         &m.measured.analysis,
@@ -367,18 +368,12 @@ pub fn render_document_to_file(
         Document::Recipe(r) => {
             let mut recipe = r.loaded.recipe.clone();
             recipe.seed = used;
-            (
-                serde_json::to_value(&recipe).expect("a recipe is JSON"),
-                false,
-            )
+            (asset::recipe_data(&recipe), false)
         }
         Document::Song(s) => {
             let mut song = s.loaded.song.clone();
             song.seed = used;
-            (
-                serde_json::to_value(&song).expect("a song is JSON"),
-                song.loop_,
-            )
+            (asset::song_data(&song), song.loop_)
         }
     };
     let info = asset::info(&m.buffer, &m.measured.analysis, output, &data, used, loops);
@@ -430,7 +425,7 @@ pub fn file_safe(name: &str) -> String {
     }
 }
 
-fn write_wav_file(
+pub(crate) fn write_wav_file(
     output: &Path,
     buffer: &AudioBuffer,
     format: duck_echo_audio::WavFormat,
@@ -443,6 +438,9 @@ fn write_wav_file(
 
 /// Most renders one `variations` call may make.
 pub const MAX_VARIATIONS: u32 = 64;
+
+/// Why every seed sounds the same, for [`variations`] and the variant export.
+pub const SAME_FOR_EVERY_SEED: &str = "variation is 0, no layer uses noise and no field is a random range, so every seed renders the same audio; set a variation such as 0.3, or write a field as a range such as volume = { min = 0.6, max = 0.9 }";
 
 /// One render of a variation set.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -503,10 +501,8 @@ pub fn variations(
         .layers
         .iter()
         .any(|l| duck_echo_synth::source_uses_seed(l.source));
-    let seeds_matter = base.variation > 0.0 || uses_noise;
-    let note = (!seeds_matter).then(|| {
-        "variation is 0 and no layer uses noise, so every seed renders the same audio; set a variation such as 0.3".to_string()
-    });
+    let seeds_matter = base.variation > 0.0 || uses_noise || !base.ranges.is_empty();
+    let note = (!seeds_matter).then(|| SAME_FOR_EVERY_SEED.to_string());
     let mut renders = Vec::with_capacity(count as usize);
     for seed in 1..=count as u64 {
         let mut r = base.clone();
@@ -516,7 +512,7 @@ pub fn variations(
             Some(dir) => {
                 let path = dir.join(format!("{}_seed{seed}.wav", file_safe(&recipe.stem)));
                 write_wav_file(&path, &buffer, duck_echo_audio::WavFormat::Pcm16)?;
-                let data = serde_json::to_value(&r).expect("a recipe is JSON");
+                let data = asset::recipe_data(&r);
                 let info =
                     asset::info(&buffer, &analyze_buffer(&buffer), &path, &data, seed, false);
                 asset::write_sidecar(&path, &info)?;

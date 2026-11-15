@@ -913,7 +913,7 @@ pub fn export_wav(root: &Root, rel: &str, to: &Path) -> Result<PathBuf, String> 
     duck_echo_tools::save::write_atomic(&path, &bytes).map_err(|e| e.into_report().to_string())?;
     // The timing and level facts beside it, as `render` writes them, for
     // a game engine (`coin.wav.json`).
-    let data = serde_json::to_value(&recipe).map_err(|e| e.to_string())?;
+    let data = duck_echo_tools::asset::recipe_data(&recipe);
     let analysis = duck_echo_tools::analyze_buffer(&buffer);
     let info = duck_echo_tools::asset::info(&buffer, &analysis, &path, &data, recipe.seed, false);
     duck_echo_tools::asset::write_sidecar(&path, &info).map_err(|e| e.into_report().to_string())?;

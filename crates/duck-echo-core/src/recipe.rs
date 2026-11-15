@@ -157,6 +157,14 @@ pub struct Recipe {
     /// Master effect chain, applied in order to the mixed layers.
     #[serde(default)]
     pub effects: Vec<Effect>,
+
+    /// The fields written as `{ min = x, max = y }`, found by the loader.
+    /// Not a field of the file: in the file each range sits in its own
+    /// field, and the decoded recipe holds its `min` there. Each render
+    /// picks the values from its seed ([`crate::random::resolve`]).
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub ranges: Vec<crate::random::RandomRange>,
 }
 
 /// How much of something a sound has, as `analyze` measures it (its
@@ -789,6 +797,7 @@ impl Recipe {
             description: None,
             tags: Vec::new(),
             expect: None,
+            ranges: Vec::new(),
             seed: 0,
             sample_rate: DEFAULT_SAMPLE_RATE,
             channels: 1,

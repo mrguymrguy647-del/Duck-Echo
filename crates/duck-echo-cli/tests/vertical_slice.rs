@@ -790,7 +790,9 @@ fn bad_note_name_is_reported_at_its_path() {
 fn schema_offers_number_or_note_name() {
     let schema = duck_echo_core::schema::recipe_schema();
     let freq = &schema["$defs"]["Frequency"]["anyOf"];
-    assert_eq!(freq[0]["type"], "number");
+    // A number, or a random range of numbers.
+    assert_eq!(freq[0]["type"], serde_json::json!(["number", "object"]));
+    assert_eq!(freq[0]["required"], serde_json::json!(["min", "max"]));
     assert_eq!(freq[1]["type"], "string");
     assert_eq!(freq[1]["format"], "note-name");
     assert_eq!(freq[1]["pattern"], duck_echo_core::note::NOTE_PATTERN);

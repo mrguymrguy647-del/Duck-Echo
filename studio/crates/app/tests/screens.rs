@@ -426,6 +426,23 @@ fn open_a_sound_and_edit_it_as_the_checklist_does() {
     assert!(project.join("exports").join("coin.wav").is_file());
     harness.get_by_label_contains("Exported");
 
+    // Export 8 variants: numbered WAVs and the list a game picks from.
+    harness.get_by_label("...").click();
+    harness.run_steps(2);
+    harness.get_by_label("Export 8 variants").click();
+    harness.run_steps(2);
+    let variants = project.join("exports").join("coin");
+    for n in 1..=8 {
+        assert!(
+            variants.join(format!("coin_{n}.wav")).is_file(),
+            "coin_{n}.wav"
+        );
+        assert!(variants.join(format!("coin_{n}.wav.json")).is_file());
+    }
+    assert!(variants.join("coin.variants.json").is_file());
+    // The coin has no noise, variation or range: the note says so.
+    harness.get_by_label_contains("they are all the same");
+
     // Back to Home.
     harness.get_by_label("< Home").click();
     harness.run_steps(2);
@@ -775,6 +792,21 @@ fn every_preset_and_instrument_gets_its_sliders() {
         harness.state_mut().close_editor();
         harness.run_steps(1);
     }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_random_range_shows_in_words_and_opening_it_changes_nothing() {
+    let dir = folder("ranges");
+    let mut harness = harness(app(&dir, AppMenu::none()), true);
+    harness.run_steps(1);
+    let text = "version = 0\n[[layers]]\nsource = \"noise\"\nvolume = { min = 0.3, max = 0.9 }\nenvelope = { attack = 0.001, decay = 0.1 }\n";
+    let file = dir.join("Duck Echo").join("step.toml");
+    std::fs::write(&file, text).unwrap();
+    harness.state_mut().open_sound("step.toml");
+    harness.run_steps(4);
+    harness.get_by_label("random, 0.3 to 0.9");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
     std::fs::remove_dir_all(&dir).ok();
 }
 

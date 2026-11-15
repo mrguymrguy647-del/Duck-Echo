@@ -34,7 +34,7 @@ which renders a 0.205 s square-wave blip at 440 Hz.
 | `seed` | integer | `0` | 0..2^63 | Drives the noise source and `variation`. Same recipe and seed give identical audio. |
 | `sample_rate` | integer | `44100` | 8000..192000 | Output rate in Hz. |
 | `channels` | integer | `1` | 1..2 | `1` mono, `2` stereo (see Stereo). |
-| `variation` | number | `0` | 0..1 | How far the seed may jitter the sound (see Variation). |
+| `variation` | number | `0` | 0..1 | How far the seed may jitter the sound (see Variation). Any number may also be a random range (see Random ranges). |
 | `duration` | number | computed | 0.001..60 | Force the output length. Omit to compute it. |
 | `master` | table | defaults | | Master output stage. |
 | `layers` | array of tables | `[]` | at least one | The sounds to mix. |
@@ -383,6 +383,48 @@ With `variation = 0` the seed only affects noise, so a tone recipe gives the
 same audio for every seed. The draws happen for every layer regardless, so a
 layer's jitter does not depend on earlier layers' settings.
 
+## Random ranges
+
+Any number of a sound may be written as a range instead:
+
+```toml
+[[layers]]
+source = "noise"
+volume = { min = 0.6, max = 0.9 }
+pitch = { start = { min = 300, max = 500 } }
+envelope = { attack = 0.002, decay = { min = 0.08, max = 0.14 } }
+```
+
+Each render picks one value between `min` and `max` from the seed, so seed 1,
+seed 2 and seed 3 are three footsteps, and the same seed always picks the
+same values (on every computer: the picks use integer math only). Each field
+has its own random stream (the seed mixed with the field's path), so adding
+or removing a range never changes what another field picks. `variation`
+then jitters the picked values as usual, and noise follows the seed as
+always.
+
+Rules:
+
+* A range is a table of exactly `min` and `max`, both numbers, with
+  `min <= max`. Errors name the end at fault: `layers[0].volume.max`.
+* Both ends must be allowed values of the field: validation checks the
+  recipe with every range at its `min` and again at its `max`. (The rules
+  that join two fields, such as a layer's length, are checked at those two
+  corners.)
+* Any field that takes a decimal number takes a range, a pitch's
+  `start` and `end` too (as Hz, not note names). Whole numbers (`seed`,
+  `sample_rate`, `channels`, `version`) and the lines of `expect` do not.
+* In a song, a range works inside the song's own `instruments` (each note
+  picks its values from its own seed, so every hit of a snare can differ).
+  A song's own fields (`tempo`, a note's `velocity` ...) take plain
+  numbers; a range there is a `type_mismatch` error.
+* The schema says this with `type: ["number", "object"]` and `properties`
+  `min` and `max` under the field's own limits, marked
+  `x-random-range: true`.
+
+`sound_variants` exports N seeds of a sound as numbered WAVs for a game to
+pick from at random (see `AGENT_GUIDE.md`).
+
 ## Validation
 
 Validation collects every problem in one call: unknown fields, unknown
@@ -625,6 +667,7 @@ What a song uses from an instrument recipe:
 | top-level `effects` | run **once per track**, on the sum of its notes: one reverb is one room, echoes carry over the next notes, and a fast melody does not stack reverbs. A kit runs each piece's effects once for that piece |
 | `seed` | mixed into every note's seed |
 | `variation` | applies per note, so each note differs a little |
+| random ranges (`volume = { min = 0.4, max = 0.7 }`) | picked per note, from the note's seed |
 | `master.gain`, `normalize`, `normalize_peak_db`, `normalize_lufs` | used once, as one fixed level: the gain the recipe's master applies when the recipe is rendered alone. An instrument is as loud in a song as on its own, and `velocity` still works |
 | `sample_rate`, `channels`, `duration`, `master.trim_silence` | not used; the song decides |
 
@@ -735,7 +778,6 @@ error until implemented. See `ROADMAP.md` for the order.
 
 * More than one LFO per layer, LFO rates in beats, and an LFO that runs
   on across the notes of a song (it restarts with each note).
-* Per-parameter random ranges (`volume = { min = 0.6, max = 0.9 }`).
 * Sample layers.
 * Formant voice sources (Phase 5).
 * In songs: a separate "first time" file for a loop (one without the

@@ -1,6 +1,7 @@
 {
   "$defs": {
     "Aliasing": {
+      "anyOf": null,
       "description": "How square and saw waves handle high notes (`layers[].aliasing`).",
       "oneOf": [
         {
@@ -13,9 +14,11 @@
           "description": "The raw wave, as on old sound chips: bright, with extra tones on\nhigh notes.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "Amount": {
+      "anyOf": null,
       "description": "How much of something a sound has, as `analyze` measures it (its\n`feel`): see `docs/ANALYSIS.md` for each measure's thresholds.",
       "oneOf": [
         {
@@ -33,11 +36,14 @@
           "description": "A lot.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "Arpeggio": {
       "additionalProperties": false,
+      "anyOf": null,
       "description": "Stepped pitch offsets, the classic chiptune arpeggio.",
+      "oneOf": null,
       "properties": {
         "repeat": {
           "default": true,
@@ -45,12 +51,33 @@
           "type": "boolean"
         },
         "step_time": {
+          "additionalProperties": false,
           "default": 0.05,
           "description": "Length of each step in seconds, range 0.001..=30. Default `0.05`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0.001,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0.001,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0.001,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "steps": {
           "description": "Pitch offsets in semitones, played in order. At least one step,\neach in -96..=96. Example: `[0, 4, 7]` is a major chord.",
@@ -69,6 +96,7 @@
       "type": "object"
     },
     "Curve": {
+      "anyOf": null,
       "description": "Interpolation curve for sweeps.",
       "oneOf": [
         {
@@ -91,9 +119,11 @@
           "description": "Starts fast, ends slow.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "DistortionKind": {
+      "anyOf": null,
       "description": "Distortion shape.",
       "oneOf": [
         {
@@ -111,38 +141,105 @@
           "description": "Wave folding: harsh, metallic.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "Effect": {
+      "anyOf": null,
       "description": "One effect in a chain. Selected by the `type` field.\n\nEvery effect has a `mix` in 0..=1: `0` is fully dry, `1` is fully wet.",
       "oneOf": [
         {
           "additionalProperties": false,
+          "anyOf": null,
           "description": "Repeating delay.",
+          "oneOf": null,
           "properties": {
             "delay": {
+              "additionalProperties": false,
               "default": 0.25,
               "description": "Delay time in seconds, range 0.001..=5. Default `0.25`.",
               "format": "float",
               "maximum": 5,
               "minimum": 0.001,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 5,
+                  "minimum": 0.001,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 5,
+                  "minimum": 0.001,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "feedback": {
+              "additionalProperties": false,
               "default": 0.4,
               "description": "How much of each echo feeds the next, range 0..=0.99. Default `0.4`.",
               "format": "float",
               "maximum": 0.99,
               "minimum": 0,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 0.99,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 0.99,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "mix": {
+              "additionalProperties": false,
               "default": 0.35,
               "description": "Wet/dry mix, range 0..=1. Default `0.35`.",
               "format": "float",
               "maximum": 1,
               "minimum": 0,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "type": {
               "const": "echo",
@@ -156,39 +253,125 @@
         },
         {
           "additionalProperties": false,
+          "anyOf": null,
           "description": "Simple room reverb.",
+          "oneOf": null,
           "properties": {
             "damping": {
+              "additionalProperties": false,
               "default": 0.5,
               "description": "High-frequency damping of the tail, range 0..=1. Default `0.5`.",
               "format": "float",
               "maximum": 1,
               "minimum": 0,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "decay": {
+              "additionalProperties": false,
               "default": 1.0,
               "description": "Time in seconds for the tail to fall by 60 dB, range 0.05..=10.\nDefault `1.0`.",
               "format": "float",
               "maximum": 10,
               "minimum": 0.05,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 10,
+                  "minimum": 0.05,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 10,
+                  "minimum": 0.05,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "mix": {
+              "additionalProperties": false,
               "default": 0.3,
               "description": "Wet/dry mix, range 0..=1. Default `0.3`.",
               "format": "float",
               "maximum": 1,
               "minimum": 0,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "size": {
+              "additionalProperties": false,
               "default": 0.5,
               "description": "Room size, range 0..=1. Default `0.5`.",
               "format": "float",
               "maximum": 1,
               "minimum": 0,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "type": {
               "const": "reverb",
@@ -202,15 +385,38 @@
         },
         {
           "additionalProperties": false,
+          "anyOf": null,
           "description": "Waveshaping distortion.",
+          "oneOf": null,
           "properties": {
             "drive": {
+              "additionalProperties": false,
               "default": 2.0,
               "description": "Input gain before shaping, range 1..=100. Default `2`.",
               "format": "float",
               "maximum": 100,
               "minimum": 1,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "kind": {
               "$ref": "#/$defs/DistortionKind",
@@ -218,12 +424,33 @@
               "description": "One of `soft`, `hard`, `fold`. Default `soft`."
             },
             "mix": {
+              "additionalProperties": false,
               "default": 1.0,
               "description": "Wet/dry mix, range 0..=1. Default `1`.",
               "format": "float",
               "maximum": 1,
               "minimum": 0,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "type": {
               "const": "distortion",
@@ -237,7 +464,9 @@
         },
         {
           "additionalProperties": false,
+          "anyOf": null,
           "description": "Bit depth and sample rate reduction.",
+          "oneOf": null,
           "properties": {
             "bits": {
               "default": 8,
@@ -248,22 +477,62 @@
               "type": "integer"
             },
             "mix": {
+              "additionalProperties": false,
               "default": 1.0,
               "description": "Wet/dry mix, range 0..=1. Default `1`.",
               "format": "float",
               "maximum": 1,
               "minimum": 0,
-              "type": "number"
+              "properties": {
+                "max": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": [
+                "number",
+                "object"
+              ],
+              "x-random-range": true
             },
             "rate": {
+              "additionalProperties": false,
               "description": "Sample-and-hold rate in Hz, range 100..=192000. Omit to keep the full\nsample rate.",
               "format": "float",
               "maximum": 192000,
               "minimum": 100,
+              "properties": {
+                "max": {
+                  "maximum": 192000,
+                  "minimum": 100,
+                  "type": "number"
+                },
+                "min": {
+                  "maximum": 192000,
+                  "minimum": 100,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
               "type": [
                 "number",
-                "null"
-              ]
+                "null",
+                "object"
+              ],
+              "x-random-range": true
             },
             "type": {
               "const": "bitcrush",
@@ -275,59 +544,188 @@
           ],
           "type": "object"
         }
-      ]
+      ],
+      "properties": null
     },
     "Envelope": {
       "additionalProperties": false,
+      "anyOf": null,
       "description": "Volume envelope, all times in seconds (each 0..=30).\n\nShape: rise to 1 over `attack`, stay at 1 for `hold`, fall to `sustain`\nover `decay`, stay there for `sustain_time`, fall to 0 over `release`.\nThe layer length is the sum of the five times.",
+      "oneOf": null,
       "properties": {
         "attack": {
+          "additionalProperties": false,
           "default": 0.005,
           "description": "Time to rise from 0 to full level. Default `0.005`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "decay": {
+          "additionalProperties": false,
           "default": 0.2,
           "description": "Time to fall from full level to `sustain`. Default `0.2`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "hold": {
+          "additionalProperties": false,
           "default": 0.0,
           "description": "Time held at full level. Default `0`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "release": {
+          "additionalProperties": false,
           "default": 0.0,
           "description": "Time to fall from `sustain` to 0. Default `0`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "sustain": {
+          "additionalProperties": false,
           "default": 0.0,
           "description": "Sustain level, 0..=1. Default `0`.",
           "format": "float",
           "maximum": 1,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "sustain_time": {
+          "additionalProperties": false,
           "default": 0.0,
           "description": "Time held at `sustain` level. Default `0`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         }
       },
       "type": "object"
@@ -418,7 +816,9 @@
     },
     "Filter": {
       "additionalProperties": false,
+      "anyOf": null,
       "description": "A resonant 2-pole filter with an optional cutoff sweep.",
+      "oneOf": null,
       "properties": {
         "curve": {
           "$ref": "#/$defs/Curve",
@@ -426,22 +826,62 @@
           "description": "Sweep shape. Default `linear`."
         },
         "cutoff": {
+          "additionalProperties": false,
           "default": 2000.0,
           "description": "Cutoff frequency in Hz at the start, range 10..=20000. Default `2000`.",
           "format": "float",
           "maximum": 20000,
           "minimum": 10,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 20000,
+              "minimum": 10,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 20000,
+              "minimum": 10,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "cutoff_end": {
+          "additionalProperties": false,
           "description": "Cutoff at the end of the sweep in Hz. Omit for a fixed cutoff.",
           "format": "float",
           "maximum": 20000,
           "minimum": 10,
+          "properties": {
+            "max": {
+              "maximum": 20000,
+              "minimum": 10,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 20000,
+              "minimum": 10,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
           "type": [
             "number",
-            "null"
-          ]
+            "null",
+            "object"
+          ],
+          "x-random-range": true
         },
         "kind": {
           "$ref": "#/$defs/FilterKind",
@@ -449,27 +889,68 @@
           "description": "One of `lowpass`, `highpass`, `bandpass`. Default `lowpass`."
         },
         "resonance": {
+          "additionalProperties": false,
           "default": 0.707,
           "description": "Resonance (Q), range 0.1..=30. `0.707` is flat. Default `0.707`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0.1,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0.1,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0.1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "sweep_time": {
+          "additionalProperties": false,
           "description": "Sweep length in seconds, range 0.001..=30. Omit to sweep over the\nwhole layer.",
           "format": "float",
           "maximum": 30,
           "minimum": 0.001,
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0.001,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0.001,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
           "type": [
             "number",
-            "null"
-          ]
+            "null",
+            "object"
+          ],
+          "x-random-range": true
         }
       },
       "type": "object"
     },
     "FilterKind": {
+      "anyOf": null,
       "description": "Filter type.",
       "oneOf": [
         {
@@ -487,15 +968,37 @@
           "description": "Passes frequencies around `cutoff`.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "Frequency": {
       "anyOf": [
         {
+          "additionalProperties": false,
           "format": "float",
           "maximum": 20000,
           "minimum": 1,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 20000,
+              "minimum": 1,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 20000,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         {
           "examples": [
@@ -508,11 +1011,15 @@
           "type": "string"
         }
       ],
-      "description": "A frequency: a number in Hz, or a note name in scientific pitch notation (letter A-G, optional # or b, octave -1..9; A4 = 440 Hz, C4 = middle C)."
+      "description": "A frequency: a number in Hz, or a note name in scientific pitch notation (letter A-G, optional # or b, octave -1..9; A4 = 440 Hz, C4 = middle C).",
+      "oneOf": null,
+      "properties": null
     },
     "Layer": {
       "additionalProperties": false,
+      "anyOf": null,
       "description": "One sound layer: an oscillator shaped by an envelope, pitch curve, filter\nand optional effects.",
+      "oneOf": null,
       "properties": {
         "aliasing": {
           "$ref": "#/$defs/Aliasing",
@@ -526,17 +1033,38 @@
           }
         },
         "duty": {
+          "additionalProperties": false,
           "default": 0.5,
           "description": "Pulse width for `square`, range 0.01..=0.99. Ignored by other\nsources. Default `0.5`.",
           "format": "float",
           "maximum": 0.99,
           "minimum": 0.01,
-          "type": "number",
+          "properties": {
+            "max": {
+              "maximum": 0.99,
+              "minimum": 0.01,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 0.99,
+              "minimum": 0.01,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
           "x-applies-when": {
             "source": [
               "square"
             ]
-          }
+          },
+          "x-random-range": true
         },
         "effects": {
           "default": [],
@@ -598,20 +1126,62 @@
           }
         },
         "offset": {
+          "additionalProperties": false,
           "default": 0.0,
           "description": "Start time of this layer in seconds from the start of the sound,\nrange 0..=30. Default `0`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "pan": {
+          "additionalProperties": false,
           "default": 0.0,
           "description": "Stereo position, -1 (left) ..= 1 (right), equal-power. Only used\nwhen the recipe has `channels = 2`. Default `0` (centre).",
           "format": "float",
           "maximum": 1,
           "minimum": -1,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 1,
+              "minimum": -1,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 1,
+              "minimum": -1,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "pitch": {
           "$ref": "#/$defs/Pitch",
@@ -638,43 +1208,129 @@
           "description": "Waveform. One of `sine`, `square`, `saw`, `triangle`, `noise`.\nDefault `square`."
         },
         "volume": {
+          "additionalProperties": false,
           "default": 0.8,
           "description": "Layer volume, linear, range 0..=2. Default `0.8`.",
           "format": "float",
           "maximum": 2,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         }
       },
       "type": "object"
     },
     "Lfo": {
       "additionalProperties": false,
+      "anyOf": null,
       "description": "A low-frequency oscillator: a slow wave that moves one setting of the\nlayer. It starts when the layer starts (so in a song, with each note).",
+      "oneOf": null,
       "properties": {
         "delay": {
+          "additionalProperties": false,
           "default": 0.0,
           "description": "Seconds before the wave starts, range 0..=30. Default `0`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "depth": {
+          "additionalProperties": false,
           "default": 0.5,
           "description": "How far it moves. `volume`: 0..=1, the level swings between full\nand `1 - depth` of full. `cutoff`: 0..=4 octaves up and down from\nthe filter's cutoff. `duty`: 0..=0.5 added to and taken from\n`duty` (the result is kept inside 0.01..=0.99). `pitch`: 0..=24\nsemitones up and down. Default `0.5`.",
           "format": "float",
           "maximum": 24,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 24,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 24,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "rate": {
+          "additionalProperties": false,
           "default": 5.0,
           "description": "Cycles per second. Default `5`. `volume` and `pitch` go up to\n2000: above about 20 the wobble is too fast to hear as a wobble\nand becomes a rough, growling or buzzing tone (side tones at the\nnote plus and minus the rate). `cutoff` and `duty` go up to 50.\nRange 0.01..=2000.",
           "format": "float",
           "maximum": 2000,
           "minimum": 0.01,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 2000,
+              "minimum": 0.01,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 2000,
+              "minimum": 0.01,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "shape": {
           "$ref": "#/$defs/LfoShape",
@@ -690,6 +1346,7 @@
       "type": "object"
     },
     "LfoShape": {
+      "anyOf": null,
       "description": "The wave of an [`Lfo`].",
       "oneOf": [
         {
@@ -707,9 +1364,11 @@
           "description": "Jumps between the two ends.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "LfoTarget": {
+      "anyOf": null,
       "description": "The setting an [`Lfo`] moves.",
       "oneOf": [
         {
@@ -732,19 +1391,43 @@
           "description": "The layer's pitch, `depth` semitones up and down. Slow, it is a\nwobble; at audio rates (tens to hundreds of times a second) it\ngrowls, buzzes or rasps: side tones appear at the note plus and\nminus the rate (frequency modulation). Needs a layer with a pitch.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "Master": {
       "additionalProperties": false,
+      "anyOf": null,
       "description": "Master output stage.",
+      "oneOf": null,
       "properties": {
         "gain": {
+          "additionalProperties": false,
           "default": 1.0,
           "description": "Linear gain applied to the mix, range 0..=4. Default `1.0`.",
           "format": "float",
           "maximum": 4,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 4,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 4,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "normalize": {
           "default": false,
@@ -752,22 +1435,62 @@
           "type": "boolean"
         },
         "normalize_lufs": {
+          "additionalProperties": false,
           "description": "Scale the render so its loudness, as `analyze` measures it, is this\nmany LUFS, range -60..=0. Replaces `normalize` and\n`normalize_peak_db`; the peak never goes above -1 dBFS, so a target\nthat needs more gain renders quieter (the render result warns).\nOffline only. Default: off.",
           "format": "float",
           "maximum": 0,
           "minimum": -60,
+          "properties": {
+            "max": {
+              "maximum": 0,
+              "minimum": -60,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 0,
+              "minimum": -60,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
           "type": [
             "number",
-            "null"
-          ]
+            "null",
+            "object"
+          ],
+          "x-random-range": true
         },
         "normalize_peak_db": {
+          "additionalProperties": false,
           "default": -1.0,
           "description": "Target peak in dBFS when `normalize` is on, range -40..=0. Default `-1`.",
           "format": "float",
           "maximum": 0,
           "minimum": -40,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 0,
+              "minimum": -40,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 0,
+              "minimum": -40,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "trim_silence": {
           "default": false,
@@ -778,6 +1501,7 @@
       "type": "object"
     },
     "NoiseMode": {
+      "anyOf": null,
       "description": "What kind of noise a `noise` layer makes.",
       "oneOf": [
         {
@@ -790,11 +1514,14 @@
           "description": "A new random value `pitch` times per second, held in between.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "Pitch": {
       "additionalProperties": false,
+      "anyOf": null,
       "description": "Pitch over time. Frequencies are numbers in Hz (range 1..=20000) or note\nnames such as `\"C5\"`, `\"F#3\"`, `\"Bb2\"` (A4 = 440 Hz).",
+      "oneOf": null,
       "properties": {
         "arpeggio": {
           "anyOf": [
@@ -829,14 +1556,33 @@
           "description": "Frequency at the start of the layer: Hz or a note name such as\n`\"A4\"`. Default `440`."
         },
         "sweep_time": {
+          "additionalProperties": false,
           "description": "Sweep length in seconds, range 0.001..=30. Omit to sweep over the whole\nlayer. After the sweep the pitch stays at `end`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0.001,
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0.001,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0.001,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
           "type": [
             "number",
-            "null"
-          ]
+            "null",
+            "object"
+          ],
+          "x-random-range": true
         },
         "vibrato": {
           "anyOf": [
@@ -853,6 +1599,7 @@
       "type": "object"
     },
     "Source": {
+      "anyOf": null,
       "description": "Oscillator waveform.",
       "oneOf": [
         {
@@ -880,35 +1627,101 @@
           "description": "White noise driven by `seed`.",
           "type": "string"
         }
-      ]
+      ],
+      "properties": null
     },
     "Vibrato": {
       "additionalProperties": false,
+      "anyOf": null,
       "description": "Periodic pitch wobble.",
+      "oneOf": null,
       "properties": {
         "delay": {
+          "additionalProperties": false,
           "default": 0.0,
           "description": "Seconds before the vibrato starts, range 0..=30. Default `0`.",
           "format": "float",
           "maximum": 30,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "depth": {
+          "additionalProperties": false,
           "default": 0.5,
           "description": "Wobble depth in semitones (peak), range 0..=48. Default `0.5`.",
           "format": "float",
           "maximum": 48,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 48,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 48,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         },
         "rate": {
+          "additionalProperties": false,
           "default": 6.0,
           "description": "Wobble rate in Hz, range 0..=100. Default `6`.",
           "format": "float",
           "maximum": 100,
           "minimum": 0,
-          "type": "number"
+          "properties": {
+            "max": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ],
+          "type": [
+            "number",
+            "object"
+          ],
+          "x-random-range": true
         }
       },
       "type": "object"
@@ -935,14 +1748,33 @@
       ]
     },
     "duration": {
+      "additionalProperties": false,
       "description": "Force the total output length in seconds, range 0.001..=60.\nWhen omitted the length is computed from the layers and effect tails.",
       "format": "float",
       "maximum": 60,
       "minimum": 0.001,
+      "properties": {
+        "max": {
+          "maximum": 60,
+          "minimum": 0.001,
+          "type": "number"
+        },
+        "min": {
+          "maximum": 60,
+          "minimum": 0.001,
+          "type": "number"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
       "type": [
         "number",
-        "null"
-      ]
+        "null",
+        "object"
+      ],
+      "x-random-range": true
     },
     "effects": {
       "default": [],
@@ -1011,12 +1843,33 @@
       "type": "array"
     },
     "variation": {
+      "additionalProperties": false,
       "default": 0.0,
       "description": "How much the seed may jitter pitch and envelope times, 0..=1.\n`0` (default) means the seed only affects noise. `1` jitters pitch by\nup to +-3 semitones and envelope times by up to +-30%.",
       "format": "float",
       "maximum": 1,
       "minimum": 0,
-      "type": "number"
+      "properties": {
+        "max": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "min": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "type": [
+        "number",
+        "object"
+      ],
+      "x-random-range": true
     },
     "version": {
       "description": "Schema version. Must be `0` for this version of Duck Echo. Required.",

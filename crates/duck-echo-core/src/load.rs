@@ -13,6 +13,7 @@
 //! 4. Semantics: [`validate`] checks ranges and rules. Issues under a path
 //!    that step 2 already reported are dropped as duplicates.
 
+use crate::random::RandomRange;
 use crate::recipe::Recipe;
 use crate::report::{Code, Issue, Report};
 use crate::song::{arrange, Arrangement, InstrumentSource, Song};
@@ -103,17 +104,55 @@ pub fn document_kind(src: &str, format: Format) -> DocumentKind {
 /// structure against.
 trait Document: DeserializeOwned {
     fn check(tree: &tree::Node) -> structure::Checked;
+    /// Keep the random ranges the walker found; returns an issue for each
+    /// range in a place that cannot take one.
+    fn keep_ranges(&mut self, ranges: Vec<RandomRange>) -> Vec<Issue>;
 }
 
 impl Document for Recipe {
     fn check(tree: &tree::Node) -> structure::Checked {
         structure::check(tree)
     }
+    fn keep_ranges(&mut self, ranges: Vec<RandomRange>) -> Vec<Issue> {
+        self.ranges = ranges;
+        Vec::new()
+    }
 }
 
 impl Document for Song {
     fn check(tree: &tree::Node) -> structure::Checked {
         structure::check_song(tree)
+    }
+    /// A range belongs to the song's own instrument it is in (each note
+    /// picks its values from its own seed). Anywhere else in a song it is
+    /// an error: songs take plain numbers.
+    fn keep_ranges(&mut self, ranges: Vec<RandomRange>) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        for mut range in ranges {
+            let found = self.instruments.iter_mut().find_map(|(name, recipe)| {
+                let prefix = format!("instruments.{name}.");
+                range
+                    .path
+                    .strip_prefix(&prefix)
+                    .map(|rest| (rest.to_string(), recipe))
+            });
+            match found {
+                Some((rest, recipe)) => {
+                    range.path = rest;
+                    recipe.ranges.push(range);
+                }
+                None => issues.push(
+                    Issue::error(
+                        Code::TypeMismatch,
+                        &range.path,
+                        "a random range works in a sound's fields (and in an \
+                         instrument's), not in the song itself; write one number",
+                    )
+                    .suggest(range.min.to_string()),
+                ),
+            }
+        }
+        issues
     }
 }
 
@@ -150,20 +189,32 @@ fn parse_full<T: Document>(src: &str, format: Format) -> Parsed<T> {
             }
         }
     };
-    let checked = T::check(&tree);
+    let mut checked = T::check(&tree);
     if checked.issues.is_empty() {
-        let decoded = match format {
-            Format::Toml => typed_toml(src),
-            Format::Json => typed_json(src),
+        let ranges = std::mem::take(&mut checked.ranges);
+        let decoded = if ranges.is_empty() {
+            match format {
+                Format::Toml => typed_toml::<T>(src),
+                Format::Json => typed_json(src),
+            }
+        } else {
+            // Ranges are tables in the text; the pruned copy holds numbers.
+            typed_value(checked.pruned.take().unwrap_or_default())
         };
         return match decoded {
-            Ok(recipe) => Parsed {
-                recipe: Some(recipe),
-                report: Report::new(),
-                poisoned: Vec::new(),
-                tree: Some(tree),
-                renames: Vec::new(),
-            },
+            Ok(mut recipe) => {
+                let mut report = Report::new();
+                for issue in recipe.keep_ranges(ranges) {
+                    report.push(locate(issue, &tree));
+                }
+                Parsed {
+                    recipe: Some(recipe),
+                    report,
+                    poisoned: Vec::new(),
+                    tree: Some(tree),
+                    renames: Vec::new(),
+                }
+            }
             Err(report) => Parsed {
                 recipe: None,
                 report,
@@ -180,9 +231,14 @@ fn parse_full<T: Document>(src: &str, format: Format) -> Parsed<T> {
     for issue in issues {
         report.push(issue);
     }
-    let recipe = checked
+    let mut recipe = checked
         .pruned
         .and_then(|v| serde_json::from_value::<T>(v).ok());
+    if let Some(r) = recipe.as_mut() {
+        for issue in r.keep_ranges(checked.ranges) {
+            report.push(locate(issue, &tree));
+        }
+    }
     Parsed {
         recipe,
         report,
@@ -333,6 +389,24 @@ fn typed_toml<T: DeserializeOwned>(src: &str) -> Result<T, Report> {
         let pos = inner.span().map(|s| line_col(src, s.start));
         Report::from_error(issue_from_message(inner.message(), &path, pos))
     })
+}
+
+/// Typed decode from the walker's checked copy of a document (used when
+/// the text holds random ranges, which only the walker understands).
+fn typed_value<T: DeserializeOwned>(value: serde_json::Value) -> Result<T, Report> {
+    serde_path_to_error::deserialize(value).map_err(|e| {
+        let path = path_string(e.path());
+        let msg = e.into_inner().to_string();
+        Report::from_error(issue_from_message(&msg, &path, None))
+    })
+}
+
+/// Give an issue the line and column of its path in the document.
+fn locate(issue: Issue, tree: &tree::Node) -> Issue {
+    match tree::position_of(tree, &issue.path) {
+        Some((l, c)) if issue.line.is_none() => issue.at(l, c),
+        _ => issue,
+    }
 }
 
 /// Typed decode straight from JSON text. See [`typed_toml`].

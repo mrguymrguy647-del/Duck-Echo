@@ -45,16 +45,17 @@ pub const MIN_HZ: f32 = 40.0;
 /// Highest frequency shown, unless half the sample rate is lower.
 pub const MAX_HZ: f32 = 20_000.0;
 
-/// Colours 0..RAMP are the spectrogram ramp; the rest are fixed.
-const RAMP: usize = 192;
-const BG: u8 = 192;
-const GRID: u8 = 193;
-const AXIS: u8 = 194;
-const TEXT: u8 = 195;
-const PEAK: u8 = 196;
-const RMS: u8 = 197;
-const ONSET: u8 = 198;
-const PANEL: u8 = 199;
+/// Colours 0..RAMP are the spectrogram ramp; the rest are fixed. The
+/// boards of [`crate::board`] share this palette.
+pub(crate) const RAMP: usize = 192;
+pub(crate) const BG: u8 = 192;
+pub(crate) const GRID: u8 = 193;
+pub(crate) const AXIS: u8 = 194;
+pub(crate) const TEXT: u8 = 195;
+pub(crate) const PEAK: u8 = 196;
+pub(crate) const RMS: u8 = 197;
+pub(crate) const ONSET: u8 = 198;
+pub(crate) const PANEL: u8 = 199;
 
 /// What a picture shows, for reading it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -354,7 +355,7 @@ fn nice_step(span: f64) -> f64 {
 }
 
 /// The spectrogram ramp and the fixed colours, in palette order.
-fn palette() -> Vec<[u8; 3]> {
+pub(crate) fn palette() -> Vec<[u8; 3]> {
     // Anchors close to the "inferno" colour map: dark to bright, and still
     // ordered when printed in grey.
     const ANCHORS: [(f32, [f32; 3]); 8] = [

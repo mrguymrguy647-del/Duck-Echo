@@ -34,11 +34,17 @@ fn level_word(level: Level) -> &'static str {
     level.word()
 }
 
+/// One feel line: its name, what was wanted, the level measured and the
+/// measure itself.
+type AmountLine = (&'static str, Option<Amount>, Option<Level>, Option<f32>);
+/// One range line: its name, the `[low, high]` wanted and the value.
+type RangeLine<'e> = (&'static str, &'e Option<Vec<f32>>, Option<f64>);
+
 /// Check `expect` against `a`.
 pub fn check(expect: &Expect, a: &Analysis) -> Expected {
     let mut lines = Vec::new();
     let feel = a.feel;
-    let amounts: [(&str, Option<Amount>, Option<Level>, Option<f32>); 4] = [
+    let amounts: [AmountLine; 4] = [
         (
             "roughness",
             expect.roughness,
@@ -70,7 +76,7 @@ pub fn check(expect: &Expect, a: &Analysis) -> Expected {
             pass: got.is_some_and(|l| l.word() == wanted.word()),
         });
     }
-    let ranges: [(&str, &Option<Vec<f32>>, Option<f64>); 3] = [
+    let ranges: [RangeLine; 3] = [
         (
             "loudness_lufs",
             &expect.loudness_lufs,

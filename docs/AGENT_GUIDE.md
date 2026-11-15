@@ -145,6 +145,38 @@ The default `aliasing = "clean"` keeps high notes free of false tones.
 Set `aliasing = "retro"` only when you want the raw, gritty sound of an
 old sound chip on purpose.
 
+### A sound that plays many times: ranges and variants
+
+A footstep or a hit that plays the same file ten times sounds like a
+machine. Write the numbers that should differ as ranges, and each seed
+picks its own values:
+
+```toml
+version = 0
+name = "step"
+tags = ["movement"]
+
+[master]
+normalize_lufs = -20
+
+[[layers]]
+source = "noise"
+filter = { kind = "lowpass", cutoff = { min = 900, max = 1400 } }
+envelope = { attack = 0.002, decay = { min = 0.06, max = 0.1 } }
+```
+
+Then `sound_variants` with `{"file": "sfx/step.toml", "count": 8}` writes
+`sfx/step_1.wav` ... `sfx/step_8.wav` (variant N is seed N), a facts file
+for each, and `sfx/step.variants.json`, the list a game picks from at
+random, with each variant's loudness and `loudness_range_lufs` for all of
+them. With `master.normalize_lufs` every variant lands on the target and
+the ranges change only the tone and the length; a range on `volume`
+without it changes the loudness too, so keep `loudness_range_lufs` within
+about 3 LU, or the quiet ones get lost. If
+the answer's `seeds_matter` is false, nothing in the recipe changes with
+the seed: add a range or a `variation`. Errors in a range name the end at
+fault, such as `layers[0].volume.max`.
+
 ### A small example
 
 A coin, a fourth higher than the preset (it starts on E6, not B5), at

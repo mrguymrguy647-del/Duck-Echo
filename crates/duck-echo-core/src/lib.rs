@@ -13,6 +13,7 @@
 pub mod applies;
 pub mod load;
 pub mod note;
+pub mod random;
 pub mod ranges;
 pub mod recipe;
 pub mod report;
@@ -27,6 +28,7 @@ pub use load::{
     DocumentKind, Format, Loaded, LoadedSong,
 };
 pub use note::Frequency;
+pub use random::RandomRange;
 pub use recipe::*;
 pub use report::{Allowed, Code, Issue, Report, Severity};
 pub use song::{

@@ -143,6 +143,15 @@ const NOTE_MAX_HZ: f32 = 20_000.0;
 /// The shared planner behind [`prepare_unchecked`] (`note` is `None`) and
 /// [`prepare_note`].
 fn build(recipe: &Recipe, note: Option<&NotePlay>) -> Voice {
+    // Random ranges take their values from this render's (or note's) seed
+    // before anything else; `variation` then jitters on top.
+    let picked;
+    let recipe = if recipe.ranges.is_empty() {
+        recipe
+    } else {
+        picked = duck_echo_core::random::resolve(recipe, note.map_or(recipe.seed, |n| n.seed));
+        &picked
+    };
     let sample_rate = note.map_or(recipe.sample_rate, |n| n.sample_rate);
     let sr = sample_rate as f32;
     let root = Rng::new(note.map_or(recipe.seed, |n| n.seed));

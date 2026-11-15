@@ -348,6 +348,28 @@ pub struct HistoryArgs {
     pub limit: Option<usize>,
 }
 
+/// A sound to export as numbered variants.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VariantsArgs {
+    /// The sound: a recipe file in the project (`sfx/step.toml`) or
+    /// `preset:NAME`.
+    pub file: String,
+    /// How many variants, 1..=64. Variant N is rendered with seed N.
+    pub count: u32,
+    /// The folder to write into, relative to the project; made if missing.
+    /// Default: the recipe's own folder (the project folder for a preset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// The files' name before `_1.wav`. Default: the recipe's file name
+    /// (`step` for `sfx/step.toml`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Use this `variation` (0..=1) instead of the recipe's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variation: Option<f32>,
+}
+
 // ---------------------------------------------------------------------
 // The commands.
 // ---------------------------------------------------------------------
@@ -412,6 +434,8 @@ pub enum Command {
     SongRemovePattern(PlacementArgs),
     #[serde(rename = "song_set_loop")]
     SongSetLoop(SetLoopArgs),
+    #[serde(rename = "sound_variants")]
+    SoundVariants(VariantsArgs),
     #[serde(rename = "edit_undo")]
     EditUndo(NoArgs),
     #[serde(rename = "edit_redo")]
@@ -479,6 +503,8 @@ pub const TABLE: &[Entry] = &[
         description: "Add an effect (echo, reverb, distortion, bitcrush) to a layer, or to the whole sound." },
     Entry { name: "sound_remove_effect", changes_files: true, schema: schema_of::<EffectArgs>,
         description: "Remove one effect from a layer, or from the whole sound." },
+    Entry { name: "sound_variants", changes_files: false, schema: schema_of::<VariantsArgs>,
+        description: "Export a sound as `count` variants for a game or film to pick from at random: `<name>_1.wav` ... `<name>_N.wav` (variant N is seed N), each with its facts file (`<name>_1.wav.json`: length, loudness, peak, hit_seconds), and one list `<name>.variants.json` naming them all with their loudness. What differs between variants is what the recipe lets the seed change: random ranges (`volume = { min = 0.6, max = 0.9 }`), `variation` and noise; the list's `seeds_matter` is false, with a `note`, when nothing does. It writes audio, not recipes, so it is not an Undo step." },
     Entry { name: "song_set", changes_files: true, schema: schema_of::<SetArgs>,
         description: "Set one field of a song by its path, such as `tempo`, `tracks[1].volume` or `tracks[0].notes[3].note`. The result must be a valid song." },
     Entry { name: "song_remove", changes_files: true, schema: schema_of::<RemoveArgs>,
@@ -858,6 +884,9 @@ pub fn run(
                 }
                 Ok(())
             })?
+        }
+        Command::SoundVariants(a) => {
+            return Ok(serde_json::to_value(r.variants(&a)?).expect("serializes"))
         }
         Command::EditUndo(_) => project.undo(by)?,
         Command::EditRedo(_) => project.redo(by)?,
@@ -1297,6 +1326,42 @@ impl Runner<'_, '_> {
         set_identity(&text, format, &Self::stem(rel), description)
     }
 
+    /// [`crate::variants::export`] for a project file or a preset.
+    fn variants(&self, a: &VariantsArgs) -> Result<crate::variants::Exported, ToolError> {
+        let root = self.project.root();
+        let key = format!("{}file", self.prefix);
+        let path = root.read(&key, &a.file)?;
+        if a.file.starts_with(INSTRUMENT_PREFIX) {
+            return Err(bad(
+                self.prefix,
+                "file",
+                "an instrument plays notes in a song; export variants of a sound file or a preset",
+            ));
+        }
+        let recipe = match crate::load_recipe(&path) {
+            Ok(r) => r,
+            Err(ToolError::Invalid(report)) if !a.file.starts_with(PRESET_PREFIX) => {
+                return Err(ToolError::Invalid(report))
+            }
+            Err(e) => return Err(e.at(&key)),
+        };
+        let folder = match &a.folder {
+            Some(f) => root.write(&format!("{}folder", self.prefix), f)?,
+            None if a.file.starts_with(PRESET_PREFIX) => root.dir().to_path_buf(),
+            None => path
+                .parent()
+                .map_or(root.dir().to_path_buf(), Path::to_path_buf),
+        };
+        let request = crate::variants::Request {
+            count: a.count,
+            name: a.name.as_deref(),
+            variation: a.variation,
+        };
+        crate::variants::export(&recipe, &a.file, &request, &folder, self.prefix, &|p| {
+            root.show(p)
+        })
+    }
+
     fn copy_from(&self, from: &str, to: &str, overwrite: bool) -> Result<Done, ToolError> {
         let (rel, _) = self.doc_path("to", to)?;
         let (source, format, what) = self.source(from)?;
@@ -1526,7 +1591,7 @@ mod tests {
         for c in sample {
             assert!(entry(&c.name()).is_some(), "{}", c.name());
         }
-        assert_eq!(TABLE.len(), 30);
+        assert_eq!(TABLE.len(), 31);
     }
 
     #[test]
