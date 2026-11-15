@@ -68,6 +68,9 @@ fn entry(path: &Path, base: &Path) -> Result<Entry, ToolError> {
         "folder"
     } else {
         match ext.as_deref() {
+            // The timing and level facts written next to a rendered WAV
+            // (see `asset`), not a recipe.
+            Some("json") if name_ends(&path, ".wav.json") => "asset_facts",
             Some("toml" | "json") => "recipe",
             Some("wav") => "audio",
             Some("png") => "image",
@@ -195,4 +198,10 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&base);
     }
+}
+
+/// True when the file name of `path` ends with `suffix` (any letter case).
+fn name_ends(path: &std::path::Path, suffix: &str) -> bool {
+    path.file_name()
+        .is_some_and(|n| n.to_string_lossy().to_lowercase().ends_with(suffix))
 }

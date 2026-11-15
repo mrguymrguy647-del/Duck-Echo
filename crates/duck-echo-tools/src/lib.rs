@@ -8,6 +8,7 @@ use duck_echo_core::{load_path, Code, Format, Issue, Report};
 use std::fmt;
 use std::path::Path;
 
+pub mod asset;
 pub mod commands;
 pub mod examples;
 pub mod expect;
@@ -262,6 +263,12 @@ pub struct Rendered {
     /// For a recipe with `expect`: each line, checked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expect: Option<expect::Expected>,
+    /// Timing and level facts for a game engine (length, loudness, peak,
+    /// leading silence, `hit_seconds`, whether it loops, the recipe's
+    /// hash). The same is written next to the WAV as `<output>.json`.
+    pub asset: asset::AssetInfo,
+    /// Where those facts were written.
+    pub asset_file: String,
 }
 
 /// Render a validated recipe to a WAV file, optionally overriding the
@@ -289,11 +296,29 @@ pub fn render_to_file(
     }
     let m = measure::measure_recipe(&recipe, &loaded.report.warnings, extras)?;
     write_wav_file(output, &m.buffer, format)?;
-    Ok(rendered(output, recipe.seed, m.measured))
+    let data = serde_json::to_value(&recipe).expect("a recipe is JSON");
+    let info = asset::info(
+        &m.buffer,
+        &m.measured.analysis,
+        output,
+        &data,
+        recipe.seed,
+        false,
+    );
+    let file = asset::write_sidecar(output, &info)?;
+    Ok(rendered(output, recipe.seed, m.measured, info, &file))
 }
 
-fn rendered(output: &Path, seed: u64, measured: Measured) -> Rendered {
+fn rendered(
+    output: &Path,
+    seed: u64,
+    measured: Measured,
+    asset: asset::AssetInfo,
+    asset_file: &Path,
+) -> Rendered {
     Rendered {
+        asset,
+        asset_file: asset_file.display().to_string(),
         ok: true,
         output: output.display().to_string(),
         seed,
@@ -338,7 +363,27 @@ pub fn render_document_to_file(
         Document::Recipe(r) => r.loaded.recipe.seed,
         Document::Song(s) => s.loaded.song.seed,
     });
-    Ok(rendered(output, used, m.measured))
+    let (data, loops) = match doc {
+        Document::Recipe(r) => {
+            let mut recipe = r.loaded.recipe.clone();
+            recipe.seed = used;
+            (
+                serde_json::to_value(&recipe).expect("a recipe is JSON"),
+                false,
+            )
+        }
+        Document::Song(s) => {
+            let mut song = s.loaded.song.clone();
+            song.seed = used;
+            (
+                serde_json::to_value(&song).expect("a song is JSON"),
+                song.loop_,
+            )
+        }
+    };
+    let info = asset::info(&m.buffer, &m.measured.analysis, output, &data, used, loops);
+    let file = asset::write_sidecar(output, &info)?;
+    Ok(rendered(output, used, m.measured, info, &file))
 }
 
 /// Write a picture's PNG bytes to `path`, which must end in `.png`.
@@ -471,6 +516,10 @@ pub fn variations(
             Some(dir) => {
                 let path = dir.join(format!("{}_seed{seed}.wav", file_safe(&recipe.stem)));
                 write_wav_file(&path, &buffer, duck_echo_audio::WavFormat::Pcm16)?;
+                let data = serde_json::to_value(&r).expect("a recipe is JSON");
+                let info =
+                    asset::info(&buffer, &analyze_buffer(&buffer), &path, &data, seed, false);
+                asset::write_sidecar(&path, &info)?;
                 Some(path.display().to_string())
             }
             None => None,

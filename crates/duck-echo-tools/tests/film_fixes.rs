@@ -158,3 +158,72 @@ fn expect_lines_pass_or_fail_against_the_analysis() {
     assert_eq!(report.errors[0].path, "expect.roughnes");
     assert_eq!(report.errors[0].suggestion.as_deref(), Some("roughness"));
 }
+
+/// Item 3: every rendered WAV gets its timing and level facts next to it.
+#[test]
+fn a_render_writes_its_timing_and_level_facts_next_to_the_wav() {
+    let dir = std::env::temp_dir().join(format!("duck-echo-asset-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // A thump: silent for 50 ms, then a hit whose loudest moment comes a
+    // little after its start.
+    let text = "version = 0\n[[layers]]\nsource = \"sine\"\noffset = 0.05\npitch = { start = 70, end = 40, sweep_time = 0.2 }\nenvelope = { attack = 0.006, decay = 0.3 }\n";
+    let loaded = load_str(text, Format::Toml).unwrap();
+    let out = dir.join("thump.wav");
+    let rendered = duck_echo_tools::render_to_file(
+        &loaded,
+        &out,
+        None,
+        duck_echo_audio::WavFormat::Pcm16,
+        &Default::default(),
+    )
+    .unwrap();
+    let sidecar = dir.join("thump.wav.json");
+    let written: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
+    // The file and render --json say the same.
+    let said: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&rendered.asset).unwrap()).unwrap();
+    assert_eq!(written, said);
+    assert_eq!(written["kind"], "duck-echo-asset");
+    assert_eq!(written["file"], "thump.wav");
+    assert_eq!(written["loops"], false);
+    let leading = written["leading_silence_seconds"].as_f64().unwrap();
+    assert!((leading - 0.05).abs() < 0.002, "{leading}");
+    // The hit is after the first sample: the attack takes 6 ms.
+    let hit = written["hit_seconds"].as_f64().unwrap();
+    assert!(hit > leading + 0.002 && hit < leading + 0.02, "{hit}");
+    assert!(written["loudness_lufs"].is_number());
+    assert!(written["peak_dbfs"].as_f64().unwrap() <= 0.0);
+    // The hash follows the recipe's data, not its comments.
+    let hash = written["recipe_hash"].as_str().unwrap().to_string();
+    assert!(
+        hash.starts_with("sha256:") && hash.len() == 7 + 64,
+        "{hash}"
+    );
+    let commented = load_str(&format!("# A thump.\n{text}"), Format::Toml).unwrap();
+    let again = duck_echo_tools::render_to_file(
+        &commented,
+        &out,
+        None,
+        duck_echo_audio::WavFormat::Pcm16,
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(again.asset.recipe_hash, hash);
+    let louder = load_str(
+        &text.replace("source", "volume = 0.5\nsource"),
+        Format::Toml,
+    )
+    .unwrap();
+    let other = duck_echo_tools::render_to_file(
+        &louder,
+        &out,
+        None,
+        duck_echo_audio::WavFormat::Pcm16,
+        &Default::default(),
+    )
+    .unwrap();
+    assert_ne!(other.asset.recipe_hash, hash);
+    std::fs::remove_dir_all(&dir).ok();
+}

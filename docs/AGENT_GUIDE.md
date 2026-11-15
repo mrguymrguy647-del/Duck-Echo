@@ -26,7 +26,13 @@ Never write a sound from nothing, and never change many things at once.
    your change within a second, with your step's title, and can undo it.
    `edit_history` shows their steps as "You".
 4. **Render.** `render` with an `output` such as `sfx/coin.wav`. The
-   result already holds the analysis.
+   result already holds the analysis. Next to the WAV it writes
+   `sfx/coin.wav.json` with the facts a game or film engine needs (the
+   same object is `asset` in the result): `duration_seconds`,
+   `loudness_lufs`, `peak_dbfs`, `leading_silence_seconds`,
+   `hit_seconds` (when the main hit lands: start the sound this much
+   before its event), `loops` and `recipe_hash` (changes only when the
+   sound would). Hand that file to Duck Forge with the WAV.
 5. **Read the numbers.** Start with `summary`. Then look at the one field
    your change should have moved.
 6. **Compare.** `compare` with `a` (before) and `b` (after) says what

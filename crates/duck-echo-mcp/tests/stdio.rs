@@ -626,18 +626,21 @@ fn files_pictures_layers_and_loudness_targets() {
             )
         })
         .collect();
+    // Each rendered WAV has its timing and level facts beside it.
     let want = [
         ("loud.wav", "audio"),
+        ("loud.wav.json", "asset_facts"),
         ("sfx", "folder"),
         ("sfx/coin.toml", "recipe"),
         ("sfx/coin.wav", "audio"),
+        ("sfx/coin.wav.json", "asset_facts"),
     ];
     assert_eq!(
         entries,
         want.map(|(p, k)| (p.to_string(), k.to_string())),
         "{files}"
     );
-    let wav = &files["entries"][3];
+    let wav = &files["entries"][4];
     assert!(
         (wav["seconds"].as_f64().unwrap() - r["analysis"]["duration_seconds"].as_f64().unwrap())
             .abs()
@@ -645,7 +648,8 @@ fn files_pictures_layers_and_loudness_targets() {
     );
     let (flat, err) = s.call("list_files", json!({"path": "sfx", "recursive": false}));
     assert!(!err);
-    assert_eq!(flat["entries"].as_array().unwrap().len(), 2);
+    // coin.toml, coin.wav and its facts.
+    assert_eq!(flat["entries"].as_array().unwrap().len(), 3);
     #[cfg(unix)]
     {
         let outside = fresh_root("mcp_playtest_outside");
@@ -1499,7 +1503,7 @@ fn drive_letters_inside_a_path_cannot_leave_the_root() {
     );
     let after: Vec<String> = files_under(&root)
         .into_iter()
-        .filter(|f| !f.ends_with("evil.wav"))
+        .filter(|f| !f.ends_with("evil.wav") && !f.ends_with("evil.wav.json"))
         .collect();
     assert_eq!(after, before_root, "a refused call wrote something");
     assert!(!outside.join("evil.wav").exists());

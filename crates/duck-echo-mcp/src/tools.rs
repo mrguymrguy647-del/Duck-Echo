@@ -954,6 +954,7 @@ fn run(
             let images = done.png.clone().into_iter().collect();
             let mut v = to_value(&done);
             v["output"] = json!(root.show(&out));
+            v["asset_file"] = json!(root.show(&duck_echo_tools::asset::sidecar_path(&out)));
             Ok((v, images))
         }
         "analyze" => {
