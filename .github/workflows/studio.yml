@@ -217,16 +217,18 @@ jobs:
       - name: Play a sound through the speakers (GitHub's machines may have none)
         shell: pwsh
         run: |
+          # A program's non-zero exit is not an error here: the checks
+          # below decide. (Otherwise PowerShell turns the Studio's 3 into an
+          # error before they run.)
+          $PSNativeCommandUseErrorActionPreference = $false
           $app = "$env:LOCALAPPDATA\Programs\Duck Echo Studio"
           $out = & "$app\DuckEchoStudio.exe" --play coin 2>&1 | Out-String
+          $code = $LASTEXITCODE
           $out
           # 0: it played. 3: no speakers, said plainly. Anything else fails.
-          $code = $LASTEXITCODE
           if ($code -ne 0 -and $code -ne 3) { throw "--play ended with $code" }
           if ($code -eq 3 -and $out -notmatch 'No speakers were found') { throw "no plain message" }
           if ($code -eq 3) { "No speakers on this machine, and the Studio said so plainly." }
-          # (PowerShell would otherwise pass the program's 3 on as the
-          # step's result.)
           exit 0
 
       - name: A newer installer over the top keeps my sounds and settings
