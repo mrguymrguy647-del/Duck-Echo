@@ -438,7 +438,8 @@ one:
 A sound goes as WAV, a song as OGG, variants as numbered WAVs with their
 list. Each lands in the game's `assets` folder with its facts file, and
 the recipe is copied into its `art` folder. The game is a name from
-`game_list`, never a path. Sending again with no change writes nothing
+`game_list`, never a path, and a `name` is letters, digits, `-` and `_`
+only (anything else is refused, with a safe name suggested). Sending again with no change writes nothing
 (`unchanged: true`), so send freely after each change. If the tool says
 no Duck Forge folder is set, ask the person to start the server with
 `--duck-forge` (or set it in Duck Echo Studio's Settings).

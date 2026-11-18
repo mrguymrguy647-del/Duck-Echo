@@ -316,7 +316,12 @@ pub fn send(root: &Root, request: &Request, prefix: &str) -> Result<Sent, ToolEr
             ));
         }
     }
-    let name = file_safe(request.name.unwrap_or_else(|| doc.stem()));
+    // A name given is used as it is, or refused: it is never quietly
+    // changed. With none, the file's own name is made safe.
+    let name = match request.name {
+        Some(given) => checked_name(given, &arg("name"))?,
+        None => file_safe(doc.stem()),
+    };
     let assets = game_folder(&game_dir, "assets")?;
     let art = game_folder(&game_dir, "art")?;
     let recipe_name = format!("{name}.{extension}");
@@ -440,6 +445,48 @@ pub fn send(root: &Root, request: &Request, prefix: &str) -> Result<Sent, ToolEr
         list: None,
         summary,
     })
+}
+
+/// Longest name a sound may have in a game.
+pub const MAX_NAME: usize = 64;
+
+/// A name given for a sound in a game: letters, digits, `-` and `_`
+/// only, at most [`MAX_NAME`] of them, so it can only ever name a file in
+/// `assets` and `art`. Anything else (a `/`, a `\`, `..`, a space, a dot)
+/// is an error at `key`, suggesting the name with those parts taken out.
+fn checked_name(name: &str, key: &str) -> Result<String, ToolError> {
+    let allowed = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    if !name.is_empty() && name.len() <= MAX_NAME && name.chars().all(allowed) {
+        return Ok(name.to_string());
+    }
+    // The suggestion: the allowed parts, joined by `_`.
+    let parts: Vec<String> = name
+        .split(|c: char| !allowed(c))
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect();
+    let mut suggestion: String = parts.join("_").chars().take(MAX_NAME).collect();
+    if suggestion.is_empty() {
+        suggestion = "sound".into();
+    }
+    let why = if name.is_empty() {
+        "the name is empty".to_string()
+    } else if name.len() > MAX_NAME {
+        format!("the name is longer than {MAX_NAME} characters")
+    } else {
+        "the name has a character that is not allowed".to_string()
+    };
+    Err(ToolError::issue(
+        Issue::error(
+            Code::InvalidArgument,
+            key,
+            format!(
+                "{why}: a sound's name in a game is letters, digits, `-` and `_` only (no `/`, `\\`, `..`, spaces or dots), so it names one file in assets and art"
+            ),
+        )
+        .got(name)
+        .suggest(suggestion),
+    ))
 }
 
 /// A path inside a game, as `send` names it: from the game's folder.

@@ -534,18 +534,55 @@ fn game_send_writes_only_where_it_may() {
         fail(json!({"file": "sfx/step.toml", "game": "duck_craft", "variants": 0})),
         ["arguments.variants"]
     );
-    // The name is made safe: it cannot leave assets/.
+    // A name that is not plain is refused, not changed: the error names
+    // the argument, says what is allowed and suggests a safe name.
+    for (bad, safe) in [
+        ("../../evil", "evil"),
+        ("..\\evil", "evil"),
+        ("sfx/step", "sfx_step"),
+        ("my step", "my_step"),
+        ("step.v2", "step_v2"),
+        ("..", "sound"),
+    ] {
+        let r = run_with_forge(
+            &proj,
+            &forge,
+            "game_send",
+            json!({"file": "sfx/step.toml", "game": "duck_craft", "name": bad}),
+        )
+        .unwrap_err();
+        let e = &r.errors[0];
+        assert_eq!(e.path, "arguments.name", "{bad}: {r}");
+        assert!(
+            e.message.contains("letters, digits, `-` and `_`"),
+            "{bad}: {}",
+            e.message
+        );
+        assert_eq!(e.suggestion.as_deref(), Some(safe), "{bad}");
+    }
+    let long = "a".repeat(65);
+    let r = run_with_forge(
+        &proj,
+        &forge,
+        "game_send",
+        json!({"file": "sfx/step.toml", "game": "duck_craft", "name": long}),
+    )
+    .unwrap_err();
+    assert_eq!(r.errors[0].path, "arguments.name");
+    let game = forge.join("examples/duck_craft");
+    assert!(
+        !game.join("assets").exists() && !game.join("art").exists(),
+        "nothing was written"
+    );
+    // A plain name is used as it is.
     let a = run_with_forge(
         &proj,
         &forge,
         "game_send",
-        json!({"file": "sfx/step.toml", "game": "duck_craft", "name": "../../evil"}),
+        json!({"file": "sfx/step.toml", "game": "duck_craft", "name": "Step-2_b"}),
     )
     .unwrap();
-    assert_eq!(a["audio"], "assets/______evil.wav");
-    assert!(forge
-        .join("examples/duck_craft/assets/______evil.wav")
-        .is_file());
+    assert_eq!(a["audio"], "assets/Step-2_b.wav");
     // With no Duck Forge folder, it says how to set one.
     let r = run_in(
         &proj,
