@@ -23,7 +23,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
 | 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops, the agent guide | done |
 | 2 | Duck Echo Studio: an app for people, with no terminal | done |
-| 3 | Link with Duck Forge, the game engine | started: the film fixes (below) and task 5 are done |
+| 3 | Link with Duck Forge, the game engine | started: the film fixes and task 5 are done; the rest is designed in `docs/phase3-design.md` |
 | 4 | Duck Ear: listening models | |
 | 5 | Voices made from math only | |
 | Later | Sample layers, video editor link | |
@@ -1099,35 +1099,46 @@ What the next builder needs to know:
   `report` files apart from recipes, which keeps them off the Studio's
   Home screen. Any new file Duck Echo writes beside sounds needs a kind.
 
-### 13. Save into a game, with live reload
+### 13. Save into a game, with live reload [designed: docs/phase3-design.md]
 
-* **Known gap, found in Phase 1:** Duck Forge reads 44.1 kHz WAV but
-  mixes stereo down to mono, so a track's `pan` is lost in a game. The
-  songs are true stereo and need no change once the engine plays both
-  channels. Until then the Duck Craft loops are tested to keep their
-  level in mono. Fixing the engine side belongs to this phase.
+This section was out of date (it was written before Duck Forge changed,
+and before the film fixes). Corrected after reading Duck Forge's `main`
+(`src/sound.rs`, `src/engine.rs`, `src/files.rs`, `docs/decisions.md`,
+`studio/`):
 
-* **Ask the Duck Forge owner for the details before writing code**: the
-  sounds folder layout, any manifest or asset IDs, and how the engine
-  notices changed files. Do not guess.
-* Duck Echo saves a sound (or a song) straight into a game's sounds
-  folder, with its recipe beside it so it can be re-rendered, and the
-  running game reloads it live.
-* Write down what the engine needs from Duck Echo, then build it:
-  * **per-sound volume** (a level the engine applies, matched to the
-    loudness targets);
-  * **real stereo** (stereo files played as stereo, not folded to mono);
-  * **better resampling** when the engine's mix rate is not the file's;
-  * **OGG** (or another compressed format) for music, since songs are
-    long.
-* Accept: a Duck Forge project hears a sound change within a second of
-  saving it in Duck Echo; the export is idempotent; the recipe path or hash
-  is recorded with the asset.
-* Done already (film fixes): the recipe hash, loudness and hit time are
-  recorded with every rendered asset (`<name>.wav.json`), which is what
-  per-sound volume needs; variants with a list to pick from. Still to do:
-  the game's sounds folder, live reload, stereo in the engine, resampling
-  and OGG.
+* **Already done in Duck Echo:** random ranges (task 5 below) and
+  `sound_variants` (`<name>_1..N.wav` plus `<name>.variants.json`); a
+  facts file beside every WAV (`<name>.wav.json`: length, loudness,
+  `hit_seconds`, `loops`, `seed`, `recipe_hash`); `mix_check` reads a cue
+  list in Duck Forge's `log.json` form (but see "Found" below).
+* **Already done in Duck Forge** (so they are no longer Duck Echo's to
+  ask for): stereo WAVs play as stereo (the old "known gap, folded to
+  mono" is fixed); volume and pan for each play (`play_with`,
+  `play_loop`, `set_loop_volume`); windowed-sinc resampling for WAVs at
+  other rates.
+* **Still missing:**
+  * WAV files are not watched. Only the text files read through
+    `files.rs` are, with the game's `reload` hook, and recordings keep
+    their text so replays match.
+  * No compressed format for long music. Decided: sound effects stay
+    WAV; music is OGG Vorbis, streamed while it plays, loops seamless.
+  * Duck Forge does not read `.variants.json` or `.wav.json`.
+  * No way to pick a Duck Echo sound in Duck Forge Studio, or to open
+    one in Duck Echo.
+* **Found while reading Duck Forge** (Duck Echo bugs, step 1 of the
+  design): `mix_check` refuses a real `log.json`, because the log has
+  many more top-level fields than the cue list and its synthesizer
+  sounds have no `file`; it reads sound files from the log's folder,
+  where Duck Forge names them from the folder the game ran in; and it
+  pans with equal power where Duck Forge turns one side down. A comment
+  in `variants.rs` says Duck Forge avoids repeating a variant; it does
+  not read the list yet.
+* The plan, in nine steps across both repositories, with the measured
+  OGG sizes and the open questions: `docs/phase3-design.md`.
+* Accept: a Duck Forge game hears a sound change within a second of
+  sending it from Duck Echo; sending again with no change writes nothing;
+  the recipe and its hash are recorded with the asset; replays stay the
+  same; music is OGG and loops with no click.
 
 ### 5. Random ranges (moved here from Phase 0) [done: film fixes]
 
