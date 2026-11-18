@@ -14,7 +14,8 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+# 1.87: vorbis_rs (the OGG encoder) needs it, and Duck Forge needs it too.
+rust-version = "1.87"
 repository = "https://github.com/mrguymrguy647-del/Duck-Echo"
 
 [workspace.dependencies]
@@ -26,6 +27,12 @@ schemars = "1"
 serde_path_to_error = "0.1"
 strsim = "0.11"
 hound = "3.5"
+# OGG Vorbis: vorbis_rs encodes (Xiph's libvorbis with the aoTuV tuning,
+# built from C), lewton decodes (pure Rust, the decoder Duck Forge uses).
+# The default features of vorbis_rs pick a random stream serial; Duck Echo
+# sets its own, so they are off.
+vorbis_rs = { version = "0.5", default-features = false }
+lewton = "0.10"
 clap = { version = "4", features = ["derive"] }
 
 duck-echo-core = { path = "crates/duck-echo-core" }

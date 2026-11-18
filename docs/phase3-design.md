@@ -1,7 +1,7 @@
 # Phase 3 design: the link with Duck Forge
 
 Status: **approved** (all seven questions in section 10 as recommended).
-Done so far: step 1.
+Done so far: steps 1 and 2.
 
 This plan covers two repositories. Every part is marked with the one it
 changes:
@@ -503,7 +503,21 @@ Craft run: same length, lined up to the sample, largest difference
   the summary names its sounds; the picture opens.
 * What you test on Linux: the same; and `cargo test --workspace`.
 
-### Step 2 [Duck Echo]: write and check OGG
+### Step 2 [Duck Echo]: write and check OGG [done]
+
+Done as planned. The Duck Craft themes come out at 299,954 bytes (day)
+and 285,796 bytes (night), within 3% of the sizes measured with ffmpeg's
+plain libvorbis (aoTuV's tuning spends a little more), decode to
+exactly 1,008,000 frames each, and still join cleanly. One thing found:
+**`lewton` gives a few hundred frames too many at the end of a short
+file** (about a second long), because it trims by the position of the
+page before the last one, and in a short file all the music is on one
+page; the start always lines up. Long files (the themes) come back exact.
+The `DUCKECHO_FRAMES` comment fixes it, and Duck Forge must trim to it too
+(step 6). Also noticed: `analyze` of a looping WAV or OGG says "ENDS WITH
+A CLICK", because a file alone does not say it loops; its facts file does
+(`"loops": true`), and `analyze` could read it (a small step for later).
+
 
 * `vorbis_rs` and `lewton` as dependencies (justified in
   ARCHITECTURE.md), the Rust version question settled (question 2).
@@ -566,10 +580,21 @@ Craft run: same length, lined up to the sample, largest difference
 * `lewton`, `Music::load`, `play_loop(&music)`, the decoder thread and
   ring buffer, the exact wrap, headless decoding in the mixer, reload at
   the wrap, `.ogg` in scenes.
-* Tests: the Duck Craft day theme loops three times in `audio.wav` with
-  every sample equal to the decoded file repeated; volume changes and
-  stops land on their frames; memory for one stream stays under 1 MB; the
-  sound thread never waits for the decoder in a 10-minute headless soak.
+* **Trim to `DUCKECHO_FRAMES`** (or the facts file's `frames`): `lewton`
+  gives a few hundred frames too many at the end of a short OGG (see
+  step 2), and a loop must wrap at the exact frame.
+* **The two paths give the same samples.** The window's decoder thread
+  (with its ring buffer) and the headless in-mixer decoding must produce
+  identical output, sample for sample. Both are built on one piece of
+  code that decodes and wraps, fed by different callers, and a test runs
+  the Duck Craft day theme through both for three loops (3 x 1,008,000
+  frames, with a volume change and the wraps in the middle) and checks
+  the two outputs are equal, every sample.
+* Tests: that test; the Duck Craft day theme loops three times in
+  `audio.wav` with every sample equal to the decoded file repeated;
+  volume changes and stops land on their frames; memory for one stream
+  stays under 1 MB; the sound thread never waits for the decoder in a
+  10-minute headless soak.
 * Windows: Duck Craft with OGG themes: no clicks at the loop, no gaps
   during heavy frames; Task Manager shows the memory drop. Linux: the
   same with ALSA; `DUCKFORGE_SOUND_BLOCK` small and large.
@@ -607,6 +632,7 @@ Craft run: same length, lined up to the sample, largest difference
 | Risk | What could happen | Recommendation |
 |---|---|---|
 | OGG bytes differ between Windows and Linux | `vorbis_rs` is C with floating point; compilers may round differently, so the same recipe could give different OGG bytes on each system. Duck Echo's rule is "same recipe, same bytes". | The WAV stays the pinned, exact render. For OGG, pin the **decoded** samples within a small tolerance, and make `recipe_hash` (not the bytes) what "unchanged" means. Check in step 2 whether the bytes do match; if they do, pin them too. |
+| A short OGG decodes too long | `lewton` gives a few hundred frames too many at the end of a file of about a second (found in step 2), so a naive loop would play silence before it wraps. | Duck Echo writes `DUCKECHO_FRAMES` and its facts file says `frames`; Duck Forge trims to it (step 6). Duck Echo's own check already does. |
 | The decoder is not bit-exact across systems | `lewton` uses `sin`/`cos` from the system for its tables, so decoded samples may differ in the last bit between Windows and Linux; `audio.wav` from a replay on the other system could differ. | Test in Duck Forge's CI on both systems in step 6 (hash of the 16-bit `audio.wav` of a run with music). If they differ, compute the tables with Duck Forge's own fixed functions (a small patch) rather than accept it. |
 | A game decides something from a sound | A game that reads `seconds()` or `hit_seconds()` to plan its logic would play differently if the sound changes. | The sound store makes replays use the recorded bytes, so this only matters for a replay missing its store; the warning says so. Document: plan game logic from frames, not sound lengths. |
 | A half-written file | A game reads a WAV while Duck Echo is still writing it. | Duck Echo renames whole files into place; Duck Forge only swaps a file that decodes completely and keeps the old one otherwise. |

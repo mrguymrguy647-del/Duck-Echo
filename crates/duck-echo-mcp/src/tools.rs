@@ -301,12 +301,13 @@ fn original_definitions() -> Vec<Value> {
         ),
         tool(
             "render",
-            "Render to WAV",
-            &format!("Render a recipe to a WAV file and return the analysis of the result (including a one-line `summary`, `energy_over_time` and note `onsets`) and any render warnings. {LOUDNESS_NOTE} To hit a loudness target in one render, set `master.normalize_lufs`; it measures the same way. {EXTRAS_NOTE} With solo or mute the WAV holds only the heard layers or tracks. A song's result also has `song` (tempo, bars, and `song_frames`, the exact length of its bars in samples); a song with `loop: true` renders to exactly that length with its tail folded onto its start, and `loop_seam.clean` says the end joins the start without a click. With `per_track` or `notes`, render also returns `note_check` as analyze does. {RECIPE_SOURCE} {SONG_NOTE}"),
+            "Render to WAV or OGG",
+            &format!("Render a recipe or song to a WAV file (sound effects) or an OGG Vorbis file (music: smaller, for a game to stream; it is decoded again and checked, and a loop that would click after encoding is an error), and return the analysis of the result (including a one-line `summary`, `energy_over_time` and note `onsets`) and any render warnings. {LOUDNESS_NOTE} To hit a loudness target in one render, set `master.normalize_lufs`; it measures the same way. {EXTRAS_NOTE} With solo or mute the WAV holds only the heard layers or tracks. A song's result also has `song` (tempo, bars, and `song_frames`, the exact length of its bars in samples); a song with `loop: true` renders to exactly that length with its tail folded onto its start, and `loop_seam.clean` says the end joins the start without a click. With `per_track` or `notes`, render also returns `note_check` as analyze does. {RECIPE_SOURCE} {SONG_NOTE}"),
             with(with(recipe_props(), json!({
-                "output": { "type": "string", "description": "WAV file to write, relative to the server root." },
+                "output": { "type": "string", "description": "File to write, relative to the server root: `.wav`, or `.ogg` for music." },
                 "seed": { "type": "integer", "minimum": 0, "description": "Override the recipe seed." },
-                "format": { "type": "string", "enum": ["pcm16", "pcm24", "float32"], "description": "Sample format. Default pcm16." }
+                "format": { "type": "string", "enum": ["pcm16", "pcm24", "float32"], "description": "WAV sample format. Default pcm16." },
+                "quality": { "type": "number", "minimum": 0, "maximum": 10, "description": "OGG quality, 0 (smallest) to 10 (best), as oggenc -q. Default 4 (about 105 kbit/s for music). Only for an .ogg output." }
             })), extras_props()),
             &["output"],
             false,
@@ -908,11 +909,11 @@ fn run(
             let doc = load_doc(root, &src)?;
             let out_arg = req_str(args, "output")?;
             let out = root.write("arguments.output", out_arg)?;
-            if !duck_echo_tools::has_wav_extension(&out) {
+            if duck_echo_tools::ogg::output_kind(&out).is_err() {
                 return Err(arg_error(
                     "output",
                     Code::PathRefused,
-                    format!("`{out_arg}` must end in .wav; render never writes audio over another kind of file"),
+                    format!("`{out_arg}` must end in .wav or .ogg; render never writes audio over another kind of file"),
                 ));
             }
             let seed = match args.get("seed") {
@@ -941,12 +942,25 @@ fn run(
                     ))
                 }
             };
+            let quality = match args.get("quality") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(v.as_f64().ok_or_else(|| {
+                    arg_error(
+                        "quality",
+                        Code::TypeMismatch,
+                        "`quality` must be a number, 0 to 10",
+                    )
+                })? as f32),
+            };
             let options = options_of(args, false)?;
             let done = duck_echo_tools::render_document_to_file(
                 &doc,
                 &out,
                 seed,
-                format,
+                duck_echo_tools::ogg::RenderFormat {
+                    wav: format,
+                    quality,
+                },
                 &options,
                 "arguments.",
             )

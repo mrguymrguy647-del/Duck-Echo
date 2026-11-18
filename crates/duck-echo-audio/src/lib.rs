@@ -1,4 +1,4 @@
-//! Audio buffer type and WAV I/O for Duck Echo.
+//! Audio buffer type, WAV I/O and OGG Vorbis for Duck Echo.
 //!
 //! Samples are `f32` in -1..=1, interleaved when there is more than one
 //! channel. Recipes render mono or stereo; the channel count travels with
@@ -54,7 +54,7 @@ impl AudioBuffer {
     }
 }
 
-/// Errors from WAV I/O.
+/// Errors from audio file I/O (WAV or OGG; the name is older than OGG).
 #[derive(Debug)]
 pub enum WavError {
     /// The file could not be read or written.
@@ -67,7 +67,7 @@ impl fmt::Display for WavError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WavError::Io(e) => write!(f, "io error: {e}"),
-            WavError::Format(s) => write!(f, "wav format error: {s}"),
+            WavError::Format(s) => write!(f, "format error: {s}"),
         }
     }
 }
@@ -193,3 +193,6 @@ mod wav {
 
 #[cfg(feature = "wav")]
 pub use wav::{decode_wav, encode_wav, read_wav, wav_info, write_wav};
+
+#[cfg(feature = "ogg")]
+pub mod ogg;

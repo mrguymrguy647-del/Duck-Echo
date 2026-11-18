@@ -56,7 +56,9 @@ enum Command {
     Render {
         /// Recipe file (.toml or .json) or preset:NAME.
         recipe: PathBuf,
-        /// Output WAV path. Defaults to the recipe or preset name with `.wav`.
+        /// Output file: `.wav` (sound effects), or `.ogg` (music: OGG
+        /// Vorbis, decoded again and checked before it is kept). Defaults to
+        /// the recipe or preset name with `.wav`.
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Override the recipe seed.
@@ -65,6 +67,10 @@ enum Command {
         /// WAV sample format.
         #[arg(long, value_enum, default_value_t = Bits::Pcm16)]
         format: Bits,
+        /// OGG quality, 0 (smallest) to 10 (best), as `oggenc -q`. Default
+        /// 4. Only for an `.ogg` output.
+        #[arg(long)]
+        quality: Option<f32>,
         /// Print a JSON summary with the analysis of the render.
         #[arg(long)]
         json: bool,
@@ -372,9 +378,16 @@ fn main() -> ExitCode {
             output,
             seed,
             format,
+            quality,
             json,
             extras,
-        } => render(&recipe, output, seed, format.into(), json, &extras),
+        } => {
+            let format = duck_echo_tools::ogg::RenderFormat {
+                wav: format.into(),
+                quality,
+            };
+            render(&recipe, output, seed, format, json, &extras)
+        }
         Command::Analyze {
             input,
             compact,
@@ -685,7 +698,7 @@ fn render(
     reference: &Path,
     output: Option<PathBuf>,
     seed: Option<u64>,
-    format: WavFormat,
+    format: duck_echo_tools::ogg::RenderFormat,
     json: bool,
     args: &ExtrasArgs,
 ) -> ExitCode {

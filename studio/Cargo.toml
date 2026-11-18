@@ -20,7 +20,7 @@ members = ["crates/app"]
 # installer, the AppImage and the release's tag (studio-vX.Y.Z) read it here.
 version = "0.1.0"
 edition = "2024"
-# egui 0.37 needs Rust 1.95. The libraries above promise 1.80.
+# egui 0.37 needs Rust 1.95. The libraries above need 1.87.
 rust-version = "1.95"
 repository = "https://github.com/mrguymrguy647-del/Duck-Echo"
 

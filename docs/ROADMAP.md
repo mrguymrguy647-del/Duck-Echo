@@ -693,6 +693,9 @@ Lessons for the next builder (step 6):
   `toml_parser` in the lock file already need Rust 1.85, and so does
   `toml_edit` 0.25.18. CI builds with the newest Rust only. Either raise
   `rust-version` to 1.85 or add a CI job on 1.80 and pin older versions.
+  *Settled in Phase 3 step 2: `rust-version` is now 1.87 (the OGG encoder
+  needs it), which covers these too. CI still builds with the newest Rust
+  only.*
 
 ### 12. Smooth live changes [done: Phase 2 steps 3 and 7]
 
@@ -1136,6 +1139,8 @@ and before the film fixes). Corrected after reading Duck Forge's `main`
   not read the list yet.
 * The plan, in nine steps across both repositories, with the measured
   OGG sizes and the open questions: `docs/phase3-design.md`.
+* Done so far: step 1 (`mix_check` reads a real `log.json`), step 2
+  (Duck Echo writes and checks OGG music).
 * Accept: a Duck Forge game hears a sound change within a second of
   sending it from Duck Echo; sending again with no change writes nothing;
   the recipe and its hash are recorded with the asset; replays stay the

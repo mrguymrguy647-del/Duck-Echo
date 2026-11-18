@@ -19,7 +19,8 @@ pub struct Entry {
     /// Path relative to the listing's base, with `/` separators.
     pub path: String,
     /// `folder`, `recipe` (.toml or .json: a sound or a song), `audio`
-    /// (.wav), `image` (.png), `asset_facts` (a WAV's `.wav.json`),
+    /// (.wav or .ogg), `image` (.png), `asset_facts` (a WAV's `.wav.json`
+    /// or an OGG's `.ogg.json`),
     /// `variant_list` (`.variants.json`), `sound_set` (`.set.toml` or
     /// `.set.json`), `report` (`.check.json`, `.mix.json`), `link` (a
     /// symbolic link, not followed) or `other`.
@@ -73,7 +74,9 @@ fn entry(path: &Path, base: &Path) -> Result<Entry, ToolError> {
         match ext.as_deref() {
             // The timing and level facts written next to a rendered WAV
             // (see `asset`), not a recipe.
-            Some("json") if name_ends(path, ".wav.json") => "asset_facts",
+            Some("json") if name_ends(path, ".wav.json") || name_ends(path, ".ogg.json") => {
+                "asset_facts"
+            }
             // The list `sound_variants` writes.
             Some("json") if name_ends(path, ".variants.json") => "variant_list",
             // A sound set (`set_check`), and the reports of `set_check`
@@ -87,7 +90,7 @@ fn entry(path: &Path, base: &Path) -> Result<Entry, ToolError> {
                 "report"
             }
             Some("toml" | "json") => "recipe",
-            Some("wav") => "audio",
+            Some("wav" | "ogg") => "audio",
             Some("png") => "image",
             _ => "other",
         }

@@ -19,6 +19,7 @@ pub mod instruments;
 pub mod measure;
 pub mod mix;
 pub mod notecheck;
+pub mod ogg;
 pub mod project;
 pub mod root;
 pub mod save;
@@ -120,7 +121,7 @@ pub fn is_recipe_path(path: &Path) -> bool {
     )
 }
 
-/// Audio from a path: a WAV file is read; a recipe or song file or
+/// Audio from a path: a WAV or OGG file is read; a recipe or song file or
 /// `preset:NAME` is validated and rendered in memory. A song's instrument
 /// files are read from the song file's own folder.
 pub fn load_audio(path: &Path) -> Result<AudioBuffer, ToolError> {
@@ -132,6 +133,8 @@ pub fn load_audio_with(path: &Path, files: &FileResolver) -> Result<AudioBuffer,
     if is_recipe_ref(path) {
         let doc = load_document(path, files)?;
         Ok(measure::measure_document(&doc, None, &Options::default(), "")?.buffer)
+    } else if ogg::is_ogg_path(path) {
+        ogg::read_ogg_file(path)
     } else {
         read_wav(path).map_err(|e| match e {
             WavError::Io(io) => {
@@ -140,7 +143,7 @@ pub fn load_audio_with(path: &Path, files: &FileResolver) -> Result<AudioBuffer,
             WavError::Format(why) => ToolError::failed(
                 Code::Io,
                 format!(
-                    "{} is not a WAV file Duck Echo can read ({why}); give a .wav file, a .toml/.json recipe or preset:NAME",
+                    "{} is not a WAV file Duck Echo can read ({why}); give a .wav or .ogg file, a .toml/.json recipe or preset:NAME",
                     path.display()
                 ),
             ),
@@ -272,6 +275,9 @@ pub struct Rendered {
     pub asset: asset::AssetInfo,
     /// Where those facts were written.
     pub asset_file: String,
+    /// For an `.ogg` output: the encoded file decoded again and checked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ogg: Option<ogg::OggCheck>,
 }
 
 /// Render a validated recipe to a WAV file, optionally overriding the
@@ -281,35 +287,37 @@ pub fn render_to_file(
     loaded: &duck_echo_core::Loaded,
     output: &Path,
     seed: Option<u64>,
-    format: duck_echo_audio::WavFormat,
+    format: impl Into<ogg::RenderFormat>,
     extras: &Extras,
 ) -> Result<Rendered, ToolError> {
-    if !has_wav_extension(output) {
-        return Err(ToolError::failed(
-            Code::PathRefused,
-            format!(
-                "render output {} must end in .wav; refusing to write audio over another kind of file",
-                output.display()
-            ),
-        ));
-    }
+    let kind = ogg::output_kind(output)?;
     let mut recipe = loaded.recipe.clone();
     if let Some(s) = seed {
         recipe.seed = s;
     }
-    let m = measure::measure_recipe(&recipe, &loaded.report.warnings, extras)?;
-    write_wav_file(output, &m.buffer, format)?;
+    let mut m = measure::measure_recipe(&recipe, &loaded.report.warnings, extras)?;
     let data = asset::recipe_data(&recipe);
-    let info = asset::info(
-        &m.buffer,
-        &m.measured.analysis,
+    let written = ogg::write_render(output, kind, &m.buffer, format.into(), &data, false, "")?;
+    m.measured.warnings.extend(written.warning.clone());
+    let analysis = written.analysis.as_ref().unwrap_or(&m.measured.analysis);
+    let mut info = asset::info(
+        written.buffer(&m.buffer),
+        analysis,
         output,
         &data,
         recipe.seed,
         false,
     );
+    written.mark(&mut info);
     let file = asset::write_sidecar(output, &info)?;
-    Ok(rendered(output, recipe.seed, m.measured, info, &file))
+    Ok(rendered(
+        output,
+        recipe.seed,
+        m.measured,
+        info,
+        &file,
+        written.check,
+    ))
 }
 
 fn rendered(
@@ -318,8 +326,10 @@ fn rendered(
     measured: Measured,
     asset: asset::AssetInfo,
     asset_file: &Path,
+    ogg: Option<ogg::OggCheck>,
 ) -> Rendered {
     Rendered {
+        ogg,
         asset,
         asset_file: asset_file.display().to_string(),
         ok: true,
@@ -347,21 +357,12 @@ pub fn render_document_to_file(
     doc: &Document,
     output: &Path,
     seed: Option<u64>,
-    format: duck_echo_audio::WavFormat,
+    format: impl Into<ogg::RenderFormat>,
     options: &Options,
     prefix: &str,
 ) -> Result<Rendered, ToolError> {
-    if !has_wav_extension(output) {
-        return Err(ToolError::failed(
-            Code::PathRefused,
-            format!(
-                "render output {} must end in .wav; refusing to write audio over another kind of file",
-                output.display()
-            ),
-        ));
-    }
-    let m = measure::measure_document(doc, seed, options, prefix)?;
-    write_wav_file(output, &m.buffer, format)?;
+    let kind = ogg::output_kind(output)?;
+    let mut m = measure::measure_document(doc, seed, options, prefix)?;
     let used = seed.unwrap_or(match doc {
         Document::Recipe(r) => r.loaded.recipe.seed,
         Document::Song(s) => s.loaded.song.seed,
@@ -378,9 +379,27 @@ pub fn render_document_to_file(
             (asset::song_data(&song), song.loop_)
         }
     };
-    let info = asset::info(&m.buffer, &m.measured.analysis, output, &data, used, loops);
+    let written = ogg::write_render(output, kind, &m.buffer, format.into(), &data, loops, prefix)?;
+    m.measured.warnings.extend(written.warning.clone());
+    let analysis = written.analysis.as_ref().unwrap_or(&m.measured.analysis);
+    let mut info = asset::info(
+        written.buffer(&m.buffer),
+        analysis,
+        output,
+        &data,
+        used,
+        loops,
+    );
+    written.mark(&mut info);
     let file = asset::write_sidecar(output, &info)?;
-    Ok(rendered(output, used, m.measured, info, &file))
+    Ok(rendered(
+        output,
+        used,
+        m.measured,
+        info,
+        &file,
+        written.check,
+    ))
 }
 
 /// Write a picture's PNG bytes to `path`, which must end in `.png`.

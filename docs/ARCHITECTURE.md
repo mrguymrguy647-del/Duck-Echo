@@ -28,8 +28,9 @@ Cargo.toml                 workspace: shared versions, lints, profiles
 crates/
   duck-echo-core/          recipe and song types, defaults, TOML/JSON loading,
                            validation, diagnostics, JSON Schemas. No audio code.
-  duck-echo-audio/         AudioBuffer type and WAV read/write (hound behind a
-                           `wav` feature so synth can depend on just the type).
+  duck-echo-audio/         AudioBuffer type, WAV read/write (hound behind a
+                           `wav` feature so synth can depend on just the type)
+                           and OGG Vorbis (vorbis_rs and lewton behind `ogg`).
   duck-echo-synth/         deterministic renderer: Recipe -> Voice -> samples,
                            and the song player (one Voice per note).
   duck-echo-analyze/       measurements over f32 samples -> JSON report, plus
@@ -45,7 +46,8 @@ crates/
                            rules (`root`), the named commands (`commands`),
                            the shared Undo history (`project`, `history`)
                            and writing files in one step (`save`); a
-                           rendered WAV's facts file (`asset`), `expect`
+                           rendered WAV's facts file (`asset`), writing and
+                           checking OGG music (`ogg`), `expect`
                            lines, the variant export (`variants`), the
                            sound-set check (`sets`) and the mix check from
                            a cue list (`mix`).
@@ -59,7 +61,7 @@ crates/
                            server over stdio.
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
 studio/                    Duck Echo Studio, a workspace of its own (Rust
-                           1.95 for egui; the libraries above stay at 1.80):
+                           1.95 for egui; the libraries above need 1.87):
   crates/app/              DuckEchoStudio: the window, Home (home.rs, with
                            library.rs for the files, thumbnails and
                            gallery without a window), the sound editor
@@ -236,6 +238,13 @@ is the same on both. In plain words:
   the render path uses only operations that IEEE-754 defines exactly.
 * **A sound only changes on purpose.** Every example and preset is pinned;
   a commit that changes one says so.
+* **OGG music is compared, not promised.** An `.ogg` render comes from
+  Xiph's libvorbis, C code with floating point, so its bytes may differ
+  between systems. CI renders the two Duck Craft themes as OGG on both
+  and says whether they match (`OGGSUMS`), without failing. What is
+  promised: the WAV of the same recipe is exact, and the OGG decodes to
+  the same number of frames and passes the same loop check everywhere;
+  `recipe_hash` (not the bytes) says whether a sound changed.
 * **Not promised to match:** analysis numbers (`analyze`, `compare`) may
   differ in the last decimals between platforms, because they use the
   platform's math library; pictures are drawn from those numbers. macOS
@@ -765,6 +774,8 @@ output is one line per issue in the same order.
 | serde_path_to_error | core | Field path for the rare serde error the schema walk does not pre-empt. |
 | strsim | core | "Did you mean" suggestions. |
 | hound | audio | WAV read and write, zero dependencies of its own. |
+| vorbis_rs 0.5 | audio (`ogg` feature), tools | Writes OGG Vorbis, for music sent to a game (Phase 3: about 14 times smaller than a WAV, streamed by Duck Forge). There is no mature Vorbis encoder in Rust, so it builds Xiph's `libvorbis`, with the aoTuV tuning, from C (about 37,700 lines, through `aotuv_lancer_vorbis_sys` and `ogg_next_sys`): building Duck Echo from source now needs a C compiler. BSD-3-Clause. Its default feature (a random stream serial, through `getrandom`) is off: Duck Echo makes the serial from the recipe's hash. It needs Rust 1.87, so the libraries' `rust-version` went from 1.80 to 1.87 (Duck Forge needs 1.87 as well). |
+| lewton 0.10 | audio (`ogg` feature), tools | Reads OGG Vorbis: `analyze`, `compare` and `mix_check` take `.ogg`, and every OGG Duck Echo writes is decoded again and checked before it is kept. Pure Rust (about 6,400 lines, with `ogg` 0.8, `tinyvec` and `byteorder`), MIT or Apache-2.0, and the decoder Duck Forge streams music with, so Duck Echo checks its files with the code that will play them. |
 | clap | cli | Argument parsing. |
 | rtrb | live | A lock-free ring buffer with one writer and one reader, made for audio threads: the audio thread takes and sends messages without ever waiting on a lock or allocating. No dependencies of its own. Writing one ourselves needs `unsafe` code, which the workspace forbids. |
 | eframe (egui) 0.37 | studio | The window and every widget: the same library and version as Duck Quill and Duck Forge Studio, so the three apps look alike. Its default wgpu renderer draws on Direct3D 12 (or its software fallback, WARP) on Windows and on Vulkan or OpenGL on Linux. |

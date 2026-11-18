@@ -286,10 +286,21 @@ object as `asset`: `duration_seconds`, `frames`, `sample_rate`,
 `channels`, `loudness_lufs` and `loudness_method`, `peak_dbfs`,
 `leading_silence_seconds` (below -60 dBFS), `hit_seconds` (the middle of
 the loudest 5 ms, rounded to the millisecond: start the sound this much
-before the frame its hit should land on), `loops`, `seed` and
+before the frame its hit should land on), `loops`, `format` (`wav` or
+`ogg`), `quality` (an OGG's, 0 to 10), `seed` and
 `recipe_hash` (`sha256:` of the recipe's data as JSON with defaults
 filled in, its random ranges included: comments and layout do not change
 it).
+
+An OGG's facts file is `<name>.ogg.json`, and its numbers are measured on
+the OGG decoded again, as a game hears it. `render` to an `.ogg` also
+answers with `ogg`: `quality`, `bytes`, `wav_bytes` (the size as a 16-bit
+WAV, to compare), `frames`, `decoded_frames` (what the decoder gave before
+trimming to the `DUCKECHO_FRAMES` comment; more than `frames` for a file
+of a second or so) and, for a loop, `loop_seam` on the decoded samples.
+An OGG that would decode to another length, or a loop that would click
+after encoding, is an error and is not written. `analyze`, `compare` and
+`mix_check` read `.ogg` files as they read `.wav`.
 
 ## Sound sets (`set_check`)
 

@@ -24,7 +24,7 @@
 //!   named from the list's own folder (or `base`). Pan is equal-power, as
 //!   Duck Echo's own stereo (a centred sound is -3 dB on each side).
 //!
-//! A cue's `file` is a WAV, a recipe or a song (rendered first) or
+//! A cue's `file` is a WAV, an OGG, a recipe or a song (rendered first) or
 //! `preset:NAME`. The check mixes them at 44.1 kHz in stereo and reports:
 //!
 //! * every moment over full volume, the sounds behind it, and volumes
@@ -781,7 +781,9 @@ fn load_audio(root: &Root, folder: &str, cue: &Cue) -> Result<Audio, ToolError> 
     } else {
         files(&cue.file)?
     };
-    let buffer: AudioBuffer = if path
+    let buffer: AudioBuffer = if crate::ogg::is_ogg_path(&path) {
+        crate::ogg::read_ogg_file(&path)?
+    } else if path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
     {

@@ -47,12 +47,15 @@ jobs:
           cargo build --release -p duck-echo-cli
           scripts/render-fingerprints.sh renders
           cat renders/SHA256SUMS
+          cat renders/OGGSUMS
 
       - name: Upload the hashes
         uses: actions/upload-artifact@v4
         with:
           name: sha256-${{ runner.os }}
-          path: renders/SHA256SUMS
+          path: |
+            renders/SHA256SUMS
+            renders/OGGSUMS
 
   same-bytes:
     name: Linux and Windows renders match
@@ -72,4 +75,15 @@ jobs:
           else
             echo "::error::Some renders differ between Linux and Windows (see the diff above). Fix the cause in duck-echo-synth's math module, not in this check."
             exit 1
+          fi
+
+      # OGG music is not promised to be the same bytes on both systems
+      # (docs/phase3-design.md, question 3): this says whether it is, and
+      # never fails the build. The WAVs above are the pinned renders.
+      - name: Compare the OGG music (reported, not required)
+        run: |
+          if diff -u sha256-Linux/OGGSUMS sha256-Windows/OGGSUMS; then
+            echo "::notice::The OGG music is byte-identical on Linux and Windows."
+          else
+            echo "::warning::The OGG music differs between Linux and Windows (see above). Expected: it is checked by its decoded samples, not its bytes."
           fi

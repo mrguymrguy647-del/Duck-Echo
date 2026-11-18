@@ -1,6 +1,6 @@
 [package]
 name = "duck-echo-audio"
-description = "Duck Echo audio buffer type and WAV file I/O"
+description = "Duck Echo audio buffer type, WAV file I/O and OGG Vorbis"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,9 +10,14 @@ repository.workspace = true
 default = ["wav"]
 # WAV read/write via hound. Off for crates that only need the buffer type.
 wav = ["dep:hound"]
+# OGG Vorbis write (vorbis_rs, built from C: needs a C compiler) and read
+# (lewton, pure Rust). Off for crates that only need the buffer type.
+ogg = ["dep:vorbis_rs", "dep:lewton"]
 
 [dependencies]
 hound = { workspace = true, optional = true }
+vorbis_rs = { workspace = true, optional = true }
+lewton = { workspace = true, optional = true }
 
 [lints]
 workspace = true

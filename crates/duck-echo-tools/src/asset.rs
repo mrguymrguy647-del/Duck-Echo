@@ -57,6 +57,12 @@ pub struct AssetInfo {
     pub hit_seconds: Option<f64>,
     /// True for a song made as a seamless loop (`loop = true`).
     pub loops: bool,
+    /// `wav` or `ogg`. For an OGG the facts above are measured on the
+    /// file decoded again, as a game hears it.
+    pub format: &'static str,
+    /// For an OGG: its quality, 0 to 10 (as `oggenc -q`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<f32>,
     /// The seed the sound was rendered with.
     pub seed: u64,
     /// `sha256:` and the SHA-256 of the recipe's (or song's) data as JSON,
@@ -123,9 +129,17 @@ pub fn info(
         leading_silence_seconds: analysis.leading_silence_seconds,
         hit_seconds: hit_seconds(buffer),
         loops,
+        format: "wav",
+        quality: None,
         seed,
-        recipe_hash: format!("sha256:{}", sha256_hex(data.to_string().as_bytes())),
+        recipe_hash: recipe_hash(data),
     }
+}
+
+/// `sha256:` and the SHA-256 of a document's data as JSON (see
+/// [`recipe_data`] and [`song_data`]).
+pub fn recipe_hash(data: &serde_json::Value) -> String {
+    format!("sha256:{}", sha256_hex(data.to_string().as_bytes()))
 }
 
 /// A recipe's data for [`info`]'s hash: the recipe as JSON, plus its

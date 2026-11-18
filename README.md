@@ -127,7 +127,7 @@ to keep their level in mono.
 | Command | What it does |
 |---|---|
 | `duck-echo validate <recipe> [--json]` | Reports every problem with its field path, allowed range and a suggestion. Exit 1 when invalid. |
-| `duck-echo render <recipe> [-o out.wav] [--seed N] [--format pcm16\|pcm24\|float32] [--json]` | Renders to WAV. `--json` adds the analysis of the result. Takes the same `--per-layer`, `--solo`, `--mute` and `--picture` options as `analyze`; with `--solo` or `--mute` the WAV holds only the heard layers. Beside the WAV it writes `<out>.wav.json`: its length, loudness, peak, leading silence, `hit_seconds` and a hash of the recipe, for a game engine. |
+| `duck-echo render <recipe> [-o out.wav\|out.ogg] [--seed N] [--format pcm16\|pcm24\|float32] [--quality Q] [--json]` | Renders to WAV, or to OGG Vorbis for music (`-o theme.ogg`, `--quality` 0 to 10, default 4): the OGG is decoded again and checked (exact length, a loop still joins cleanly) before it is kept. `--json` adds the analysis of the result. Takes the same `--per-layer`, `--solo`, `--mute` and `--picture` options as `analyze`; with `--solo` or `--mute` the WAV holds only the heard layers. Beside the WAV it writes `<out>.wav.json`: its length, loudness, peak, leading silence, `hit_seconds` and a hash of the recipe, for a game engine. |
 | `duck-echo analyze <wav-or-recipe> [--compact] [--per-layer] [--solo 0,2] [--mute 1] [--picture out.png]` | JSON measurements headed by a one-line `summary`: duration, peak, RMS, loudness in LUFS with its method, clipping, silence, attack, decay, crest factor, brightness, tonality, a pitch track, energy over time and note onsets. A recipe is rendered in memory. `--per-layer` also analyzes each layer as heard in the mix; `--solo`/`--mute` hear only some layers; `--picture` draws level over time above a spectrogram. See `docs/ANALYSIS.md`. |
 | `duck-echo compare <a> <b> [--compact]` | What changed from A to B (loudness, brightness, length, attack, ...), waveform correlation, and both analyses. WAV files or recipes. |
 | `duck-echo presets list [--tag T] [--json]` | The 30 built-in presets with category, loudness target and description. |
@@ -307,6 +307,16 @@ examples/recipes          coin, jump, laser, explosion, hit, powerup,
 
 ## Development
 
+Building from source needs **Rust 1.87** or newer and **a C compiler**:
+the OGG Vorbis encoder (`vorbis_rs`) builds Xiph's libvorbis from C. On
+Windows the C compiler comes with the Visual Studio Build Tools that Rust
+already asks for ("Desktop development with C++"). On Linux install the
+usual build tools:
+
+```bash
+sudo apt-get install build-essential
+```
+
 CI runs the tests on Linux and Windows and checks that both render every
 example and preset to identical bytes (see "What is guaranteed to match"
 in `docs/ARCHITECTURE.md`). To fingerprint the renders on your machine:
@@ -326,7 +336,7 @@ cargo clippy --workspace --all-targets && cargo fmt --all -- --check
 ### Building the Studio
 
 The Studio is its own Cargo workspace in `studio/` (egui needs Rust 1.95;
-the libraries above stay at 1.80). On Linux it needs ALSA's build files for
+the libraries above need 1.87, and a C compiler as said above). On Linux it needs ALSA's build files for
 the sound:
 
 ```bash

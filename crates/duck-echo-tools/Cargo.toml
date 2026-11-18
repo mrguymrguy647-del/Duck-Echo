@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 duck-echo-core = { workspace = true }
-duck-echo-audio = { workspace = true, features = ["wav"] }
+duck-echo-audio = { workspace = true, features = ["wav", "ogg"] }
 duck-echo-synth = { workspace = true }
 duck-echo-analyze = { workspace = true }
 serde = { workspace = true }
@@ -20,7 +20,7 @@ toml = { workspace = true }
 toml_edit = { workspace = true }
 
 [dev-dependencies]
-duck-echo-audio = { workspace = true, features = ["wav"] }
+duck-echo-audio = { workspace = true, features = ["wav", "ogg"] }
 
 [lints]
 workspace = true

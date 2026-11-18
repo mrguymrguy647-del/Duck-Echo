@@ -32,7 +32,11 @@ Never write a sound from nothing, and never change many things at once.
    `loudness_lufs`, `peak_dbfs`, `leading_silence_seconds`,
    `hit_seconds` (when the main hit lands: start the sound this much
    before its event), `loops` and `recipe_hash` (changes only when the
-   sound would). Hand that file to Duck Forge with the WAV.
+   sound would). Hand that file to Duck Forge with the WAV. Music for a
+   game goes as OGG: `output` such as `music/theme.ogg` (about 14 times
+   smaller; `quality` 0 to 10, default 4). The OGG is decoded again and
+   checked before it is kept: a loop that would click is an error.
+   Sound effects stay WAV.
 5. **Read the numbers.** Start with `summary`. Then look at the one field
    your change should have moved.
 6. **Compare.** `compare` with `a` (before) and `b` (after) says what
