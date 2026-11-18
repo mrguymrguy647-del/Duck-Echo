@@ -413,6 +413,31 @@ pub struct MixCheckArgs {
     pub out: Option<String>,
 }
 
+/// A sound, song or set of variants to send into a Duck Forge game.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GameSendArgs {
+    /// The sound or song: a file of the project (`sfx/step.toml`,
+    /// `music/day.toml`) or `preset:NAME`.
+    pub file: String,
+    /// The game, by name, as game_list gives it (`duck_craft`): the folder
+    /// examples/<game> of the Duck Forge folder. Never a path.
+    pub game: String,
+    /// Its name in the game. Default: the file's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Send this many numbered variants (1..=64) and the list a game picks
+    /// from, instead of one sound. Sound effects only, as WAV.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variants: Option<u32>,
+    /// `wav` or `ogg`. Default: `wav` for a sound, `ogg` for a song.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    /// OGG quality, 0 (smallest) to 10 (best). Default 4.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<f32>,
+}
+
 // ---------------------------------------------------------------------
 // The commands.
 // ---------------------------------------------------------------------
@@ -481,6 +506,10 @@ pub enum Command {
     SoundVariants(VariantsArgs),
     #[serde(rename = "set_check")]
     SetCheck(SetCheckArgs),
+    #[serde(rename = "game_list")]
+    GameList(NoArgs),
+    #[serde(rename = "game_send")]
+    GameSend(GameSendArgs),
     #[serde(rename = "mix_check")]
     MixCheck(MixCheckArgs),
     #[serde(rename = "edit_undo")]
@@ -552,6 +581,10 @@ pub const TABLE: &[Entry] = &[
         description: "Remove one effect from a layer, or from the whole sound." },
     Entry { name: "sound_variants", changes_files: false, schema: schema_of::<VariantsArgs>,
         description: "Export a sound as `count` variants for a game or film to pick from at random: `<name>_1.wav` ... `<name>_N.wav` (variant N is seed N), each with its facts file (`<name>_1.wav.json`: length, loudness, peak, hit_seconds), and one list `<name>.variants.json` naming them all with their loudness. What differs between variants is what the recipe lets the seed change: random ranges (`volume = { min = 0.6, max = 0.9 }`), `variation` and noise; the list's `seeds_matter` is false, with a `note`, when nothing does. It writes audio, not recipes, so it is not an Undo step." },
+    Entry { name: "game_list", changes_files: false, schema: schema_of::<NoArgs>,
+        description: "List the games of the Duck Forge folder (the Studio's setting, the MCP server's --duck-forge, or DUCK_ECHO_DUCK_FORGE), and for each the Duck Echo sounds already in its assets folder: name, file, format, length, loudness, whether it loops, its recipe copy, and for a set of variants how many." },
+    Entry { name: "game_send", changes_files: false, schema: schema_of::<GameSendArgs>,
+        description: "Send a sound (as WAV), a song (as OGG) or `variants` numbered variants into a Duck Forge game, by its name. It writes only into the game's assets folder (the sound and its facts file, which names the recipe and the sound file's SHA-256) and art folder (a copy of the recipe), each file whole. Sending again with no change writes nothing: that is decided from the game's own files (the facts' recipe_hash, format and quality, and the sound file still matching its facts), never from this computer's encoding, so a game folder from another computer stays unchanged. If only the recipe's text changed (a comment), only its copy is written. Not an Undo step: it writes into the game, not the project." },
     Entry { name: "set_check", changes_files: false, schema: schema_of::<SetCheckArgs>,
         description: "Render a set of sounds (a folder, or a set file naming sounds, folders and presets with a loudness target per tag) and check them side by side. Writes into `out`: every WAV with its facts file; `<name>.table.csv` (name, length, LUFS, peak, clipping, how it ends or how its loop joins, summary); `<name>.sheet.png`, a contact sheet of every sound's picture with its name, problems in red; and `<name>.check.json`, all of it plus the loudness report per tag (each sound against its target, with the change that fixes it). A sound that does not render is a row with its error. Writes reports, not recipes, so it is not an Undo step." },
     Entry { name: "mix_check", changes_files: false, schema: schema_of::<MixCheckArgs>,
@@ -938,6 +971,24 @@ pub fn run(
         }
         Command::SoundVariants(a) => {
             return Ok(serde_json::to_value(r.variants(&a)?).expect("serializes"))
+        }
+        Command::GameList(_) => {
+            return Ok(
+                serde_json::to_value(crate::forge::list(project.root(), prefix)?)
+                    .expect("serializes"),
+            );
+        }
+        Command::GameSend(a) => {
+            let request = crate::forge::Request {
+                file: &a.file,
+                game: &a.game,
+                name: a.name.as_deref(),
+                variants: a.variants,
+                format: a.format.as_deref(),
+                quality: a.quality,
+            };
+            let sent = crate::forge::send(project.root(), &request, prefix)?;
+            return Ok(serde_json::to_value(sent).expect("serializes"));
         }
         Command::SetCheck(a) => {
             let checked = crate::sets::check(project.root(), &a.set, a.out.as_deref(), prefix)?;
@@ -1422,6 +1473,7 @@ impl Runner<'_, '_> {
             count: a.count,
             name: a.name.as_deref(),
             variation: a.variation,
+            recipe_file: None,
         };
         crate::variants::export(&recipe, &a.file, &request, &folder, self.prefix, &|p| {
             root.show(p)
@@ -1657,7 +1709,7 @@ mod tests {
         for c in sample {
             assert!(entry(&c.name()).is_some(), "{}", c.name());
         }
-        assert_eq!(TABLE.len(), 33);
+        assert_eq!(TABLE.len(), 35);
     }
 
     #[test]

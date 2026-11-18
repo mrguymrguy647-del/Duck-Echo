@@ -290,7 +290,10 @@ before the frame its hit should land on), `loops`, `format` (`wav` or
 `ogg`), `quality` (an OGG's, 0 to 10), `seed` and
 `recipe_hash` (`sha256:` of the recipe's data as JSON with defaults
 filled in, its random ranges included: comments and layout do not change
-it).
+it), `file_sha256` (`sha256:` of the audio file beside it, as written, so a
+file changed by hand no longer matches; an OGG's bytes differ between
+computers, so this says only that the facts describe that file) and, for
+a sound sent into a game, `recipe` (its recipe copy, `art/step.toml`).
 
 An OGG's facts file is `<name>.ogg.json`, and its numbers are measured on
 the OGG decoded again, as a game hears it. `render` to an `.ogg` also

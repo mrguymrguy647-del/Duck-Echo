@@ -45,6 +45,9 @@ use std::path::{Component, Path, PathBuf};
 /// The root directory, canonical.
 pub struct Root {
     dir: PathBuf,
+    /// The Duck Forge folder `game_send` may write into (only into its
+    /// games' `assets` and `art` folders: see [`crate::forge`]).
+    duck_forge: Option<crate::forge::DuckForge>,
 }
 
 fn refuse(key: &str, arg: &str, why: impl std::fmt::Display) -> ToolError {
@@ -84,7 +87,22 @@ impl Root {
         if !dir.is_dir() {
             return Err(format!("root {} is not a directory", dir.display()));
         }
-        Ok(Self { dir })
+        Ok(Self {
+            dir,
+            duck_forge: None,
+        })
+    }
+
+    /// The same root, with a Duck Forge folder for `game_send` and
+    /// `game_list`.
+    pub fn with_duck_forge(mut self, duck_forge: crate::forge::DuckForge) -> Self {
+        self.duck_forge = Some(duck_forge);
+        self
+    }
+
+    /// The Duck Forge folder, if one was given.
+    pub fn duck_forge(&self) -> Option<&crate::forge::DuckForge> {
+        self.duck_forge.as_ref()
     }
 
     /// The root directory.

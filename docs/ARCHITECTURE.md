@@ -49,8 +49,9 @@ crates/
                            rendered WAV's facts file (`asset`), writing and
                            checking OGG music (`ogg`), `expect`
                            lines, the variant export (`variants`), the
-                           sound-set check (`sets`) and the mix check from
-                           a cue list (`mix`).
+                           sound-set check (`sets`), the mix check from
+                           a cue list (`mix`) and sending sounds into a
+                           Duck Forge game (`forge`).
   duck-echo-live/          the realtime mixer for playing through speakers:
                            a pool of 32 voice slots, two lock-free queues,
                            fades and clipping, and the background song
@@ -435,6 +436,13 @@ effects. The hash of the file goes into the recipe so determinism holds.
 
 `duck-echo-mcp` serves these tools over stdio. All take and return JSON
 objects; the work is done by `duck-echo-tools`, the same code the CLI uses.
+It is started as `duck-echo-mcp --root DIR [--duck-forge DIR]`. Every path
+a tool takes stays inside the root; with `--duck-forge` (a folder whose
+`Cargo.toml` names `duckforge`), `game_send` may also write into that
+folder's games, by name only and only into each game's `assets` and `art`
+folders (`tools::forge`). The command line takes the same folder from
+`DUCK_ECHO_DUCK_FORGE` (or `duck-echo send --duck-forge`), and the Studio
+from its settings (`Documents/Duck Forge` when that is one).
 A recipe argument is either `recipe` (an inline JSON object) or `path` (a
 `.toml`/`.json` file, or `preset:NAME`). Wherever the table says "recipe",
 a song works too: the tools tell the two apart by looking inside.
@@ -549,7 +557,8 @@ Names use `_`, not `.`, because Claude's tool names must match
 `file_set_text`...), sound commands (`sound_set`, `sound_add_layer`...),
 song commands (`song_add_note`, `song_place_pattern`, `song_set_loop`...)
 and `edit_undo`, `edit_redo`, `edit_history`. `sound_variants` writes
-audio and lists, not recipes or songs, so it is not an Undo step
+audio and lists, not recipes or songs, and `game_send` writes into a
+Duck Forge game, not the project, so neither is an Undo step
 (`changes_files: false`). A command checks its result
 (a recipe, or a song with its instruments) before it writes; an invalid
 result changes nothing and returns the usual report. Commands that change

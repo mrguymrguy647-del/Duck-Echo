@@ -1,7 +1,7 @@
 # Phase 3 design: the link with Duck Forge
 
 Status: **approved** (all seven questions in section 10 as recommended).
-Done so far: steps 1 and 2.
+Done so far: steps 1, 2 and 3.
 
 This plan covers two repositories. Every part is marked with the one it
 changes:
@@ -532,7 +532,27 @@ A CLICK", because a file alone does not say it loops; its facts file does
   loop in a player that loops (VLC) has no click. Linux: the same, and
   the CI compares the OGG bytes made on both systems (question 3).
 
-### Step 3 [Duck Echo]: game_send and game_list
+### Step 3 [Duck Echo]: game_send and game_list [done]
+
+Done as planned. Two points made firm while building it:
+
+* **"Unchanged" never compares OGG bytes with this computer's.** CI showed
+  an OGG's bytes differ between computers. So the check is the game
+  folder against itself: the facts' `recipe_hash`, format and quality
+  against the recipe, and the sound file against the facts' own
+  `file_sha256`. A game folder committed on Windows and sent again from
+  Linux with the same recipe says "unchanged" and keeps the Windows
+  files, line endings and all (tested, with a valid OGG of different
+  bytes and `\r\n` text files). Every facts file now carries
+  `file_sha256`, worked out from the file on disk as the facts are
+  written, so it always describes the file beside it.
+* **A comment is not a change to the sound.** If only the recipe's text
+  changed, only `art/<name>.toml` is written.
+
+The Studio keeps the Duck Forge folder in its settings
+(`duck_forge_folder`, else `Documents/Duck Forge` when that is one); the
+Settings box to choose it and the Send to game menu are step 4.
+
 
 * The Duck Forge folder setting (Studio Settings, `--duck-forge` for the
   MCP server, `DUCK_ECHO_DUCK_FORGE` for the CLI), the game rule, the

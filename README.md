@@ -137,6 +137,7 @@ to keep their level in mono.
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
 | `duck-echo set-check <set.toml or folder> [-o out] [--json]` | Render a set of sounds and write a table, a contact sheet of their pictures and a loudness report per tag (`do set_check`). See `examples/film`. |
 | `duck-echo mix <cues.json> [--length S] [--sections '[...]'] [--base DIR] [-o out] [--json]` | Mix a cue list (the `log.json` of a Duck Forge headless run, placed and panned as the game does, or a list with times in seconds) and report every moment over full volume with the volumes that fix it, the loudness each second and per section, buried cues, and a picture with each cue marked (`do mix_check`). |
+| `duck-echo send <file> --game G [--name N] [--variants N] [--format wav\|ogg] [--quality Q] [--duck-forge DIR] [--json]` | Send a sound (as WAV), a song (as OGG) or numbered variants into a Duck Forge game: the sound and its facts file into the game's `assets`, the recipe into its `art`. Sending again with no change writes nothing. The Duck Forge folder is `--duck-forge` or `DUCK_ECHO_DUCK_FORGE`; `duck-echo do game_list` lists the games (`do game_send`). |
 | `duck-echo guide [topic]` | The agent guide, or a reference page: `recipe_spec`, `song_spec`, `analysis`, `instruments`, `presets`. Built into the program. |
 | `duck-echo schema [song\|set]` | The JSON Schema for recipes, songs or sound sets, with descriptions and defaults. |
 | `duck-echo commands [--json]` | The named commands: make, copy, rename and delete files, set a field, add a layer, effect, track or note, place a pattern, undo and redo, export variants (`sound_variants`), check a set (`set_check`) and a mix (`mix_check`). The Studio's buttons and the MCP server use the same ones. |
@@ -253,6 +254,11 @@ Claude Desktop, in `claude_desktop_config.json` (absolute paths):
   }
 }
 ```
+
+To let the agent send sounds into your Duck Forge games (`game_list`,
+`game_send`), add `"--duck-forge", "/path/to/Duck Forge"` to `args`: the
+folder whose `Cargo.toml` names `duckforge`. The agent can then write
+only into each game's `assets` and `art` folders.
 
 A typical agent loop: `list_presets`, `get_preset`, `create` a file from it,
 `edit` fields by path (`master.normalize_lufs` to the preset's

@@ -915,8 +915,10 @@ pub fn export_wav(root: &Root, rel: &str, to: &Path) -> Result<PathBuf, String> 
     // a game engine (`coin.wav.json`).
     let data = duck_echo_tools::asset::recipe_data(&recipe);
     let analysis = duck_echo_tools::analyze_buffer(&buffer);
-    let info = duck_echo_tools::asset::info(&buffer, &analysis, &path, &data, recipe.seed, false);
-    duck_echo_tools::asset::write_sidecar(&path, &info).map_err(|e| e.into_report().to_string())?;
+    let mut info =
+        duck_echo_tools::asset::info(&buffer, &analysis, &path, &data, recipe.seed, false);
+    duck_echo_tools::asset::write_sidecar(&path, &mut info)
+        .map_err(|e| e.into_report().to_string())?;
     Ok(path)
 }
 

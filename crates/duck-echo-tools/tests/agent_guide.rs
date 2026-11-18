@@ -92,9 +92,19 @@ fn every_toml_example_is_valid_with_no_warnings() {
 
 #[test]
 fn the_levelling_edit_works_on_a_preset_as_the_guide_says() {
-    let ops_text = blocks("json");
-    assert_eq!(ops_text.len(), 1);
-    let ops: Vec<EditOp> = serde_json::from_str(&ops_text[0]).unwrap();
+    let json_blocks = blocks("json");
+    assert_eq!(
+        json_blocks.len(),
+        2,
+        "the levelling edit, and the game_send examples"
+    );
+    // The game_send examples: each line is a valid call.
+    for line in json_blocks[1].lines().filter(|l| !l.trim().is_empty()) {
+        let args: serde_json::Value = serde_json::from_str(line).unwrap();
+        duck_echo_tools::commands::parse("game_send", &args, "")
+            .unwrap_or_else(|e| panic!("{line}: {:?}", e.into_report()));
+    }
+    let ops: Vec<EditOp> = serde_json::from_str(&json_blocks[0]).unwrap();
     let coin = presets::get("coin").unwrap();
     let mut doc = duck_echo_core::tree::parse_toml(coin.source)
         .unwrap()

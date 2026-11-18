@@ -13,6 +13,7 @@ pub mod commands;
 pub mod examples;
 pub mod expect;
 pub mod files;
+pub mod forge;
 pub mod guide;
 pub mod history;
 pub mod instruments;
@@ -309,7 +310,7 @@ pub fn render_to_file(
         false,
     );
     written.mark(&mut info);
-    let file = asset::write_sidecar(output, &info)?;
+    let file = asset::write_sidecar(output, &mut info)?;
     Ok(rendered(
         output,
         recipe.seed,
@@ -391,7 +392,7 @@ pub fn render_document_to_file(
         loops,
     );
     written.mark(&mut info);
-    let file = asset::write_sidecar(output, &info)?;
+    let file = asset::write_sidecar(output, &mut info)?;
     Ok(rendered(
         output,
         used,
@@ -534,9 +535,9 @@ pub fn variations(
                 let path = dir.join(format!("{}_seed{seed}.wav", file_safe(&recipe.stem)));
                 write_wav_file(&path, &buffer, duck_echo_audio::WavFormat::Pcm16)?;
                 let data = asset::recipe_data(&r);
-                let info =
+                let mut info =
                     asset::info(&buffer, &analyze_buffer(&buffer), &path, &data, seed, false);
-                asset::write_sidecar(&path, &info)?;
+                asset::write_sidecar(&path, &mut info)?;
                 Some(path.display().to_string())
             }
             None => None,

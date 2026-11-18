@@ -150,7 +150,11 @@ impl StudioApp {
         let project = settings.project_folder();
         let mut project_problem = settings::make_project_folder(&project).err();
         let root = match Root::new(&project) {
-            Ok(root) => Some(root),
+            // With the Duck Forge folder, for Send to game.
+            Ok(root) => Some(match settings.duck_forge() {
+                Some(forge) => root.with_duck_forge(forge),
+                None => root,
+            }),
             Err(why) => {
                 project_problem.get_or_insert(format!(
                     "Your sounds folder, {}, cannot be read: {why}",

@@ -81,6 +81,17 @@ pub struct Exported {
     pub list: VariantList,
 }
 
+/// The `recipe_hash` of a variant list: the recipe's data without its
+/// seed (each variant has its own), so it says whether the set as a whole
+/// would come out differently.
+pub fn list_hash(recipe: &duck_echo_core::Recipe) -> String {
+    let mut data = asset::recipe_data(recipe);
+    if let Some(obj) = data.as_object_mut() {
+        obj.remove("seed");
+    }
+    asset::recipe_hash(&data)
+}
+
 /// What to export.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Request<'a> {
@@ -90,6 +101,9 @@ pub struct Request<'a> {
     pub name: Option<&'a str>,
     /// Replaces the recipe's own `variation`.
     pub variation: Option<f32>,
+    /// Where the recipe is kept beside the files (a game's
+    /// `art/step.toml`), written into each facts file as `recipe`.
+    pub recipe_file: Option<&'a str>,
 }
 
 /// Render seeds `1..=count` of `recipe` into `folder` as
@@ -109,6 +123,7 @@ pub fn export(
         count,
         name,
         variation,
+        recipe_file,
     } = *request;
     if !(1..=MAX_VARIATIONS).contains(&count) {
         return Err(ToolError::issue(
@@ -163,7 +178,7 @@ pub fn export(
         let file = format!("{name}_{seed}.wav");
         let path = folder.join(&file);
         crate::write_wav_file(&path, &buffer, duck_echo_audio::WavFormat::Pcm16)?;
-        let info = asset::info(
+        let mut info = asset::info(
             &buffer,
             &analysis,
             &path,
@@ -171,7 +186,8 @@ pub fn export(
             seed,
             false,
         );
-        asset::write_sidecar(&path, &info)?;
+        info.recipe = recipe_file.map(str::to_string);
+        asset::write_sidecar(&path, &mut info)?;
         files.push(Variant {
             file,
             seed,
@@ -189,15 +205,11 @@ pub fn export(
             loud.iter().copied().fold(f32::NEG_INFINITY, f32::max),
         ]
     });
-    let mut data = asset::recipe_data(&base);
-    if let Some(obj) = data.as_object_mut() {
-        obj.remove("seed");
-    }
     let list = VariantList {
         kind: "duck-echo-variants",
         version: 1,
         recipe: recipe_name.to_string(),
-        recipe_hash: format!("sha256:{}", asset::sha256_hex(data.to_string().as_bytes())),
+        recipe_hash: list_hash(&base),
         pick: "random",
         seeds_matter,
         note: (!seeds_matter).then(|| SAME_FOR_EVERY_SEED.to_string()),

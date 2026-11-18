@@ -530,7 +530,8 @@ fn check_one(
     };
     let written = crate::write_wav_file(&wav, &m.buffer, duck_echo_audio::WavFormat::Pcm16)
         .and_then(|()| {
-            asset::write_sidecar(&wav, &asset::info(&m.buffer, a, &wav, &data, seed, loops))
+            let mut info = asset::info(&m.buffer, a, &wav, &data, seed, loops);
+            asset::write_sidecar(&wav, &mut info)
         });
     if let Err(e) = written {
         return fail(row, e);

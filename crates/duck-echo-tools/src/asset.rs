@@ -69,6 +69,17 @@ pub struct AssetInfo {
     /// after defaults are filled in. Comments and layout do not change
     /// it; any value that changes the sound does.
     pub recipe_hash: String,
+    /// `sha256:` and the SHA-256 of the audio file itself, as it was
+    /// written beside these facts. A file changed by hand no longer
+    /// matches it. (An OGG's bytes differ from one computer to another, so
+    /// this only says the file is the one these facts describe; whether
+    /// the sound changed is `recipe_hash`'s job.)
+    pub file_sha256: String,
+    /// Where the recipe that made it is kept, when a game keeps it (a
+    /// sound sent with `game_send`: `art/step.toml`, from the game's
+    /// folder).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<String>,
 }
 
 /// When the main hit happens: the middle of the loudest 5 ms (all
@@ -133,6 +144,8 @@ pub fn info(
         quality: None,
         seed,
         recipe_hash: recipe_hash(data),
+        file_sha256: String::new(),
+        recipe: None,
     }
 }
 
@@ -172,12 +185,26 @@ pub fn sidecar_path(wav: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// Write the facts next to their WAV, in one step.
-pub fn write_sidecar(wav: &Path, info: &AssetInfo) -> Result<PathBuf, ToolError> {
-    let path = sidecar_path(wav);
+/// Write the facts next to their audio file, in one step. The audio file
+/// must be written first: its SHA-256 is read from disk here and put in
+/// `info.file_sha256`, so the facts always describe the file beside them.
+pub fn write_sidecar(audio: &Path, info: &mut AssetInfo) -> Result<PathBuf, ToolError> {
+    info.file_sha256 = file_sha256(audio)?;
+    let path = sidecar_path(audio);
     let text = serde_json::to_string_pretty(info).expect("plain JSON") + "\n";
     crate::save::write_atomic(&path, text.as_bytes())?;
     Ok(path)
+}
+
+/// `sha256:` and the SHA-256 of a file's bytes.
+pub fn file_sha256(path: &Path) -> Result<String, ToolError> {
+    let bytes = std::fs::read(path).map_err(|e| {
+        ToolError::failed(
+            crate::io_code(&e),
+            format!("cannot read {}: {e}", path.display()),
+        )
+    })?;
+    Ok(format!("sha256:{}", sha256_hex(&bytes)))
 }
 
 /// SHA-256 of `bytes`, as 64 lowercase hex digits (FIPS 180-4). Written

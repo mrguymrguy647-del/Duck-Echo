@@ -423,11 +423,32 @@ mix: raise its `volume`. `per_track: true` gives every track's analysis.
 Duck Echo cannot tell you whether a tune is *good*. Say so, and ask a
 person to listen.
 
+## Send it to a game
+
+When the person makes a game with Duck Forge, `game_list` lists its games
+and the Duck Echo sounds each already has. `game_send` puts a sound into
+one:
+
+```json
+{"file": "sfx/step.toml", "game": "duck_craft"}
+{"file": "music/day.toml", "game": "duck_craft", "name": "theme_day"}
+{"file": "sfx/step.toml", "game": "duck_craft", "variants": 8}
+```
+
+A sound goes as WAV, a song as OGG, variants as numbered WAVs with their
+list. Each lands in the game's `assets` folder with its facts file, and
+the recipe is copied into its `art` folder. The game is a name from
+`game_list`, never a path. Sending again with no change writes nothing
+(`unchanged: true`), so send freely after each change. If the tool says
+no Duck Forge folder is set, ask the person to start the server with
+`--duck-forge` (or set it in Duck Echo Studio's Settings).
+
 ## Undo, and working beside a person
 
-Every change you make to a file (`create`, `edit`, and the commands such
-as `sound_set`, `sound_add_layer` or `song_add_note`) is one step of the
-project's Undo history, shared with the person in Duck Echo Studio.
+Every change you make to a file of the project (`create`, `edit`, and
+the commands such as `sound_set`, `sound_add_layer` or `song_add_note`;
+not `game_send`, which writes into the game) is one step of the project's
+Undo history, shared with the person in Duck Echo Studio.
 `edit_undo` takes back the newest step, whoever made it, so check
 `edit_history` first: it lists each step with who made it (`You`, `AI
 assistant` or `Outside Duck Echo`). If a call says a file "kept changing",

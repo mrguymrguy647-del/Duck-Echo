@@ -195,6 +195,38 @@ enum Command {
         #[command(flatten)]
         project: ProjectArgs,
     },
+    /// Send a sound (as WAV), a song (as OGG) or numbered variants into a
+    /// Duck Forge game: into its assets folder with a facts file, and the
+    /// recipe into its art folder. Sending again with no change writes
+    /// nothing. The Duck Forge folder is --duck-forge, or
+    /// DUCK_ECHO_DUCK_FORGE. The same as `duck-echo do game_send`.
+    Send {
+        /// The sound or song: a recipe or song file, or preset:NAME.
+        file: String,
+        /// The game, by name (`duck-echo do game_list` lists them).
+        #[arg(long)]
+        game: String,
+        /// Its name in the game. Default: the file's name.
+        #[arg(long)]
+        name: Option<String>,
+        /// Send this many numbered variants and their list instead.
+        #[arg(long)]
+        variants: Option<u32>,
+        /// wav or ogg. Default: wav for a sound, ogg for a song.
+        #[arg(long)]
+        format: Option<String>,
+        /// OGG quality, 0 to 10. Default 4.
+        #[arg(long)]
+        quality: Option<f32>,
+        /// The Duck Forge folder. Default: DUCK_ECHO_DUCK_FORGE.
+        #[arg(long)]
+        duck_forge: Option<PathBuf>,
+        /// Print the whole answer as JSON.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
     /// Render a set of sounds (a folder or a set file) and write a table,
     /// a contact sheet and a loudness report per tag. The same as
     /// `duck-echo do set_check`.
@@ -466,6 +498,31 @@ fn main() -> ExitCode {
                 &["mix_wav", "picture_png", "report_json"],
             )
         }
+        Command::Send {
+            file,
+            game,
+            name,
+            variants,
+            format,
+            quality,
+            duck_forge,
+            json,
+            project,
+        } => {
+            let mut args = serde_json::json!({ "file": file, "game": game });
+            for (key, value) in [("name", name), ("format", format)] {
+                if let Some(v) = value {
+                    args[key] = v.into();
+                }
+            }
+            if let Some(n) = variants {
+                args["variants"] = n.into();
+            }
+            if let Some(q) = quality {
+                args["quality"] = q.into();
+            }
+            send(&args, &project, duck_forge.as_deref(), json)
+        }
         Command::SetCheck {
             set,
             out,
@@ -522,14 +579,27 @@ fn list_commands(json: bool) -> ExitCode {
 }
 
 /// The project folder of `do` and `run`.
+/// The project folder, with the Duck Forge folder from
+/// `DUCK_ECHO_DUCK_FORGE` when it is set (for game_send and game_list).
 fn open_root(args: &ProjectArgs) -> Result<Root, ToolError> {
-    Root::new(&args.root).map_err(|e| {
+    let root = Root::new(&args.root).map_err(|e| {
         ToolError::issue(duck_echo_core::Issue::error(
             duck_echo_core::Code::NotFound,
             "--root",
             e,
         ))
-    })
+    })?;
+    let Some(dir) = std::env::var_os(duck_echo_tools::forge::ENV_VARIABLE) else {
+        return Ok(root);
+    };
+    match duck_echo_tools::forge::DuckForge::open(Path::new(&dir)) {
+        Ok(forge) => Ok(root.with_duck_forge(forge)),
+        Err(why) => {
+            // Only the game commands need it: say so, and carry on.
+            eprintln!("duck-echo: {}: {why}", duck_echo_tools::forge::ENV_VARIABLE);
+            Ok(root)
+        }
+    }
 }
 
 fn do_command(name: &str, arguments: &str, args: &ProjectArgs) -> ExitCode {
@@ -553,6 +623,44 @@ fn do_command(name: &str, arguments: &str, args: &ProjectArgs) -> ExitCode {
     match result {
         Ok(v) => print_json(&v, false),
         Err(e) => tool_error(e, true),
+    }
+}
+
+/// `duck-echo send`: game_send with `--duck-forge` (or the environment
+/// variable), printing what it did.
+fn send(
+    arguments: &serde_json::Value,
+    args: &ProjectArgs,
+    duck_forge: Option<&Path>,
+    json: bool,
+) -> ExitCode {
+    let result = open_root(args).and_then(|root| {
+        let root = match duck_forge {
+            Some(dir) => {
+                let forge = duck_echo_tools::forge::DuckForge::open(dir).map_err(|why| {
+                    ToolError::issue(duck_echo_core::Issue::error(
+                        duck_echo_core::Code::NotFound,
+                        "--duck-forge",
+                        why,
+                    ))
+                })?;
+                root.with_duck_forge(forge)
+            }
+            None => root,
+        };
+        let command = commands::parse("game_send", arguments, "--")?;
+        commands::run(&Project::new(&root), command, args.by.into(), None, "--")
+    });
+    match result {
+        Ok(v) if json => print_json(&v, false),
+        Ok(v) => {
+            println!("{}", v["summary"].as_str().unwrap_or_default());
+            for f in v["written"].as_array().into_iter().flatten() {
+                println!("wrote {}", f.as_str().unwrap_or_default());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => tool_error(e, json),
     }
 }
 
