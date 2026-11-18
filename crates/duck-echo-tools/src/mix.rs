@@ -3,19 +3,29 @@
 //! A cue list says which sound plays when, how loud and where. It is read
 //! in either of two forms:
 //!
-//! * Duck Forge's `log.json`, as Duck Forge writes it:
-//!   `{"updates_per_second": 60, "sounds": [{"frame", "sound", "file",
-//!   "volume", "pan"}], "loops": [{"loop", "file", "start", "stop",
-//!   "volume": [[frame, level], ...]}]}`, times in frames;
-//! * a plain list, times in seconds:
+//! * **Duck Forge's `log.json`, as a headless run writes it.** Only three
+//!   of its fields are read: `updates_per_second`, `sounds` (`{"frame",
+//!   "sound", "file", "volume", "pan"}`) and `loops` (`{"loop", "file",
+//!   "start", "stop", "volume": [[frame, level], ...]}`); its other
+//!   fields are the game's own report and are left alone. Times are
+//!   frames, placed as Duck Forge places them: frame `f` starts at sample
+//!   `(f - 1) x 44100 / updates_per_second`. A loop's volume holds from
+//!   its frame until the next point, as in the game. A sound from Duck
+//!   Forge's own synthesizer (`"wave"` instead of `"file"`) cannot be
+//!   mixed here and is listed in `not_mixed`. Files are named from the
+//!   folder the game ran in: the Duck Forge folder (the nearest folder
+//!   above the log whose `Cargo.toml` is Duck Forge's), or `base`. Pan is
+//!   Duck Forge's: one side is turned down, and a centred sound is at
+//!   full volume on both sides.
+//! * **A plain list**, times in seconds:
 //!   `[{"time": 1.25, "file": "sfx/door.wav", "name": "door",
 //!   "volume": 0.8, "pan": 0}]`, where `"loop": true` (with `"stop"`)
-//!   plays the file over and over.
+//!   plays the file over and over. Unknown fields are errors. Files are
+//!   named from the list's own folder (or `base`). Pan is equal-power, as
+//!   Duck Echo's own stereo (a centred sound is -3 dB on each side).
 //!
 //! A cue's `file` is a WAV, a recipe or a song (rendered first) or
-//! `preset:NAME`, relative to the cue list's folder. The check mixes them
-//! at 44.1 kHz in stereo (equal-power pan, as Duck Echo's own stereo) and
-//! reports:
+//! `preset:NAME`. The check mixes them at 44.1 kHz in stereo and reports:
 //!
 //! * every moment over full volume, the sounds behind it, and volumes
 //!   that would fix it (all of them down together, or the loudest alone);
@@ -68,59 +78,6 @@ const DEFAULT_SECTION_SECONDS: f64 = 10.0;
 // The two forms of a cue list.
 // ---------------------------------------------------------------------
 
-/// Duck Forge's `log.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ForgeLog {
-    /// Frames per second of the game: times are frame numbers.
-    pub updates_per_second: f64,
-    /// One-shot sounds.
-    #[serde(default)]
-    pub sounds: Vec<ForgeSound>,
-    /// Loops.
-    #[serde(default)]
-    pub loops: Vec<ForgeLoop>,
-}
-
-/// One sound in Duck Forge's log.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ForgeSound {
-    /// The frame it starts on.
-    pub frame: f64,
-    /// Its name.
-    pub sound: String,
-    /// The file it plays.
-    pub file: String,
-    /// Its volume, linear (1 is as the file is). Default 1.
-    #[serde(default = "one")]
-    pub volume: f32,
-    /// Its pan, -1 (left) to 1 (right). Default 0.
-    #[serde(default)]
-    pub pan: f32,
-}
-
-/// One loop in Duck Forge's log.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ForgeLoop {
-    /// Its name.
-    #[serde(rename = "loop")]
-    pub name: String,
-    /// The file it plays over and over.
-    pub file: String,
-    /// The frame it starts on.
-    pub start: f64,
-    /// The frame it stops on; `null` or left out: the end of the mix.
-    #[serde(default)]
-    pub stop: Option<f64>,
-    /// Its volume over time, `[[frame, level], ...]` in frame order, the
-    /// level linear and straight lines between the points; before the
-    /// first point it is at the first level. Left out: 1.
-    #[serde(default)]
-    pub volume: Vec<[f64; 2]>,
-}
-
 /// One cue of a plain list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -146,10 +103,6 @@ pub struct PlainCue {
     pub stop: Option<f64>,
 }
 
-fn one() -> f32 {
-    1.0
-}
-
 /// A part of the film or game, for its own loudness.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -162,39 +115,73 @@ pub struct Section {
     pub end: f64,
 }
 
-/// One cue, whichever form it came from.
+/// A sound in the cue list that the check cannot mix.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NotMixed {
+    /// Its name.
+    pub name: String,
+    /// Where it starts, seconds.
+    pub start_seconds: f64,
+    /// Why it is left out.
+    pub why: String,
+}
+
+/// How a cue list pans a sound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PanLaw {
+    /// Duck Echo's own: equal power, a centred sound -3 dB on each side.
+    EqualPower,
+    /// Duck Forge's: one side turned down, a centred sound at full volume
+    /// on both sides.
+    OneSideDown,
+}
+
+impl PanLaw {
+    /// The left and right gains for `pan`, -1 (left) to 1 (right).
+    fn gains(self, pan: f32) -> [f32; 2] {
+        match self {
+            PanLaw::EqualPower => [
+                math::sin_turns((1.0 - pan) * 0.125),
+                math::sin_turns((1.0 + pan) * 0.125),
+            ],
+            // As Duck Forge's `sound::pan_gains`.
+            PanLaw::OneSideDown => [(1.0 - pan).min(1.0), (1.0 + pan).min(1.0)],
+        }
+    }
+}
+
+/// One cue, whichever form it came from, placed in samples.
 #[derive(Debug, Clone, PartialEq)]
 struct Cue {
     /// Where it is in the cue list, for errors: `sounds[3]`, `[3]`.
     at: String,
     name: String,
     file: String,
-    start: f64,
-    stop: Option<f64>,
+    /// The sample it starts at.
+    start: usize,
+    /// The sample a loop stops at.
+    stop: Option<usize>,
     looping: bool,
-    /// (seconds, level) points; empty is 1.
-    volume: Vec<(f64, f32)>,
+    /// (sample, level) points, in order: each level holds until the next
+    /// point; before the first, the first level holds. Never empty.
+    volume: Vec<(usize, f32)>,
     pan: f32,
 }
 
 impl Cue {
-    /// Its level at `t` seconds.
-    fn level(&self, t: f64) -> f32 {
-        let v = &self.volume;
-        match v.len() {
-            0 => 1.0,
-            _ if t <= v[0].0 => v[0].1,
-            _ => {
-                for w in v.windows(2) {
-                    if t <= w[1].0 {
-                        let span = w[1].0 - w[0].0;
-                        let f = if span > 0.0 { (t - w[0].0) / span } else { 1.0 };
-                        return w[0].1 + (w[1].1 - w[0].1) * f as f32;
-                    }
-                }
-                v[v.len() - 1].1
-            }
-        }
+    /// Its level at `sample`.
+    fn level(&self, sample: usize) -> f32 {
+        self.volume
+            .iter()
+            .take_while(|(from, _)| *from <= sample)
+            .last()
+            .or(self.volume.first())
+            .map_or(1.0, |p| p.1)
+    }
+
+    /// Where it starts, seconds.
+    fn start_seconds(&self) -> f64 {
+        self.start as f64 / f64::from(MIX_RATE)
     }
 
     /// Its volume as one number: the first level (a one-shot has only
@@ -204,140 +191,47 @@ impl Cue {
     }
 }
 
+/// A cue list, read.
+struct CueList {
+    /// `duck_forge_log` or `plain_list`.
+    form: &'static str,
+    cues: Vec<Cue>,
+    not_mixed: Vec<NotMixed>,
+    /// How long the game ran, in samples (a Duck Forge log's `frames`).
+    ran: Option<usize>,
+    pan: PanLaw,
+    /// Problems found while reading, reported with the rest.
+    report: Report,
+}
+
 /// Read a cue list's text: Duck Forge's log (an object) or a plain list.
-fn parse_cues(text: &str) -> Result<Vec<Cue>, ToolError> {
-    let tree = duck_echo_core::tree::parse_json(text)
-        .map_err(|issue| ToolError::Invalid(Report::from_error(*issue)))?;
-    let is_list = matches!(tree.value, duck_echo_core::tree::Value::Array(_));
-    let schema = if is_list {
-        serde_json::to_value(schemars::schema_for!(Vec<PlainCue>)).expect("schema")
+fn parse_cues(text: &str) -> Result<CueList, ToolError> {
+    // Checked for syntax with exact lines first.
+    let tree = duck_echo_core::tree::parse_json(text);
+    let is_list = matches!(
+        &tree,
+        Ok(duck_echo_core::tree::Node {
+            value: duck_echo_core::tree::Value::Array(_),
+            ..
+        })
+    );
+    let mut list = if is_list {
+        parse_plain(&tree.map_err(|issue| ToolError::Invalid(Report::from_error(*issue)))?)?
     } else {
-        serde_json::to_value(schemars::schema_for!(ForgeLog)).expect("schema")
-    };
-    let checked = duck_echo_core::structure::check_against(&tree, &schema);
-    let mut report = Report::new();
-    for issue in checked.issues {
-        report.push(issue);
-    }
-    if !report.is_ok() {
-        return Err(ToolError::Invalid(report));
-    }
-    let value = checked.pruned.unwrap_or_default();
-    let name_of = |file: &str| {
-        Path::new(file)
-            .file_stem()
-            .map_or_else(|| file.to_string(), |s| s.to_string_lossy().into_owned())
-    };
-    let mut cues = Vec::new();
-    if is_list {
-        let list: Vec<PlainCue> = serde_json::from_value(value).map_err(|e| {
-            ToolError::failed(Code::Invalid, format!("the cue list does not decode: {e}"))
+        // Duck Forge writes a synthesizer sound's own `volume` and the
+        // play's `volume` on one line, so a key can be there twice. This
+        // reader takes the last, as serde_json does.
+        let value: serde_json::Value = serde_json::from_str(text).map_err(|e| {
+            ToolError::issue(Issue::error(
+                Code::Syntax,
+                "",
+                format!("the cue list is not JSON: {e}"),
+            ))
         })?;
-        for (i, c) in list.into_iter().enumerate() {
-            let at = format!("[{i}]");
-            let looping = c.looping.unwrap_or(false);
-            if c.stop.is_some() && !looping {
-                report.push(
-                    Issue::error(
-                        Code::Invalid,
-                        format!("{at}.stop"),
-                        "`stop` is for a loop; a one-shot sound plays to its end",
-                    )
-                    .suggest("\"loop\": true"),
-                );
-            }
-            cues.push(Cue {
-                name: c.name.unwrap_or_else(|| name_of(&c.file)),
-                file: c.file,
-                start: c.time,
-                stop: c.stop,
-                looping,
-                volume: vec![(c.time, c.volume.unwrap_or(1.0))],
-                pan: c.pan.unwrap_or(0.0),
-                at,
-            });
-        }
-    } else {
-        let log: ForgeLog = serde_json::from_value(value).map_err(|e| {
-            ToolError::failed(Code::Invalid, format!("the log does not decode: {e}"))
-        })?;
-        let fps = log.updates_per_second;
-        if !(fps.is_finite() && fps > 0.0) {
-            report.push(
-                Issue::error(
-                    Code::OutOfRange,
-                    "updates_per_second",
-                    format!("updates_per_second must be above 0, got {fps}"),
-                )
-                .got(fps)
-                .suggest("60"),
-            );
-            return Err(ToolError::Invalid(report));
-        }
-        for (i, s) in log.sounds.into_iter().enumerate() {
-            cues.push(Cue {
-                at: format!("sounds[{i}]"),
-                name: s.sound,
-                file: s.file,
-                start: s.frame / fps,
-                stop: None,
-                looping: false,
-                volume: vec![(s.frame / fps, s.volume)],
-                pan: s.pan,
-            });
-        }
-        for (i, l) in log.loops.into_iter().enumerate() {
-            let at = format!("loops[{i}]");
-            for (j, w) in l.volume.windows(2).enumerate() {
-                if w[1][0] < w[0][0] {
-                    report.push(
-                        Issue::error(
-                            Code::Invalid,
-                            format!("{at}.volume[{}]", j + 1),
-                            "the volume points must be in frame order",
-                        )
-                        .got(w[1][0]),
-                    );
-                }
-            }
-            cues.push(Cue {
-                at,
-                name: l.name,
-                file: l.file,
-                start: l.start / fps,
-                stop: l.stop.map(|f| f / fps),
-                looping: true,
-                volume: l.volume.iter().map(|p| (p[0] / fps, p[1] as f32)).collect(),
-                pan: 0.0,
-            });
-        }
-    }
-    for c in &cues {
-        if !(c.start.is_finite() && c.start >= 0.0) {
-            report.push(
-                Issue::error(
-                    Code::OutOfRange,
-                    format!("{}.time", c.at),
-                    "a cue starts at 0 seconds or later",
-                )
-                .got(c.start),
-            );
-        }
-        if let Some(stop) = c.stop {
-            if stop < c.start {
-                report.push(
-                    Issue::error(
-                        Code::OutOfRange,
-                        format!("{}.stop", c.at),
-                        format!(
-                            "a loop stops after it starts ({:.3} s), got {stop:.3} s",
-                            c.start
-                        ),
-                    )
-                    .got(stop),
-                );
-            }
-        }
+        parse_forge(&value)?
+    };
+    let mut report = std::mem::take(&mut list.report);
+    for c in &list.cues {
         if !(-1.0..=1.0).contains(&c.pan) {
             report.push(
                 Issue::error(
@@ -360,24 +254,371 @@ fn parse_cues(text: &str) -> Result<Vec<Cue>, ToolError> {
             );
         }
     }
-    if cues.len() > MAX_CUES {
+    if list.cues.len() > MAX_CUES {
         report.push(Issue::error(
             Code::Invalid,
             "",
             format!(
                 "the cue list holds {} cues; one check mixes at most {MAX_CUES}",
-                cues.len()
+                list.cues.len()
             ),
         ));
     }
-    if cues.is_empty() {
+    // (Only when nothing else is wrong: cues with mistakes are left out.)
+    if list.cues.is_empty() && list.not_mixed.is_empty() && report.is_ok() {
         report.push(Issue::error(Code::Invalid, "", "the cue list has no cues"));
     }
-    if report.is_ok() {
-        Ok(cues)
-    } else {
-        Err(ToolError::Invalid(report))
+    if !report.is_ok() {
+        return Err(ToolError::Invalid(report));
     }
+    list.cues.sort_by_key(|c| c.start);
+    Ok(list)
+}
+
+/// A plain list: every field checked, unknown ones are errors.
+fn parse_plain(tree: &duck_echo_core::tree::Node) -> Result<CueList, ToolError> {
+    let schema = serde_json::to_value(schemars::schema_for!(Vec<PlainCue>)).expect("schema");
+    let checked = duck_echo_core::structure::check_against(tree, &schema);
+    let mut report = Report::new();
+    for issue in checked.issues {
+        report.push(issue);
+    }
+    if !report.is_ok() {
+        return Err(ToolError::Invalid(report));
+    }
+    let list: Vec<PlainCue> =
+        serde_json::from_value(checked.pruned.unwrap_or_default()).map_err(|e| {
+            ToolError::failed(Code::Invalid, format!("the cue list does not decode: {e}"))
+        })?;
+    let sr = f64::from(MIX_RATE);
+    let mut cues = Vec::new();
+    for (i, c) in list.into_iter().enumerate() {
+        let at = format!("[{i}]");
+        let looping = c.looping.unwrap_or(false);
+        if c.stop.is_some() && !looping {
+            report.push(
+                Issue::error(
+                    Code::Invalid,
+                    format!("{at}.stop"),
+                    "`stop` is for a loop; a one-shot sound plays to its end",
+                )
+                .suggest("\"loop\": true"),
+            );
+        }
+        if !(c.time.is_finite() && c.time >= 0.0 && c.time <= MAX_MIX_SECONDS) {
+            report.push(
+                Issue::error(
+                    Code::OutOfRange,
+                    format!("{at}.time"),
+                    format!(
+                        "a cue starts at 0 seconds or later (at most {MAX_MIX_SECONDS}), got {}",
+                        c.time
+                    ),
+                )
+                .got(c.time),
+            );
+            continue;
+        }
+        if let Some(stop) = c.stop {
+            // (A stop that is not a number counts as before the start.)
+            if stop.is_nan() || stop < c.time {
+                report.push(
+                    Issue::error(
+                        Code::OutOfRange,
+                        format!("{at}.stop"),
+                        format!(
+                            "a loop stops after it starts ({:.3} s), got {stop:.3} s",
+                            c.time
+                        ),
+                    )
+                    .got(stop),
+                );
+            }
+        }
+        let start = (c.time * sr).round() as usize;
+        cues.push(Cue {
+            name: c.name.unwrap_or_else(|| name_of(&c.file)),
+            file: c.file,
+            start,
+            stop: c
+                .stop
+                .map(|s| (s.min(MAX_MIX_SECONDS) * sr).round() as usize),
+            looping,
+            volume: vec![(start, c.volume.unwrap_or(1.0))],
+            pan: c.pan.unwrap_or(0.0),
+            at,
+        });
+    }
+    Ok(CueList {
+        form: "plain_list",
+        cues,
+        not_mixed: Vec::new(),
+        ran: None,
+        pan: PanLaw::EqualPower,
+        report,
+    })
+}
+
+/// The name of a cue from its file: the file name without its ending.
+fn name_of(file: &str) -> String {
+    Path::new(file)
+        .file_stem()
+        .map_or_else(|| file.to_string(), |s| s.to_string_lossy().into_owned())
+}
+
+/// Duck Forge's log: only `updates_per_second`, `sounds` and `loops` are
+/// read, field by field, with a path for every problem.
+fn parse_forge(log: &serde_json::Value) -> Result<CueList, ToolError> {
+    use serde_json::Value;
+    let mut report = Report::new();
+    let Some(obj) = log.as_object() else {
+        return Err(ToolError::issue(Issue::error(
+            Code::TypeMismatch,
+            "",
+            "a cue list is Duck Forge's log.json (an object with updates_per_second) or a list of cues",
+        )));
+    };
+    let ups =
+        match obj.get("updates_per_second").and_then(Value::as_f64) {
+            Some(u) if u.is_finite() && u > 0.0 => u,
+            Some(u) => {
+                return Err(ToolError::issue(
+                    Issue::error(
+                        Code::OutOfRange,
+                        "updates_per_second",
+                        format!("updates_per_second must be above 0, got {u}"),
+                    )
+                    .got(u)
+                    .suggest("60"),
+                ))
+            }
+            None => return Err(ToolError::issue(
+                Issue::error(
+                    Code::MissingField,
+                    "updates_per_second",
+                    "a Duck Forge log says its updates_per_second; a plain cue list is a JSON list",
+                )
+                .suggest("60"),
+            )),
+        };
+    // Where frame `f` starts, as Duck Forge's `Simulation::sample_at`:
+    // whole-number math when the rate is a whole number, so it never drifts.
+    let sample_of = |frame: f64| -> usize {
+        let before = (frame - 1.0).max(0.0);
+        if ups.fract() == 0.0 && before.fract() == 0.0 {
+            (before as u64 * u64::from(MIX_RATE) / ups as u64) as usize
+        } else {
+            (before * f64::from(MIX_RATE) / ups).floor() as usize
+        }
+    };
+    let frame_at = |v: Option<&Value>, path: String, report: &mut Report| -> Option<f64> {
+        match v.and_then(Value::as_f64) {
+            Some(f) if f.is_finite() && f >= 1.0 && f.fract() == 0.0 => Some(f),
+            Some(f) => {
+                report.push(
+                    Issue::error(
+                        Code::OutOfRange,
+                        path,
+                        format!("a frame is a whole number from 1, got {f}"),
+                    )
+                    .got(f),
+                );
+                None
+            }
+            None => {
+                report.push(Issue::error(
+                    Code::MissingField,
+                    path,
+                    "a frame number is needed here",
+                ));
+                None
+            }
+        }
+    };
+    let number = |v: Option<&Value>, default: f32, path: String, report: &mut Report| -> f32 {
+        match v {
+            None | Some(Value::Null) => default,
+            Some(v) => match v.as_f64() {
+                Some(n) => n as f32,
+                None => {
+                    report.push(
+                        Issue::error(Code::TypeMismatch, path, "expected a number").got(v.clone()),
+                    );
+                    default
+                }
+            },
+        }
+    };
+    let list = |key: &str, report: &mut Report| -> Vec<Value> {
+        match obj.get(key) {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items.clone(),
+            Some(other) => {
+                report.push(
+                    Issue::error(Code::TypeMismatch, key, "expected a list").got(other.clone()),
+                );
+                Vec::new()
+            }
+        }
+    };
+    let synth = "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix";
+    let mut cues = Vec::new();
+    let mut not_mixed = Vec::new();
+    for (i, s) in list("sounds", &mut report).iter().enumerate() {
+        let at = format!("sounds[{i}]");
+        let Some(entry) = s.as_object() else {
+            report.push(
+                Issue::error(Code::TypeMismatch, &at, "expected a sound's line").got(s.clone()),
+            );
+            continue;
+        };
+        let name = entry
+            .get("sound")
+            .and_then(Value::as_str)
+            .unwrap_or("sound")
+            .to_string();
+        let Some(frame) = frame_at(entry.get("frame"), format!("{at}.frame"), &mut report) else {
+            continue;
+        };
+        let start = sample_of(frame);
+        match entry.get("file").and_then(Value::as_str) {
+            Some(file) => cues.push(Cue {
+                name,
+                file: file.to_string(),
+                start,
+                stop: None,
+                looping: false,
+                volume: vec![(
+                    start,
+                    number(
+                        entry.get("volume"),
+                        1.0,
+                        format!("{at}.volume"),
+                        &mut report,
+                    ),
+                )],
+                pan: number(entry.get("pan"), 0.0, format!("{at}.pan"), &mut report),
+                at,
+            }),
+            None if entry.contains_key("wave") => not_mixed.push(NotMixed {
+                name,
+                start_seconds: ms(start as f64 / f64::from(MIX_RATE)),
+                why: synth.into(),
+            }),
+            None => report.push(Issue::error(
+                Code::MissingField,
+                format!("{at}.file"),
+                "a sound's line has a `file` (a WAV) or a `wave` (Duck Forge's synthesizer)",
+            )),
+        }
+    }
+    for (i, l) in list("loops", &mut report).iter().enumerate() {
+        let at = format!("loops[{i}]");
+        let Some(entry) = l.as_object() else {
+            report.push(
+                Issue::error(Code::TypeMismatch, &at, "expected a loop's line").got(l.clone()),
+            );
+            continue;
+        };
+        let name = entry
+            .get("loop")
+            .and_then(Value::as_str)
+            .unwrap_or("loop")
+            .to_string();
+        let Some(start_frame) = frame_at(entry.get("start"), format!("{at}.start"), &mut report)
+        else {
+            continue;
+        };
+        let start = sample_of(start_frame);
+        let stop = match entry.get("stop") {
+            None | Some(Value::Null) => None,
+            v => {
+                let f = frame_at(v, format!("{at}.stop"), &mut report);
+                if f.is_some_and(|f| f < start_frame) {
+                    report.push(Issue::error(
+                        Code::OutOfRange,
+                        format!("{at}.stop"),
+                        format!("a loop stops on or after the frame it starts on ({start_frame})"),
+                    ));
+                }
+                f.map(sample_of)
+            }
+        };
+        let mut volume = Vec::new();
+        match entry.get("volume") {
+            None | Some(Value::Null) => volume.push((start, 1.0)),
+            Some(Value::Array(points)) => {
+                for (j, p) in points.iter().enumerate() {
+                    let path = format!("{at}.volume[{j}]");
+                    let pair = p.as_array().filter(|a| a.len() == 2);
+                    let Some(pair) = pair else {
+                        report.push(
+                            Issue::error(Code::TypeMismatch, path, "expected [frame, level]")
+                                .got(p.clone())
+                                .suggest("[1, 0.6]"),
+                        );
+                        continue;
+                    };
+                    let Some(f) = frame_at(pair.first(), format!("{path}[0]"), &mut report) else {
+                        continue;
+                    };
+                    let level = number(pair.get(1), 1.0, format!("{path}[1]"), &mut report);
+                    let sample = sample_of(f);
+                    if volume.last().is_some_and(|(s, _)| *s > sample) {
+                        report.push(Issue::error(
+                            Code::Invalid,
+                            &path,
+                            "the volume points must be in frame order",
+                        ));
+                    }
+                    volume.push((sample, level));
+                }
+                if volume.is_empty() {
+                    volume.push((start, 1.0));
+                }
+            }
+            Some(n) => volume.push((
+                start,
+                number(Some(n), 1.0, format!("{at}.volume"), &mut report),
+            )),
+        }
+        match entry.get("file").and_then(Value::as_str) {
+            Some(file) => cues.push(Cue {
+                name,
+                file: file.to_string(),
+                start,
+                stop,
+                looping: true,
+                volume,
+                pan: 0.0,
+                at,
+            }),
+            None if entry.contains_key("wave") => not_mixed.push(NotMixed {
+                name,
+                start_seconds: ms(start as f64 / f64::from(MIX_RATE)),
+                why: synth.into(),
+            }),
+            None => report.push(Issue::error(
+                Code::MissingField,
+                format!("{at}.file"),
+                "a loop's line has a `file` (a WAV) or a `wave` (Duck Forge's synthesizer)",
+            )),
+        }
+    }
+    // How long the game ran: up to where the frame after its last starts.
+    let ran = obj
+        .get("frames")
+        .and_then(Value::as_f64)
+        .filter(|f| f.is_finite() && *f >= 0.0)
+        .map(|f| sample_of(f + 1.0));
+    Ok(CueList {
+        form: "duck_forge_log",
+        cues,
+        not_mixed,
+        ran,
+        pan: PanLaw::OneSideDown,
+        report,
+    })
 }
 
 // ---------------------------------------------------------------------
@@ -506,6 +747,9 @@ pub struct MixChecked {
     pub overs: Vec<Over>,
     /// Every cue, in time order, the buried ones marked.
     pub cues: Vec<CueReport>,
+    /// Sounds in the cue list that could not be mixed (Duck Forge's own
+    /// synthesizer sounds), so the mix is without them.
+    pub not_mixed: Vec<NotMixed>,
     /// Short-term loudness (the 3 s up to the end of each second), LUFS;
     /// `null` for a silent second.
     pub short_term_lufs: Vec<Option<f32>>,
@@ -584,15 +828,6 @@ fn to_mix_rate(buffer: &AudioBuffer) -> Audio {
     }
 }
 
-/// Equal-power gains for `pan`, as Duck Echo's own stereo: a centred
-/// sound is -3 dB on each side, so it is as loud as in mono.
-fn pan_gains(pan: f32) -> [f32; 2] {
-    [
-        math::sin_turns((1.0 - pan) * 0.125),
-        math::sin_turns((1.0 + pan) * 0.125),
-    ]
-}
-
 /// One cue placed in the mix: what it adds to each side at a frame.
 struct Placed<'a> {
     cue: &'a Cue,
@@ -614,7 +849,7 @@ impl Placed<'_> {
         } else if k >= self.audio.len() {
             return [0.0; 2];
         }
-        let level = self.cue.level(frame as f64 / f64::from(MIX_RATE));
+        let level = self.cue.level(frame);
         [
             self.audio.left[k] * level * self.gains[0],
             self.audio.right[k] * level * self.gains[1],
@@ -622,31 +857,67 @@ impl Placed<'_> {
     }
 }
 
-/// Mix `cues_file` (relative to the project folder) and check it.
-/// `sections` are given in seconds; `length` sets the mix's length (else
-/// the end of the last sound, or the last loop's stop). `out` is the
-/// folder for the mix, the report and the picture (default the cue
-/// list's own). Arguments in errors are `<prefix>cues` and so on.
-pub fn check(
-    root: &Root,
-    cues_file: &str,
-    sections: Option<&[Section]>,
-    length: Option<f64>,
-    out: Option<&str>,
-    prefix: &str,
-) -> Result<MixChecked, ToolError> {
+/// What to mix and how: the arguments of `mix_check`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Request<'a> {
+    /// The cue list, relative to the project folder.
+    pub cues: &'a str,
+    /// Parts to measure on their own, in seconds (default every 10 s).
+    pub sections: Option<&'a [Section]>,
+    /// The mix's length in seconds (default: the end of the last sound,
+    /// the last loop's stop, or how long a Duck Forge game ran).
+    pub length: Option<f64>,
+    /// The folder the cues' files are named from, relative to the project
+    /// folder (default: see the module's notes).
+    pub base: Option<&'a str>,
+    /// The folder for the mix, the report and the picture (default the
+    /// cue list's own).
+    pub out: Option<&'a str>,
+}
+
+/// The Duck Forge folder a log is in: the nearest folder above it, inside
+/// the project folder, whose `Cargo.toml` says `name = "duckforge"`.
+fn duck_forge_folder_of(root: &Root, log: &Path) -> Option<PathBuf> {
+    log.ancestors()
+        .skip(1)
+        .take_while(|d| d.starts_with(root.dir()))
+        .find(|d| {
+            std::fs::read_to_string(d.join("Cargo.toml")).is_ok_and(|t| {
+                t.lines()
+                    .any(|l| l.replace(' ', "") == "name=\"duckforge\"")
+            })
+        })
+        .map(Path::to_path_buf)
+}
+
+/// Mix a cue list and check it (see [`Request`]). Arguments in errors are
+/// `<prefix>cues`, `<prefix>base` and so on.
+pub fn check(root: &Root, request: &Request, prefix: &str) -> Result<MixChecked, ToolError> {
+    let Request {
+        cues: cues_file,
+        sections,
+        length,
+        base,
+        out,
+    } = *request;
     let key = format!("{prefix}cues");
     let path = root.read(&key, cues_file)?;
     let text = std::fs::read_to_string(&path)
         .map_err(|e| ToolError::failed(Code::Io, format!("cannot read {cues_file}: {e}")))?;
-    let form = if text.trim_start().starts_with('[') {
-        "plain_list"
-    } else {
-        "duck_forge_log"
+    let list = parse_cues(&text)?;
+    let (form, cues, not_mixed, ran, pan_law) =
+        (list.form, list.cues, list.not_mixed, list.ran, list.pan);
+    // The folder the cues' files are named from.
+    let folder = match base {
+        Some(b) => {
+            let dir = root.folder(&format!("{prefix}base"), Some(b))?;
+            root.show(&dir)
+        }
+        None if form == "duck_forge_log" => {
+            duck_forge_folder_of(root, &path).map_or_else(String::new, |d| root.show(&d))
+        }
+        None => root.folder_of(&path),
     };
-    let mut cues = parse_cues(&text)?;
-    cues.sort_by(|a, b| a.start.total_cmp(&b.start));
-    let folder = root.folder_of(&path);
     let name = file_safe(
         &path
             .file_stem()
@@ -689,16 +960,21 @@ pub fn check(
         return Err(ToolError::Invalid(report));
     }
 
-    // The length: given, or the end of the last one-shot, or the last stop.
+    // The length: given, or the end of the last one-shot, the last stop,
+    // or how long a Duck Forge game ran (its audio.wav is that long, and
+    // longer if a sound rings on).
     let sr = f64::from(MIX_RATE);
     let natural = cues
         .iter()
         .map(|c| match (c.looping, c.stop) {
-            (false, _) => c.start + audio[&c.file].len() as f64 / sr,
+            (false, _) => c.start + audio[&c.file].len(),
             (true, Some(stop)) => stop,
             (true, None) => c.start,
         })
-        .fold(0.0, f64::max);
+        .chain(ran)
+        .max()
+        .unwrap_or(0) as f64
+        / sr;
     let seconds = match length {
         Some(l) if l.is_finite() && l > 0.0 && l <= MAX_MIX_SECONDS => l,
         Some(l) => {
@@ -729,10 +1005,10 @@ pub fn check(
         .iter()
         .map(|c| {
             let a = &audio[&c.file];
-            let start = (c.start * sr).round() as usize;
+            let start = c.start;
             let end = match (c.looping, c.stop) {
                 (false, _) => start + a.len(),
-                (true, Some(stop)) => (stop * sr).round() as usize,
+                (true, Some(stop)) => stop,
                 (true, None) => frames,
             }
             .min(frames);
@@ -741,7 +1017,7 @@ pub fn check(
                 audio: a,
                 start: start.min(frames),
                 end,
-                gains: pan_gains(c.pan),
+                gains: pan_law.gains(c.pan),
             }
         })
         .collect();
@@ -798,7 +1074,7 @@ pub fn check(
         },
         duck_echo_audio::WavFormat::Float32,
     )?;
-    let summary = summary_line(seconds, whole, peak_dbfs, &overs, &cue_reports);
+    let summary = summary_line(seconds, whole, peak_dbfs, &overs, &cue_reports, &not_mixed);
     crate::save::write_atomic(
         &png,
         &picture(
@@ -828,6 +1104,7 @@ pub fn check(
         summary,
         overs,
         cues: cue_reports,
+        not_mixed,
         short_term_lufs: short_term,
         sections,
     };
@@ -886,7 +1163,7 @@ fn find_overs(left: &[f32], right: &[f32], placed: &[Placed]) -> Vec<Over> {
         parts.sort_by(|x, y| y.1.total_cmp(&x.1));
         let factor = FIX_PEAK / peak;
         // A loop's volume can move: its level where the moment starts.
-        let at = a as f64 / sr;
+        let at = a;
         let all_down = parts
             .iter()
             .map(|(p, _)| VolumeChange {
@@ -936,7 +1213,7 @@ fn find_overs(left: &[f32], right: &[f32], placed: &[Placed]) -> Vec<Over> {
                 .iter()
                 .map(|(p, own)| OverPart {
                     name: p.cue.name.clone(),
-                    start_seconds: ms(p.cue.start),
+                    start_seconds: ms(p.cue.start_seconds()),
                     volume: round3(p.cue.level(at)),
                     peak_dbfs: db(*own),
                 })
@@ -1001,7 +1278,7 @@ fn cue_reports(placed: &[Placed], kw_l: &[f64], kw_r: &[f64]) -> Vec<CueReport> 
             CueReport {
                 name: p.cue.name.clone(),
                 file: p.cue.file.clone(),
-                start_seconds: ms(p.cue.start),
+                start_seconds: ms(p.cue.start_seconds()),
                 end_seconds: ms(p.end as f64 / sr),
                 looping: p.cue.looping,
                 volume: p.cue.volume_now(),
@@ -1102,6 +1379,7 @@ fn summary_line(
     peak: Option<f32>,
     overs: &[Over],
     cues: &[CueReport],
+    not_mixed: &[NotMixed],
 ) -> String {
     let mut parts = vec![format!(
         "{seconds:.1} s, {}, peak {}",
@@ -1147,6 +1425,20 @@ fn summary_line(
     } else {
         parts.push(format!("buried: {}", buried.join(", ")));
     }
+    if !not_mixed.is_empty() {
+        // Each name once, in the order first played.
+        let mut names: Vec<&str> = Vec::new();
+        for n in not_mixed {
+            if !names.contains(&n.name.as_str()) {
+                names.push(&n.name);
+            }
+        }
+        parts.push(format!(
+            "not in the mix: {} of Duck Forge's own synthesizer sounds ({})",
+            not_mixed.len(),
+            names.join(", ")
+        ));
+    }
     parts.join("; ")
 }
 
@@ -1190,7 +1482,7 @@ fn picture(
     let mut lane_ends: Vec<usize> = Vec::new();
     let mut lanes = Vec::with_capacity(placed.len());
     for (p, c) in placed.iter().zip(cues) {
-        let x = x_of(p.cue.start);
+        let x = x_of(p.cue.start_seconds());
         let label_end = x + 4 + text_width(&c.name, 1);
         let bar_end = if p.cue.looping {
             x_of(p.end as f64 / f64::from(MIX_RATE))
@@ -1294,7 +1586,7 @@ fn picture(
     }
     // Cues.
     for ((p, c), lane) in placed.iter().zip(cues).zip(&lanes) {
-        let x = x_of(p.cue.start);
+        let x = x_of(p.cue.start_seconds());
         let y = lanes_top + lane * LANE_H;
         let ink = if c.buried { Ink::Problem } else { Ink::Rms };
         b.fill(x, level_top + LEVEL_H - 10, 1, 10, ink);

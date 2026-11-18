@@ -53,8 +53,8 @@ pub struct VariantList {
     /// variant's facts file, but without its seed).
     pub recipe_hash: String,
     /// How to use the list: `random`, any one of `files` each time the
-    /// sound plays (Duck Forge also avoids playing the same one twice in a
-    /// row).
+    /// sound plays. (Playing two different ones in a row sounds best. Duck
+    /// Forge does not read this list yet: see docs/phase3-design.md.)
     pub pick: &'static str,
     /// False when nothing in the recipe depends on the seed, so every
     /// variant is the same audio; `note` says what to change.

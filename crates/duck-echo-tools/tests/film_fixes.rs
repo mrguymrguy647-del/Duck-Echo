@@ -677,16 +677,20 @@ fn mix_check_reads_duck_forges_log_and_finds_a_buried_cue() {
         "version = 0\n[master]\nnormalize_lufs = -20\n[[layers]]\nsource = \"sine\"\npitch = { start = 880 }\nenvelope = { attack = 0.005, decay = 0.2 }\n",
     )
     .unwrap();
+    // As Duck Forge writes a fade: a new volume on each frame it changes
+    // (here every 6 frames), from frame 601 (10 s) to frame 721 (12 s).
+    let fade: Vec<serde_json::Value> = std::iter::once(serde_json::json!([1, 1.0]))
+        .chain((0..=20).map(|k| serde_json::json!([601 + 6 * k, 1.0 - f64::from(k) / 20.0])))
+        .collect();
     let log = |step: f32| {
         serde_json::json!({
             "updates_per_second": 60,
             "sounds": [
-                {"frame": 90, "sound": "step", "file": "sfx/step.wav", "volume": step, "pan": 0.5},
-                {"frame": 600, "sound": "blip", "file": "sfx/blip.toml"}
+                {"frame": 91, "sound": "step", "file": "sfx/step.wav", "volume": step, "pan": 0.5},
+                {"frame": 601, "sound": "blip", "file": "sfx/blip.toml"}
             ],
             "loops": [
-                {"loop": "bed", "file": "sfx/bed.wav", "start": 0, "stop": 720,
-                 "volume": [[0, 1.0], [600, 1.0], [720, 0.0]]}
+                {"loop": "bed", "file": "sfx/bed.wav", "start": 1, "stop": 721, "volume": fade}
             ]
         })
     };
@@ -759,10 +763,29 @@ fn a_cue_list_with_mistakes_says_where() {
     let paths = |r: &duck_echo_core::Report| -> Vec<String> {
         r.errors.iter().map(|e| e.path.clone()).collect()
     };
+    // Duck Forge's log: only what the mix needs is read; a field it does
+    // not need is the game's report, not a mistake.
+    std::fs::write(
+        dir.join("c.json"),
+        serde_json::json!({"updates_per_second": 60, "game": "x", "sounds": [{"frame": 1, "sound": "a", "file": "a.wav", "vol": 1}]}).to_string(),
+    )
+    .unwrap();
+    assert!(run_in(&dir, "mix_check", serde_json::json!({"cues": "c.json"})).is_ok());
     let r = check(
-        serde_json::json!({"updates_per_second": 60, "sounds": [{"frame": 1, "sound": "a", "file": "a.wav", "vol": 1}]}),
+        serde_json::json!({"updates_per_second": 60, "sounds": [{"frame": 0, "sound": "a", "file": "a.wav"}, {"sound": "b", "file": "a.wav"}, {"frame": 2, "sound": "c"}]}),
     );
-    assert_eq!(paths(&r), ["sounds[0].vol"], "{r}");
+    assert_eq!(
+        paths(&r),
+        ["sounds[0].frame", "sounds[1].frame", "sounds[2].file"],
+        "{r}"
+    );
+    let r = check(
+        serde_json::json!({"updates_per_second": 60, "loops": [{"loop": "x", "file": "a.wav", "start": 1, "volume": [[1, 0.5], 3]}]}),
+    );
+    assert_eq!(paths(&r), ["loops[0].volume[1]"], "{r}");
+    // A plain list is checked field by field.
+    let r = check(serde_json::json!([{"time": 0, "file": "a.wav", "vol": 1}]));
+    assert_eq!(paths(&r), ["[0].vol"], "{r}");
     let r = check(
         serde_json::json!({"updates_per_second": 60, "sounds": [{"frame": 1, "sound": "a", "file": "nope.wav"}]}),
     );
@@ -772,7 +795,7 @@ fn a_cue_list_with_mistakes_says_where() {
     let r = check(serde_json::json!({"updates_per_second": 0, "sounds": []}));
     assert_eq!(paths(&r), ["updates_per_second"], "{r}");
     let r = check(
-        serde_json::json!({"updates_per_second": 60, "loops": [{"loop": "x", "file": "a.wav", "start": 0}]}),
+        serde_json::json!({"updates_per_second": 60, "loops": [{"loop": "x", "file": "a.wav", "start": 1}]}),
     );
     assert_eq!(paths(&r), ["arguments.length_seconds"], "{r}");
 }

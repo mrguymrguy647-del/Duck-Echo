@@ -1,6 +1,7 @@
 # Phase 3 design: the link with Duck Forge
 
-Status: **design, waiting for approval.** No code is written yet.
+Status: **approved** (all seven questions in section 10 as recommended).
+Done so far: step 1.
 
 This plan covers two repositories. Every part is marked with the one it
 changes:
@@ -473,7 +474,17 @@ committed on its own branch. Steps marked **(stronger model)** touch
 threads, the engine's core or recordings, where a mistake is costly and
 hard to see in a test.
 
-### Step 1 [Duck Echo]: mix_check reads Duck Forge's real log
+### Step 1 [Duck Echo]: mix_check reads Duck Forge's real log [done]
+
+Done as planned, plus two things the real log showed: frame `f` starts
+at sample `(f - 1) x 44100 / updates_per_second` (the check was a frame
+late), and a loop's volume changes in steps on its frame, not in
+straight lines. Checked against Duck Forge's own `audio.wav` for a Duck
+Craft run: same length, lined up to the sample, largest difference
+0.0036 (the log writes volumes to two decimals). Tests:
+`crates/duck-echo-tools/tests/duck_forge_link.rs`, with a real log in
+`tests/data/duck_craft_log.json`.
+
 
 * Read only `updates_per_second`, `sounds` and `loops` from a Duck Forge
   log; its other fields are the game's report and are left alone (a

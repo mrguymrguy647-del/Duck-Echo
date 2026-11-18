@@ -1125,8 +1125,9 @@ and before the film fixes). Corrected after reading Duck Forge's `main`
   * Duck Forge does not read `.variants.json` or `.wav.json`.
   * No way to pick a Duck Echo sound in Duck Forge Studio, or to open
     one in Duck Echo.
-* **Found while reading Duck Forge** (Duck Echo bugs, step 1 of the
-  design): `mix_check` refuses a real `log.json`, because the log has
+* **Found while reading Duck Forge** (Duck Echo bugs, fixed in step 1
+  of the design, along with two more the real log showed: frames start at
+  1, and a loop's volume changes in steps): `mix_check` refuses a real `log.json`, because the log has
   many more top-level fields than the cue list and its synthesizer
   sounds have no `file`; it reads sound files from the log's folder,
   where Duck Forge names them from the folder the game ran in; and it

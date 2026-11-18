@@ -399,9 +399,14 @@ pub struct MixCheckArgs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sections: Option<Vec<crate::mix::Section>>,
     /// The mix's length in seconds, up to 600. Default: the end of the
-    /// last sound (or the last loop's stop).
+    /// last sound, the last loop's stop, or how long a Duck Forge game ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_seconds: Option<f64>,
+    /// The folder the cues' files are named from, relative to the project
+    /// folder. Default: for Duck Forge's log, the Duck Forge folder it is
+    /// in (where the game ran); for a plain list, the list's own folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
     /// The folder for the mix, its picture and its report, relative to
     /// the project folder. Default: the cue list's folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -550,7 +555,7 @@ pub const TABLE: &[Entry] = &[
     Entry { name: "set_check", changes_files: false, schema: schema_of::<SetCheckArgs>,
         description: "Render a set of sounds (a folder, or a set file naming sounds, folders and presets with a loudness target per tag) and check them side by side. Writes into `out`: every WAV with its facts file; `<name>.table.csv` (name, length, LUFS, peak, clipping, how it ends or how its loop joins, summary); `<name>.sheet.png`, a contact sheet of every sound's picture with its name, problems in red; and `<name>.check.json`, all of it plus the loudness report per tag (each sound against its target, with the change that fixes it). A sound that does not render is a row with its error. Writes reports, not recipes, so it is not an Undo step." },
     Entry { name: "mix_check", changes_files: false, schema: schema_of::<MixCheckArgs>,
-        description: "Mix a cue list (Duck Forge's log.json, or a plain list with times in seconds) at 44.1 kHz stereo and check it: every moment over full volume with the sounds behind it and volumes that fix it, the short-term loudness each second, the loudness of each section, and every cue buried more than 15 dB under what plays with it (with the volume that lifts it). Writes `<name>.mix.wav` (to listen to), `<name>.mix.json` (the report) and `<name>.mix.png` (the mix's level over time with a marker and a name for each cue). Not an Undo step." },
+        description: "Mix a cue list (Duck Forge's log.json as a headless run writes it, or a plain list with times in seconds) at 44.1 kHz stereo, placed and panned as the game does, and check it: every moment over full volume with the sounds behind it and volumes that fix it, the short-term loudness each second, the loudness of each section, and every cue buried more than 15 dB under what plays with it (with the volume that lifts it). Writes `<name>.mix.wav` (to listen to), `<name>.mix.json` (the report) and `<name>.mix.png` (the mix's level over time with a marker and a name for each cue). Not an Undo step." },
     Entry { name: "song_set", changes_files: true, schema: schema_of::<SetArgs>,
         description: "Set one field of a song by its path, such as `tempo`, `tracks[1].volume` or `tracks[0].notes[3].note`. The result must be a valid song." },
     Entry { name: "song_remove", changes_files: true, schema: schema_of::<RemoveArgs>,
@@ -939,14 +944,14 @@ pub fn run(
             return Ok(serde_json::to_value(checked).expect("serializes"));
         }
         Command::MixCheck(a) => {
-            let checked = crate::mix::check(
-                project.root(),
-                &a.cues,
-                a.sections.as_deref(),
-                a.length_seconds,
-                a.out.as_deref(),
-                prefix,
-            )?;
+            let request = crate::mix::Request {
+                cues: &a.cues,
+                sections: a.sections.as_deref(),
+                length: a.length_seconds,
+                base: a.base.as_deref(),
+                out: a.out.as_deref(),
+            };
+            let checked = crate::mix::check(project.root(), &request, prefix)?;
             return Ok(serde_json::to_value(checked).expect("serializes"));
         }
         Command::EditUndo(_) => project.undo(by)?,

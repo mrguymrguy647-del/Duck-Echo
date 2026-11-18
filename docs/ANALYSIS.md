@@ -316,23 +316,38 @@ clipping: loud; off target: loud (+16.7 LU), wind (+6.0 LU)".
 `mix_check` mixes a cue list and checks the mix. The cue list is JSON in
 one of two forms:
 
-* **Duck Forge's `log.json`**: `{"updates_per_second": 60, "sounds":
-  [{"frame", "sound", "file", "volume", "pan"}], "loops": [{"loop",
-  "file", "start", "stop", "volume": [[frame, level], ...]}]}`. Times are
-  frames. A loop's `volume` points are joined by straight lines; before
-  the first it is at the first level; no points is 1. A loop with no
-  `stop` plays to the end of the mix.
+* **Duck Forge's `log.json`, as a headless run writes it.** Only
+  `updates_per_second`, `sounds` and `loops` are read; the log's other
+  fields (`game`, `seed`, `frames`, `final`, `tune` ...) are the game's
+  own report and are left alone. A sound's line is `{"frame", "sound",
+  "file", "volume", "pan"}`, a loop's `{"loop", "file", "start", "stop",
+  "volume": [[frame, level], ...]}`. Times are placed as Duck Forge
+  places them: frame `f` starts at sample `(f - 1) x 44100 /
+  updates_per_second` (frame 1 is the start). A loop's volume holds from
+  its frame until the next point, as the game changes it; a loop with no
+  `stop` plays to the end. The mix is as long as the game ran
+  (`frames`), or longer if a sound rings on. A sound from Duck Forge's
+  own synthesizer (a line with `"wave"` and no `"file"`) cannot be mixed
+  here: it is listed in `not_mixed` and named in the summary. Files are
+  named from the folder the game ran in: the nearest folder above the
+  log whose `Cargo.toml` names the package `duckforge`, or `base`. Pan
+  is Duck Forge's: one side turned down, a centred sound at full volume
+  on both sides.
 * **A plain list**, times in seconds: `[{"time", "file", "name",
   "volume", "pan", "loop", "stop"}]`; only `time` and `file` are needed.
+  Unknown fields are errors with their path (`[0].vol`). Files are named
+  from the list's own folder (or `base`). Pan is equal-power, as Duck
+  Echo's own stereo (a centred sound is -3 dB on each side, as loud as
+  in mono).
 
-A `file` is a WAV, a recipe or a song (rendered first) or `preset:NAME`,
-relative to the cue list's folder. Volumes are linear, 0..=16; pan is
--1..=1. Unknown fields are errors with their path (`sounds[0].vol`).
+A `file` is a WAV, a recipe or a song (rendered first) or `preset:NAME`.
+Volumes are linear, 0..=16; pan is -1..=1. Checked against Duck Forge's
+own `audio.wav` for a Duck Craft run, the mix has the same length to the
+sample and lines up to the sample; the largest difference, 0.0036, comes
+from the log's volumes being written to two decimals.
 
-The mix is made at 44.1 kHz in stereo: mono files go to both sides, other
-rates are read with straight lines between samples, and pan is
-equal-power, as Duck Echo's own stereo (a centred sound is -3 dB on each
-side, as loud as in mono). It is written as `<name>.mix.wav` (32-bit
+The mix is made at 44.1 kHz in stereo: mono files go to both sides, and
+other rates are read with straight lines between samples. It is written as `<name>.mix.wav` (32-bit
 float, so a mix over full volume is kept as it is) beside
 `<name>.mix.json` (the answer) and `<name>.mix.png` (the picture).
 
@@ -340,6 +355,7 @@ float, so a mix over full volume is kept as it is) beside
 |---|---|
 | `summary` | Length, loudness, peak, and every problem by name and time: "6.0 s, -16.8 LUFS, peak +0.2 dBFS; 1 moment over full volume: at 2.54 s (latch + door + wind); buried: step 2 at 1.50 s, 17 dB under". |
 | `overs` | Every moment a sample goes over full volume (moments closer than 50 ms are one). Each has `start_seconds`, `end_seconds`, `peak_dbfs`, the `sounds` playing in it (loudest first, with their volume at that moment and their own peak there), and two fixes that bring the peak to -1 dBFS: `all_down` (every one of them down by `all_down_db`) and `loudest_alone` (only the loudest, found by halving until no sample of the moment is over; `null` when that alone cannot do it). |
+| `not_mixed` | Sounds in a Duck Forge log that could not be mixed (its own synthesizer sounds), with their name, start and why. |
 | `cues` | Every cue in time order: `start_seconds`, `end_seconds`, `volume`, `loudness_lufs` (its own loudness as it plays, K-weighted over its sounding part) and `rest_lufs` (everything else over the same part). A one-shot more than 15 dB under the rest is `buried`, with the sounds it is `under` and `lift_to`, the volume that puts it 10 dB under (`null` above 16: lower the others). Loops are beds and are never called buried. |
 | `short_term_lufs` | Short-term loudness at the end of each second: the 3 s before it (EBU R 128), K-weighted and ungated; `null` for silence. |
 | `sections` | The loudness (gated BS.1770) and peak of each section: the `sections` given (seconds), or every 10 s. |

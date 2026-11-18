@@ -222,13 +222,17 @@ and a loudness report per tag whose `fix` says what to change. Fix the
 red ones and run it again.
 
 When the sounds play together (a film, a level), check the mix too:
-`mix_check` with `{"cues": "log.json"}` reads Duck Forge's log (or a list
-of `{"time", "file", "volume", "pan"}` in seconds), mixes it and answers
+`mix_check` with `{"cues": "out/duck_craft/log.json"}` reads the log a
+Duck Forge headless run wrote (or a list of `{"time", "file", "volume",
+"pan"}` in seconds), mixes it as the game does and answers
 with every moment over full volume (`overs`, with the volumes that fix
 it), the loudness each second and per section, and every cue `buried`
 more than 15 dB under what plays with it (`lift_to` is its fix). Change
 the volumes in the cue list, or `master.normalize_lufs` in a recipe, and
-check again until `overs` is empty and nothing is buried. Read
+check again until `overs` is empty and nothing is buried. Duck Forge's
+own synthesizer sounds are not in the mix (`not_mixed` names them); if
+the log is not inside the Duck Forge folder, give `base`, the folder the
+game ran in. Read
 `<name>.mix.png` once: it shows where in time the trouble is.
 
 ### A small example

@@ -179,6 +179,10 @@ enum Command {
         /// the cue list's folder.
         #[arg(short, long)]
         out: Option<String>,
+        /// The folder the cues' files are named from. Default: for Duck
+        /// Forge's log.json, the Duck Forge folder it is in.
+        #[arg(long)]
+        base: Option<String>,
         /// Print the whole report as JSON instead of a few lines.
         #[arg(long)]
         json: bool,
@@ -412,10 +416,14 @@ fn main() -> ExitCode {
             length,
             sections,
             out,
+            base,
             json,
             project,
         } => {
             let mut args = serde_json::json!({ "cues": cues });
+            if let Some(b) = base {
+                args["base"] = b.into();
+            }
             if let Some(l) = length {
                 args["length_seconds"] = l.into();
             }
