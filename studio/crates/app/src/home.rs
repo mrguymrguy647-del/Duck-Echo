@@ -41,6 +41,11 @@ impl StudioApp {
     /// steps' titles.
     pub fn rescan(&mut self) {
         self.files = library::scan(&self.project);
+        if self.game.is_some() {
+            // A Duck Forge game: only its recipes, in art/ (its other
+            // .json files are the game's own: scenes, sheets, tunes).
+            self.files.retain(|f| f.rel.starts_with("art/"));
+        }
         self.thumbs.keep_only(&self.files);
         self.last_scan = Some(Instant::now());
         let (undo, redo) = match &self.root {
@@ -144,7 +149,7 @@ impl StudioApp {
             Kind::Sound => ("file_new_sound", "new sound"),
             Kind::Song => ("file_new_song", "new song"),
         };
-        let rel = library::free_name(&self.project, "", stem, "toml");
+        let rel = library::free_name(&self.project, self.sounds_folder(), stem, "toml");
         if self.run_command(command, json!({ "file": rel })).is_some() {
             self.say(format!(
                 "Made {}. Rename it with ... on its card.",
@@ -156,7 +161,7 @@ impl StudioApp {
     /// Make a copy: `source` (`preset:coin`) is copied into the project as
     /// a file of its own, named after it.
     pub fn make_copy(&mut self, source: &str, name: &str) {
-        let rel = library::free_name(&self.project, "", name, "toml");
+        let rel = library::free_name(&self.project, self.sounds_folder(), name, "toml");
         if self
             .run_command("file_copy_from", json!({ "from": source, "to": rel }))
             .is_some()

@@ -30,13 +30,17 @@ fn main() -> eframe::Result {
             return Ok(());
         }
         Some("--play") => std::process::exit(play(args.get(1).map(String::as_str))),
+        Some("--open") if args.len() < 2 => {
+            eprintln!("usage: DuckEchoStudio --open FILE (a .toml or .json sound or song)");
+            std::process::exit(2);
+        }
         Some("--check-for-updates") => {
             check_for_updates();
             return Ok(());
         }
         Some("--help") => {
             println!(
-                "Duck Echo Studio {}\n\n  DuckEchoStudio                      open the Studio\n  DuckEchoStudio --version            say which version this is\n  DuckEchoStudio --play NAME|FILE     play a built-in sound or a recipe through the speakers\n  DuckEchoStudio --check-for-updates  say whether a newer Studio is out",
+                "Duck Echo Studio {}\n\n  DuckEchoStudio                      open the Studio\n  DuckEchoStudio --version            say which version this is\n  DuckEchoStudio --play NAME|FILE     play a built-in sound or a recipe through the speakers\n  DuckEchoStudio --open FILE          open one sound or song; in a Duck Forge game, work on that game\n  DuckEchoStudio --check-for-updates  say whether a newer Studio is out",
                 env!("CARGO_PKG_VERSION")
             );
             return Ok(());
@@ -49,9 +53,26 @@ fn main() -> eframe::Result {
     let icon = eframe::icon_data::from_png_bytes(app_menu::ICON)
         .expect("brand/duck-echo-icon-256.png should be a valid PNG file");
     let settings = Settings::load();
+    // --open FILE: that file, and its game (or folder) as the project.
+    let opening = match (args.first().map(String::as_str), args.get(1)) {
+        (Some("--open"), Some(file)) => {
+            let folder = studio_app::settings::settings_folder();
+            match studio_app::opening::opening(Path::new(file), folder.as_deref()) {
+                Ok(o) => Some(o),
+                Err(why) => {
+                    eprintln!("Duck Echo Studio: {why}");
+                    std::process::exit(2);
+                }
+            }
+        }
+        _ => None,
+    };
+    let title = opening
+        .as_ref()
+        .map_or_else(|| "Duck Echo Studio".to_string(), |o| o.title());
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Duck Echo Studio")
+            .with_title(title)
             // On Linux this names the window for the desktop, so it belongs
             // to the app-menu entry (StartupWMClass).
             .with_app_id(app_menu::APP_ID)
@@ -68,9 +89,11 @@ fn main() -> eframe::Result {
             ctx.set_theme(theme::from_name(settings.theme.as_deref()));
             theme::apply_brand(ctx);
             let app_menu = AppMenu::detect(&settings);
-            Ok(Box::new(
-                StudioApp::new(settings, app_menu).checking_for_updates(),
-            ))
+            let app = match opening {
+                Some(o) => StudioApp::opening(settings, app_menu, o),
+                None => StudioApp::new(settings, app_menu),
+            };
+            Ok(Box::new(app.checking_for_updates()))
         }),
     )
 }

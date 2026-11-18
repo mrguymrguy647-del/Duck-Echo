@@ -29,6 +29,19 @@ an AI assistant gives the lines to paste into Claude Desktop; then you
 and the assistant work on the same sounds, you see its changes within a
 second with a note saying so, and History shows who did what.
 
+If you make games with **Duck Forge**, Settings > Duck Forge games finds
+your Duck Forge folder (`Documents/Duck Forge`) or lets you Choose... it.
+Then a sound's or song's **...** menu has **Send to game**, listing your
+games: the sound goes into the game's `assets` folder (a song as OGG
+music) with its facts, and its recipe into the game's `art` folder. The
+game you last sent a file to comes first next time, and sending again
+with no change writes nothing. `DuckEchoStudio --open FILE` opens one
+sound or song (Duck Forge Studio's "Open in Duck Echo" will run it): for
+a file in a Duck Forge game, that game is the window's project, Home
+shows its `art` recipes, Send to game offers that game first, and Duck
+Echo's Undo history for it is kept in Duck Echo's settings folder, not
+in the game.
+
 * **Windows:** download `DuckEchoStudioSetup.exe` from the
   [Releases page](https://github.com/mrguymrguy647-del/Duck-Echo/releases)
   and double-click it. It installs just for you, with no administrator

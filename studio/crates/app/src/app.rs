@@ -141,20 +141,71 @@ pub struct StudioApp {
     frames: u64,
     /// The duck icon, made into a texture the first time it is drawn.
     icon: Option<egui::TextureHandle>,
+    /// The Duck Forge game this window was opened on (`--open`): Home
+    /// shows its `art` folder, and Send to game offers it first.
+    pub game: Option<String>,
 }
 
 impl StudioApp {
     /// The app with these settings and app-menu state. Makes the project
     /// folder if it is not there.
     pub fn new(settings: Settings, app_menu: AppMenu) -> StudioApp {
-        let project = settings.project_folder();
+        StudioApp::start(settings, app_menu, None)
+    }
+
+    /// The app opened on one file (`DuckEchoStudio --open FILE`): its game
+    /// (or folder) is the project for this window, and the file is open.
+    /// The person's project folder setting is not changed.
+    pub fn opening(
+        settings: Settings,
+        app_menu: AppMenu,
+        opening: crate::opening::Opening,
+    ) -> StudioApp {
+        let file = opening.file.clone();
+        let mut app = StudioApp::start(settings, app_menu, Some(opening));
+        let kind = std::fs::read_to_string(app.project.join(&file))
+            .map(|text| {
+                duck_echo_core::document_kind(
+                    &text,
+                    duck_echo_core::Format::from_path(std::path::Path::new(&file)),
+                )
+            })
+            .unwrap_or(duck_echo_core::DocumentKind::Recipe);
+        match kind {
+            duck_echo_core::DocumentKind::Song => app.open_song(&file),
+            duck_echo_core::DocumentKind::Recipe => app.open_sound(&file),
+        }
+        app
+    }
+
+    /// The app, on the person's project folder or on what `--open` names.
+    fn start(
+        settings: Settings,
+        app_menu: AppMenu,
+        opening: Option<crate::opening::Opening>,
+    ) -> StudioApp {
+        let project = match &opening {
+            Some(o) => o.project.clone(),
+            None => settings.project_folder(),
+        };
         let mut project_problem = settings::make_project_folder(&project).err();
+        let duck_forge = opening
+            .as_ref()
+            .and_then(|o| o.duck_forge.clone())
+            .or_else(|| settings.duck_forge());
+        let own_folder = opening.as_ref().and_then(|o| o.own_folder.clone());
+        let game = opening.and_then(|o| o.game);
         let root = match Root::new(&project) {
-            // With the Duck Forge folder, for Send to game.
-            Ok(root) => Some(match settings.duck_forge() {
-                Some(forge) => root.with_duck_forge(forge),
-                None => root,
-            }),
+            // With the Duck Forge folder, for Send to game, and for a game
+            // opened with --open, its Undo history kept outside the game.
+            Ok(root) => {
+                let mut root = match own_folder {
+                    Some(folder) => root.with_own_folder(folder),
+                    None => root,
+                };
+                root.set_duck_forge(duck_forge);
+                Some(root)
+            }
             Err(why) => {
                 project_problem.get_or_insert(format!(
                     "Your sounds folder, {}, cannot be read: {why}",
@@ -192,9 +243,16 @@ impl StudioApp {
             smoke_test: std::env::var_os("DUCK_ECHO_STUDIO_SMOKE_TEST").map(PathBuf::from),
             frames: 0,
             icon: None,
+            game,
         };
         app.rescan();
         app
+    }
+
+    /// The folder new sounds and copies go in: the game's `art` when this
+    /// window is on a Duck Forge game, else the project folder itself.
+    pub fn sounds_folder(&self) -> &'static str {
+        if self.game.is_some() { "art" } else { "" }
     }
 
     /// Start the new-version check, if the settings allow it.
@@ -428,6 +486,46 @@ impl StudioApp {
             if ui.button("Open the folder").clicked() {
                 settings::open_folder(&self.project);
             }
+            ui.add_space(8.0);
+
+            ui.label(RichText::new("Duck Forge games").strong());
+            let forge = self
+                .root
+                .as_ref()
+                .and_then(|r| r.duck_forge())
+                .map(|f| (f.dir().to_path_buf(), f.games().len()));
+            match &forge {
+                Some((dir, games)) => {
+                    ui.label(dir.display().to_string());
+                    ui.label(
+                        RichText::new(format!(
+                            "{games} game{}. Send to game, on a sound's or song's ... menu, \
+                             sends into them.",
+                            if *games == 1 { "" } else { "s" }
+                        ))
+                        .weak(),
+                    );
+                }
+                None => {
+                    ui.label(
+                        RichText::new(
+                            "Not found. Choose the folder that holds Duck Forge (its \
+                             Cargo.toml and examples folder) to send sounds to its games.",
+                        )
+                        .weak(),
+                    );
+                }
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Choose...").clicked() {
+                    self.choose_duck_forge();
+                }
+                if let Some((dir, _)) = &forge
+                    && ui.button("Open the folder").clicked()
+                {
+                    settings::open_folder(dir);
+                }
+            });
             ui.add_space(8.0);
 
             ui.label(RichText::new("New versions").strong());

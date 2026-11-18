@@ -48,6 +48,9 @@ pub struct Root {
     /// The Duck Forge folder `game_send` may write into (only into its
     /// games' `assets` and `art` folders: see [`crate::forge`]).
     duck_forge: Option<crate::forge::DuckForge>,
+    /// Where Duck Echo keeps this project's Undo history and recycle bin,
+    /// when not in the project itself (see [`Root::own_dir`]).
+    own: Option<PathBuf>,
 }
 
 fn refuse(key: &str, arg: &str, why: impl std::fmt::Display) -> ToolError {
@@ -90,7 +93,32 @@ impl Root {
         Ok(Self {
             dir,
             duck_forge: None,
+            own: None,
         })
+    }
+
+    /// The same root, keeping its Undo history and recycle bin in `folder`
+    /// instead of `.duck-echo` inside it. Duck Echo Studio does this for a
+    /// Duck Forge game opened with `--open`, so nothing of Duck Echo's
+    /// appears in the game's folder.
+    pub fn with_own_folder(mut self, folder: PathBuf) -> Self {
+        self.own = Some(folder);
+        self
+    }
+
+    /// Where Duck Echo keeps this project's Undo history and recycle bin:
+    /// `.duck-echo` in the root, or the folder given to
+    /// [`Root::with_own_folder`].
+    pub fn own_dir(&self) -> PathBuf {
+        self.own
+            .clone()
+            .unwrap_or_else(|| self.dir.join(OWN_FOLDER))
+    }
+
+    /// Set (or clear) the Duck Forge folder, as when it is chosen in
+    /// Settings.
+    pub fn set_duck_forge(&mut self, duck_forge: Option<crate::forge::DuckForge>) {
+        self.duck_forge = duck_forge;
     }
 
     /// The same root, with a Duck Forge folder for `game_send` and

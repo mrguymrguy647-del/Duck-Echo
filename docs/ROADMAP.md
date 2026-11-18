@@ -1141,7 +1141,8 @@ and before the film fixes). Corrected after reading Duck Forge's `main`
   OGG sizes and the open questions: `docs/phase3-design.md`.
 * Done so far: step 1 (`mix_check` reads a real `log.json`), step 2
   (Duck Echo writes and checks OGG music), step 3 (`game_send` and
-  `game_list`, `duck-echo send`).
+  `game_list`, `duck-echo send`), step 4 (Send to game in the Studio,
+  the Duck Forge folder in Settings, `DuckEchoStudio --open`).
 * Accept: a Duck Forge game hears a sound change within a second of
   sending it from Duck Echo; sending again with no change writes nothing;
   the recipe and its hash are recorded with the asset; replays stay the

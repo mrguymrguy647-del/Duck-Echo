@@ -76,7 +76,8 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
                            song timeline (song_view.rs for its lanes,
                            mute, solo and note check, song_edit.rs for
                            the commands its edits run, song_screen.rs to
-                           draw it), the
+                           draw it), Send to game and the Duck Forge
+                           folder (send.rs), `--open FILE` (opening.rs), the
                            speakers (tinyaudio + duck-echo-live),
                            settings, the update check, the Linux app-menu
                            entry.
@@ -443,6 +444,15 @@ folder's games, by name only and only into each game's `assets` and `art`
 folders (`tools::forge`). The command line takes the same folder from
 `DUCK_ECHO_DUCK_FORGE` (or `duck-echo send --duck-forge`), and the Studio
 from its settings (`Documents/Duck Forge` when that is one).
+
+A project's Undo history and recycle bin are kept in `.duck-echo` inside
+it, unless its `Root` is given another folder (`Root::with_own_folder`):
+the Studio does this for a Duck Forge game opened with `--open`, keeping
+it in its own settings folder (`projects/<game>-<8 hex digits of the
+game folder's path's SHA-256>`), so nothing of Duck Echo's lands in the
+game. An agent working on that game through the MCP server (root = the
+game) would keep its own `.duck-echo` there instead: the two do not share
+one history in that case.
 A recipe argument is either `recipe` (an inline JSON object) or `path` (a
 `.toml`/`.json` file, or `preset:NAME`). Wherever the table says "recipe",
 a song works too: the tools tell the two apart by looking inside.

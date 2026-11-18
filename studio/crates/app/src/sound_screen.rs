@@ -226,6 +226,7 @@ impl StudioApp {
         let mut stop = false;
         let mut export = None;
         let mut variants = false;
+        let mut send_choice = None;
         let mut undo_visit = false;
         let mut conflict: Option<bool> = None;
         let playing_here = self.playing.as_deref() == Some(key_of(&editor.rel).as_str());
@@ -273,6 +274,10 @@ impl StudioApp {
                             .clicked()
                         {
                             variants = true;
+                            ui.close();
+                        }
+                        if let Some(choice) = self.send_menu(ui, &editor.rel) {
+                            send_choice = Some(choice);
                             ui.close();
                         }
                     });
@@ -447,6 +452,9 @@ impl StudioApp {
         }
         if variants {
             self.export_variants(&rel);
+        }
+        if let Some(choice) = send_choice {
+            self.act_on_send(&rel, choice);
         }
         if let (Some(keep), Some(editor), Some(root)) = (conflict, &mut self.editor, &self.root) {
             if keep {

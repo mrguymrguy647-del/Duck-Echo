@@ -35,6 +35,9 @@ pub struct Settings {
     /// The Duck Forge folder sounds are sent to, if chosen (otherwise
     /// `Duck Forge` in Documents, when it is one).
     pub duck_forge_folder: Option<PathBuf>,
+    /// The game each file was last sent to, by the file's full path, so
+    /// Send to game offers it first.
+    pub last_game: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -46,6 +49,7 @@ impl Default for Settings {
             project_folder: None,
             asked_about_app_menu: false,
             duck_forge_folder: None,
+            last_game: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -196,6 +200,7 @@ mod tests {
             project_folder: Some(PathBuf::from("/music")),
             asked_about_app_menu: true,
             duck_forge_folder: Some(PathBuf::from("/games/Duck Forge")),
+            last_game: [("/music/step.toml".to_string(), "duck_craft".to_string())].into(),
         };
         settings.save();
         let text = std::fs::read_to_string(&file).unwrap();

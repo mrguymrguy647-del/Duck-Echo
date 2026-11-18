@@ -1,7 +1,7 @@
 # Phase 3 design: the link with Duck Forge
 
 Status: **approved** (all seven questions in section 10 as recommended).
-Done so far: steps 1, 2 and 3.
+Done so far: steps 1 to 4.
 
 This plan covers two repositories. Every part is marked with the one it
 changes:
@@ -567,7 +567,23 @@ Settings box to choose it and the Send to game menu are step 4.
   send again: "unchanged". Linux: the same, plus the MCP tool from an
   agent.
 
-### Step 4 [Duck Echo]: Send to game in the Studio, and --open
+### Step 4 [Duck Echo]: Send to game in the Studio, and --open [done]
+
+Done as planned. Notes for later steps:
+
+* The last game of each file is kept in the Studio's settings, by the
+  file's full path (`last_game`); the game a window was opened on comes
+  first ("(this game)"), then the last one ("(last time)").
+* With `--open` on a game, Home lists only `art/` (a game's other `.json`
+  files are scenes, sheets and tune files, not sounds), and New sound and
+  Make a copy write into `art/`.
+* The history for such a game is in Duck Echo's settings folder, so an
+  agent working on the same game through the MCP server (with the game as
+  its root) keeps its own `.duck-echo` history there: the person and the
+  agent do not share Undo in that one case. Step 8 (Open in Duck Echo
+  from Duck Forge Studio) could pass the history folder to the MCP server
+  too if that matters in use.
+
 
 * Settings: "Duck Forge folder" (found, or Choose...).
 * The `...` menu on the sound and song screens: Send to game > (games),
