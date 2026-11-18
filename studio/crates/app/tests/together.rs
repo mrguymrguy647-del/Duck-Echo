@@ -325,6 +325,11 @@ fn settings_offer_the_lines_to_connect_an_assistant() {
     // second here): let it settle before clicking in it.
     harness.run_steps(30);
     harness.get_by_label("Connect an AI assistant");
+    // Settings scrolls when it is taller than its box (longer folder paths
+    // on another computer wrap onto more lines): bring Copy into view
+    // first, as a person would.
+    harness.get_by_label("Copy").scroll_to_me();
+    harness.run_steps(3);
     shoot(&mut harness, "13-connect-an-ai-assistant");
     harness.get_by_label("Copy").click();
     harness.run_steps(2);
