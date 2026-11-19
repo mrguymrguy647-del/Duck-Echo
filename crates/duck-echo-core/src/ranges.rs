@@ -96,12 +96,13 @@ ranges! {
     LAYER_PAN: "Layer"."pan" = -1.0 ..= 1.0;
 
     // A layer's LFO. `depth` depends on the target: see [`lfo_depth`].
-    /// Cycles per second.
-    LFO_RATE: "Lfo"."rate" = 0.01 ..= 50.0;
+    /// Cycles per second: the widest any target allows (see
+    /// [`lfo_rate`]).
+    LFO_RATE: "Lfo"."rate" = 0.01 ..= 2000.0;
     /// Seconds before the LFO starts.
     LFO_DELAY: "Lfo"."delay" = 0.0 ..= 30.0;
     /// The widest `depth` any target allows (the schema's range).
-    LFO_DEPTH: "Lfo"."depth" = 0.0 ..= 4.0;
+    LFO_DEPTH: "Lfo"."depth" = 0.0 ..= 24.0;
 
     // The envelope.
     /// Seconds to rise to full level.
@@ -203,15 +204,31 @@ ranges! {
 }
 
 /// The range of an LFO's `depth`, which depends on what the LFO moves: a
-/// part of the volume (0 to 1), octaves of cutoff (0 to 4), or an amount of
-/// duty (0 to 0.5).
+/// part of the volume (0 to 1), octaves of cutoff (0 to 4), an amount of
+/// duty (0 to 0.5), or semitones of pitch (0 to 24).
 pub fn lfo_depth(target: LfoTarget) -> Range {
     let max = match target {
         LfoTarget::Volume => 1.0,
         LfoTarget::Cutoff => 4.0,
         LfoTarget::Duty => 0.5,
+        LfoTarget::Pitch => 24.0,
     };
     Range { max, ..LFO_DEPTH }
+}
+
+/// The fastest a slow LFO goes, in cycles per second: `cutoff` and `duty`
+/// move only this fast (the filter takes a new cutoff every few samples).
+pub const SLOW_LFO_MAX: f64 = 50.0;
+
+/// The range of an LFO's `rate`, which depends on what the LFO moves:
+/// `volume` and `pitch` may move at audio rates (up to 2000 per second),
+/// `cutoff` and `duty` up to 50.
+pub fn lfo_rate(target: LfoTarget) -> Range {
+    let max = match target {
+        LfoTarget::Volume | LfoTarget::Pitch => 2000.0,
+        LfoTarget::Cutoff | LfoTarget::Duty => SLOW_LFO_MAX,
+    };
+    Range { max, ..LFO_RATE }
 }
 
 /// The range of `owner.field`, if the table has one.
@@ -244,7 +261,10 @@ mod tests {
 
     #[test]
     fn the_widest_lfo_depth_is_the_table_entry() {
-        assert_eq!(lfo_depth(LfoTarget::Cutoff), LFO_DEPTH);
+        assert_eq!(lfo_depth(LfoTarget::Pitch), LFO_DEPTH);
+        assert_eq!(lfo_rate(LfoTarget::Volume), LFO_RATE);
+        assert_eq!(lfo_rate(LfoTarget::Cutoff).max, 50.0);
+        assert_eq!(lfo_depth(LfoTarget::Cutoff).max, 4.0);
         assert_eq!(lfo_depth(LfoTarget::Volume).max, 1.0);
         assert_eq!(lfo_depth(LfoTarget::Duty).max, 0.5);
     }

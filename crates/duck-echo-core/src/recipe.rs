@@ -115,6 +115,12 @@ pub struct Recipe {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 
+    /// What the sound should measure as: `analyze` (and `render`) report
+    /// pass or fail for each line. Not used by the renderer. For example
+    /// `expect = { roughness = "high", loudness_lufs = [-20, -16] }`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Expect>,
+
     /// Random seed. Same recipe + same seed = byte-identical audio.
     /// Drives the noise source and the `variation` jitter. Default `0`.
     #[serde(default)]
@@ -151,6 +157,67 @@ pub struct Recipe {
     /// Master effect chain, applied in order to the mixed layers.
     #[serde(default)]
     pub effects: Vec<Effect>,
+
+    /// The fields written as `{ min = x, max = y }`, found by the loader.
+    /// Not a field of the file: in the file each range sits in its own
+    /// field, and the decoded recipe holds its `min` there. Each render
+    /// picks the values from its seed ([`crate::random::resolve`]).
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub ranges: Vec<crate::random::RandomRange>,
+}
+
+/// How much of something a sound has, as `analyze` measures it (its
+/// `feel`): see `docs/ANALYSIS.md` for each measure's thresholds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Amount {
+    /// Little or none.
+    Low,
+    /// Some.
+    Medium,
+    /// A lot.
+    High,
+}
+
+impl Amount {
+    /// The word: `low`, `medium` or `high`.
+    pub fn word(self) -> &'static str {
+        match self {
+            Amount::Low => "low",
+            Amount::Medium => "medium",
+            Amount::High => "high",
+        }
+    }
+}
+
+/// What a sound should measure as. Not used by the renderer: `analyze`
+/// and `render` check each line that is written and report pass or fail.
+/// Ranges are `[lowest, highest]`, both included.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Expect {
+    /// Fast loudness wobble (growls, screams): `low`, `medium` or `high`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roughness: Option<Amount>,
+    /// Energy around 2 to 5 kHz (harsh, piercing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharpness: Option<Amount>,
+    /// Energy below 80 Hz.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boom: Option<Amount>,
+    /// How much the sound changes over time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub movement: Option<Amount>,
+    /// Loudness in LUFS, `[lowest, highest]`, such as `[-20, -16]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loudness_lufs: Option<Vec<f32>>,
+    /// Peak in dBFS, `[lowest, highest]`, such as `[-6, -1]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peak_dbfs: Option<Vec<f32>>,
+    /// Length in seconds, `[shortest, longest]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<Vec<f32>>,
 }
 
 /// Master output stage.
@@ -323,14 +390,20 @@ fn default_lfo_depth() -> f32 {
 #[serde(deny_unknown_fields, default)]
 pub struct Lfo {
     /// What the wave moves: `volume` (default), `cutoff` (needs a
-    /// `filter`) or `duty` (needs `source = "square"`).
+    /// `filter`), `duty` (needs `source = "square"`) or `pitch` (needs a
+    /// layer with a pitch).
     pub target: LfoTarget,
-    /// Cycles per second, range 0.01..=50. Default `5`.
+    /// Cycles per second. Default `5`. `volume` and `pitch` go up to
+    /// 2000: above about 20 the wobble is too fast to hear as a wobble
+    /// and becomes a rough, growling or buzzing tone (side tones at the
+    /// note plus and minus the rate). `cutoff` and `duty` go up to 50.
+    /// Range 0.01..=2000.
     pub rate: f32,
     /// How far it moves. `volume`: 0..=1, the level swings between full
     /// and `1 - depth` of full. `cutoff`: 0..=4 octaves up and down from
     /// the filter's cutoff. `duty`: 0..=0.5 added to and taken from
-    /// `duty` (the result is kept inside 0.01..=0.99). Default `0.5`.
+    /// `duty` (the result is kept inside 0.01..=0.99). `pitch`: 0..=24
+    /// semitones up and down. Default `0.5`.
     pub depth: f32,
     /// The wave: `sine` (default), `triangle` or `square`.
     pub shape: LfoShape,
@@ -361,6 +434,11 @@ pub enum LfoTarget {
     Cutoff,
     /// The pulse width of a square wave.
     Duty,
+    /// The layer's pitch, `depth` semitones up and down. Slow, it is a
+    /// wobble; at audio rates (tens to hundreds of times a second) it
+    /// growls, buzzes or rasps: side tones appear at the note plus and
+    /// minus the rate (frequency modulation). Needs a layer with a pitch.
+    Pitch,
 }
 
 /// The wave of an [`Lfo`].
@@ -718,6 +796,8 @@ impl Recipe {
             name: None,
             description: None,
             tags: Vec::new(),
+            expect: None,
+            ranges: Vec::new(),
             seed: 0,
             sample_rate: DEFAULT_SAMPLE_RATE,
             channels: 1,

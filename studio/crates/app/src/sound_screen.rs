@@ -25,6 +25,9 @@ fn key_of(rel: &str) -> String {
     format!("edit:{rel}")
 }
 
+/// How many variants "Export variants" makes.
+pub const VARIANTS: u32 = 8;
+
 impl StudioApp {
     /// Open one of the person's sounds in the editor.
     pub fn open_sound(&mut self, rel: &str) {
@@ -175,6 +178,33 @@ impl StudioApp {
         }
     }
 
+    /// Export the sound `rel` as [`VARIANTS`] variants for a game to pick
+    /// from at random: `exports/<name>/<name>_1.wav` ... with their facts
+    /// files and `<name>.variants.json` (the `sound_variants` command).
+    pub fn export_variants(&mut self, rel: &str) {
+        let stem = Path::new(rel)
+            .file_stem()
+            .map_or("sound".into(), |s| s.to_string_lossy().into_owned());
+        let folder = format!("{}/{}", editor::EXPORTS, duck_echo_tools::file_safe(&stem));
+        let args = serde_json::json!({ "file": rel, "count": VARIANTS, "folder": folder });
+        let Some(answer) = self.run_command("sound_variants", args) else {
+            return;
+        };
+        if answer["list"]["seeds_matter"] == false {
+            self.warn(format!(
+                "Exported {VARIANTS} variants to {folder}, but they are all the same: nothing \
+                 in this sound changes with the seed. Give it some variation, or write a \
+                 setting as a range, such as volume = {{ min = 0.6, max = 0.9 }}."
+            ));
+        } else {
+            let list = answer["list_file"].as_str().unwrap_or_default();
+            self.say(format!(
+                "Exported {VARIANTS} variants to {folder}. {list} lists them for a game to \
+                 pick from."
+            ));
+        }
+    }
+
     /// The editor, in the middle of the window.
     pub(crate) fn editor_screen(&mut self, ui: &mut egui::Ui) {
         let Some(mut editor) = self.editor.take() else {
@@ -195,6 +225,8 @@ impl StudioApp {
         let mut play = None;
         let mut stop = false;
         let mut export = None;
+        let mut variants = false;
+        let mut send_choice = None;
         let mut undo_visit = false;
         let mut conflict: Option<bool> = None;
         let playing_here = self.playing.as_deref() == Some(key_of(&editor.rel).as_str());
@@ -230,6 +262,22 @@ impl StudioApp {
                         }
                         if ui.button("Export WAV to my Duck Echo folder").clicked() {
                             export = Some(false);
+                            ui.close();
+                        }
+                        if ui
+                            .button(format!("Export {VARIANTS} variants"))
+                            .on_hover_text(
+                                "Numbered WAVs, each a little different (from the sound's \
+                                 ranges, variation and noise), and a list a game picks from \
+                                 at random. They go to exports in the project folder.",
+                            )
+                            .clicked()
+                        {
+                            variants = true;
+                            ui.close();
+                        }
+                        if let Some(choice) = self.send_menu(ui, &editor.rel) {
+                            send_choice = Some(choice);
                             ui.close();
                         }
                     });
@@ -401,6 +449,12 @@ impl StudioApp {
         }
         if let Some(ask) = export {
             self.export(&rel, ask);
+        }
+        if variants {
+            self.export_variants(&rel);
+        }
+        if let Some(choice) = send_choice {
+            self.act_on_send(&rel, choice);
         }
         if let (Some(keep), Some(editor), Some(root)) = (conflict, &mut self.editor, &self.root) {
             if keep {

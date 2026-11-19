@@ -32,6 +32,12 @@ pub struct Settings {
     /// Linux: the Studio has asked "Add Duck Echo Studio to your app
     /// menu?" once, so it does not ask again.
     pub asked_about_app_menu: bool,
+    /// The Duck Forge folder sounds are sent to, if chosen (otherwise
+    /// `Duck Forge` in Documents, when it is one).
+    pub duck_forge_folder: Option<PathBuf>,
+    /// The game each file was last sent to, by the file's full path, so
+    /// Send to game offers it first.
+    pub last_game: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -42,6 +48,8 @@ impl Default for Settings {
             check_for_updates: true,
             project_folder: None,
             asked_about_app_menu: false,
+            duck_forge_folder: None,
+            last_game: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -105,6 +113,25 @@ impl Settings {
     }
 }
 
+impl Settings {
+    /// The Duck Forge folder sounds are sent to: `DUCK_ECHO_DUCK_FORGE`
+    /// (as for the command line, and for tests), the one chosen, or `Duck
+    /// Forge` in Documents (where Duck Forge Studio keeps a person's
+    /// games). `None` when none of them is a Duck Forge folder.
+    pub fn duck_forge(&self) -> Option<duck_echo_tools::forge::DuckForge> {
+        use duck_echo_tools::forge::{DuckForge, ENV_VARIABLE};
+        if let Some(folder) = std::env::var_os(ENV_VARIABLE) {
+            return DuckForge::open(Path::new(&folder)).ok();
+        }
+        let folder = self.duck_forge_folder.clone().or_else(|| {
+            dirs::document_dir()
+                .or_else(|| dirs::home_dir().map(|home| home.join("Documents")))
+                .map(|documents| documents.join("Duck Forge"))
+        })?;
+        DuckForge::open(&folder).ok()
+    }
+}
+
 /// `Duck Echo` in the person's Documents folder. On a Linux system whose
 /// XDG folders are not set up, that is `~/Documents`.
 pub fn default_project_folder() -> PathBuf {
@@ -140,6 +167,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_duck_forge_folder_is_the_chosen_one_when_it_is_duck_forges() {
+        if std::env::var_os(duck_echo_tools::forge::ENV_VARIABLE).is_some() {
+            return; // the variable wins, as on the command line
+        }
+        let dir = std::env::temp_dir().join(format!("studio-forge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("examples")).unwrap();
+        std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"duckforge\"\n").unwrap();
+        let chosen = Settings {
+            duck_forge_folder: Some(dir.clone()),
+            ..Settings::default()
+        };
+        let forge = chosen.duck_forge().expect("a Duck Forge folder");
+        assert_eq!(forge.dir(), dir.canonicalize().unwrap());
+        // A folder that is not Duck Forge's is not used.
+        std::fs::remove_file(dir.join("Cargo.toml")).unwrap();
+        assert!(chosen.duck_forge().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn settings_survive_being_saved_and_read_and_old_files_still_load() {
         let folder =
             std::env::temp_dir().join(format!("duck-echo-settings-{}", std::process::id()));
@@ -151,6 +199,8 @@ mod tests {
             check_for_updates: false,
             project_folder: Some(PathBuf::from("/music")),
             asked_about_app_menu: true,
+            duck_forge_folder: Some(PathBuf::from("/games/Duck Forge")),
+            last_game: [("/music/step.toml".to_string(), "duck_craft".to_string())].into(),
         };
         settings.save();
         let text = std::fs::read_to_string(&file).unwrap();

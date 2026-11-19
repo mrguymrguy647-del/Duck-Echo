@@ -225,6 +225,7 @@ const TOP_ORDER: &[&str] = &[
     "name",
     "description",
     "tags",
+    "expect",
     "seed",
     "sample_rate",
     "channels",

@@ -31,6 +31,8 @@ to the last sample above that level.
 | `energy_over_time` | `slice_seconds` and `rms_dbfs`: the RMS level of all channels in 20 equal slices over the whole file, rounded to 0.1 dB, `null` for digital silence. A coarse level-over-time picture in numbers: a fade, a gap, a second hit or a tail. |
 | `onsets` | Where notes or bursts start, each with `time_seconds`, `note_hz` and `level_dbfs` (see Onsets). |
 | `ending` | The click check for a sound that stops: `jump`, `largest_step_near_end`, `last_level_dbfs`, `clean` (see Ending). |
+| `roughness`, `sharpness`, `boom`, `movement`, `feel` | How the sound feels, measured cheaply until Duck Ear listens properly (see How it feels). |
+| `peaks` | Up to 8 strongest peaks of the average spectrum (93 ms Hann frames, half overlap), strongest first: `hz` (placed between bins by a parabola) and `db` against the strongest (0). Only peaks within 40 dB of the strongest. A fast LFO shows as side tones at the note plus and minus its rate. |
 | `silence_threshold_dbfs` | The -60 dBFS threshold used above. |
 
 Spectral fields use the mean of the channels; level fields use all
@@ -129,7 +131,7 @@ loop joins cleanly, 155 of 155 notes heard; loudest track lead (-22.1
 LUFS), quietest drums (-27.4 LUFS)`
 
 When the tracks were not heard alone (`render` without `per_track` or
-`notes`), it ends "per_track describes each" instead.
+`notes`), it ends "pass per_track to describe each" instead.
 
 **Stems.** A track heard alone (`solo`, `mute`, `per_track`) is rendered
 with the other tracks silenced and finished with the full song's master
@@ -239,6 +241,25 @@ The picture shows texture the numbers miss (grit, a noisy tail, aliasing),
 but its colours are not measurements: check numbers with the fields
 above.
 
+## How it feels
+
+Four numbers for the questions a film's sounds raise, each with fixed
+thresholds for `low`, `medium` and `high` in `feel`. The summary names
+each that is `high`: rough, piercing, booming, moving. They are plain
+measurements, not a model of hearing; Duck Ear (Phase 4) will do better.
+All four use the mean of the channels over the active span.
+
+| Field | What it measures | medium from | high from |
+|---|---|---|---|
+| `roughness` | Fast loudness wobble at one steady rate between 20 and 150 a second: growls, screams, rasps, low buzzes. The Hilbert envelope (the loudness without the ripple at twice the note, so a low hum is not rough), one value a millisecond, minus its 31 ms average; then only the strongest wobble rate in 20 to 150 Hz, ±3 Hz, as a share of the mean level. Noise flickers at every rate, so steady noise reads low. A wobble of pitch alone (FM) changes the loudness little and reads low here; read `peaks` for it. | 0.12 | 0.3 |
+| `sharpness` | Share of the power between 2 and 5 kHz, where the ear is most sensitive: harsh, piercing. | 0.15 | 0.35 |
+| `boom` | Share of the power below 80 Hz. | 0.1 | 0.35 |
+| `movement` | How much the sound changes over time: the spread of the brightness (spectral centroid, in octaves) plus the spread of the level (dB, over 20), across 50 ms frames within 30 dB of the loudest. Sounds shorter than 100 ms read 0. | 0.3 | 0.75 |
+
+On the presets: `engine_hum` (a 55 Hz saw) is medium rough, the wind low;
+`big_explosion`, `thud` and `low_health` boom; `gem` and `extra_life` are
+piercing; `laser`, `missile` and the explosions move.
+
 ## Summary words
 
 | Word | Rule |
@@ -248,13 +269,121 @@ above.
 | tonal, tone and noise, noisy | Tonality at least 0.6, between, or at most 0.3. |
 | pitch rising / falling from X to Y Hz | Uses pitch-track windows with tonality above 0.3 and a level within 20 dB of the loudest window, so a faint tail does not decide the direction. First and last such windows differ by more than one semitone; otherwise "around X Hz". No pitch is given for noisy sounds. |
 | `~` before LUFS | Short-clip loudness (`k_weighted_ungated`). |
+| rough, piercing, booming, moving | `feel` is `high` for roughness, sharpness, boom or movement (see How it feels). |
 | N onsets | Two or more `onsets`. |
 | CLIPPING (N samples) | Any clipped sample. |
 | ends cleanly, ENDS WITH A CLICK | `ending.clean` (see Ending). Not in a song's summary when it loops; "loop joins cleanly" or "LOOP CLICKS AT THE JOIN" is there instead. |
 | silent tail | Trailing silence above 20% of the length. |
-| N layers; per_layer describes each | Only for a recipe with two or more layers (a WAV file has no layers). The rest of the summary describes the whole mix, so this says how many layers made it and that `per_layer` gives each one's own analysis. With `per_layer` on, only "N layers"; with `solo` or `mute`, "K of N layers heard". |
+| N layers; pass per_layer to describe each | Only for a recipe with two or more layers (a WAV file has no layers). The rest of the summary describes the whole mix, so this says how many layers made it and that `per_layer` gives each one's own analysis. With `per_layer` on, only "N layers"; with `solo` or `mute`, "K of N layers heard". |
 
 The thresholds live in `duck_echo_analyze::features::words`.
+
+## Rendered facts (`<name>.wav.json`)
+
+Every WAV that `render`, `sound_variants`, `set_check` or the Studio's
+Export writes has a facts file beside it, and `render` returns the same
+object as `asset`: `duration_seconds`, `frames`, `sample_rate`,
+`channels`, `loudness_lufs` and `loudness_method`, `peak_dbfs`,
+`leading_silence_seconds` (below -60 dBFS), `hit_seconds` (the middle of
+the loudest 5 ms, rounded to the millisecond: start the sound this much
+before the frame its hit should land on), `loops`, `format` (`wav` or
+`ogg`), `quality` (an OGG's, 0 to 10), `seed` and
+`recipe_hash` (`sha256:` of the recipe's data as JSON with defaults
+filled in, its random ranges included: comments and layout do not change
+it), `file_sha256` (`sha256:` of the audio file beside it, as written, so a
+file changed by hand no longer matches; an OGG's bytes differ between
+computers, so this says only that the facts describe that file) and, for
+a sound sent into a game, `recipe` (its recipe copy, `art/step.toml`).
+
+An OGG's facts file is `<name>.ogg.json`, and its numbers are measured on
+the OGG decoded again, as a game hears it. `render` to an `.ogg` also
+answers with `ogg`: `quality`, `bytes`, `wav_bytes` (the size as a 16-bit
+WAV, to compare), `frames`, `decoded_frames` (what the decoder gave before
+trimming to the `DUCKECHO_FRAMES` comment; more than `frames` for a file
+of a second or so) and, for a loop, `loop_seam` on the decoded samples.
+An OGG that would decode to another length, or a loop that would click
+after encoding, is an error and is not written. `analyze`, `compare` and
+`mix_check` read `.ogg` files as they read `.wav`.
+
+## Sound sets (`set_check`)
+
+`set_check` renders a folder of sounds, or a set file (see `RECIPE_SPEC.md`,
+Sound sets), and writes into its `out` folder every WAV with its facts
+file and three reports:
+
+| File | What it holds |
+|---|---|
+| `<name>.table.csv` | One row per sound: `name, file, kind, tags, length_s, lufs, peak_dbfs, clipping, ending, target_lufs, off_lu, on_target, summary`. `ending` is `clean` or `click` (see Ending), or for a loop `loop clean` or `loop click` (see Loop seam). |
+| `<name>.sheet.png` | The contact sheet: three pictures to a row (each the same picture as `analyze --picture`), each under its name and a line of numbers (length, LUFS, peak, target, problems). A sound with a problem (clipping, a click, off target, did not render) has its numbers in red and a red frame. |
+| `<name>.check.json` | All of it, as the command's answer: `sounds` (the rows), `loudness` (per tag: `target_lufs`, where it came from, `tolerance`, how many `met` it, and each sound's `off_by_lu` with a `fix` in words) and `no_target` (sounds none of whose tags has a target). |
+
+A sound is held to the target of its first tag that the set's `targets`
+names, or else of its first category tag (impact -16, weapon -17, alert
+-18, pickup -19, movement -20, ui -22, ambient -24 LUFS), within
+`tolerance` (default 2 LU). A sound that does not load or render is a row
+with its `error`, so one broken file does not hide the others. The
+`summary` names every problem: "8 sounds; did not render: broken;
+clipping: loud; off target: loud (+16.7 LU), wind (+6.0 LU)".
+
+## Mix check (`mix_check`, `duck-echo mix`)
+
+`mix_check` mixes a cue list and checks the mix. The cue list is JSON in
+one of two forms:
+
+* **Duck Forge's `log.json`, as a headless run writes it.** Only
+  `updates_per_second`, `sounds` and `loops` are read; the log's other
+  fields (`game`, `seed`, `frames`, `final`, `tune` ...) are the game's
+  own report and are left alone. A sound's line is `{"frame", "sound",
+  "file", "volume", "pan"}`, a loop's `{"loop", "file", "start", "stop",
+  "volume": [[frame, level], ...]}`. Times are placed as Duck Forge
+  places them: frame `f` starts at sample `(f - 1) x 44100 /
+  updates_per_second` (frame 1 is the start). A loop's volume holds from
+  its frame until the next point, as the game changes it; a loop with no
+  `stop` plays to the end. The mix is as long as the game ran
+  (`frames`), or longer if a sound rings on. A sound from Duck Forge's
+  own synthesizer (a line with `"wave"` and no `"file"`) cannot be mixed
+  here: it is listed in `not_mixed` and named in the summary. Files are
+  named from the folder the game ran in: the nearest folder above the
+  log whose `Cargo.toml` names the package `duckforge`, or `base`. Pan
+  is Duck Forge's: one side turned down, a centred sound at full volume
+  on both sides.
+* **A plain list**, times in seconds: `[{"time", "file", "name",
+  "volume", "pan", "loop", "stop"}]`; only `time` and `file` are needed.
+  Unknown fields are errors with their path (`[0].vol`). Files are named
+  from the list's own folder (or `base`). Pan is equal-power, as Duck
+  Echo's own stereo (a centred sound is -3 dB on each side, as loud as
+  in mono).
+
+A `file` is a WAV, a recipe or a song (rendered first) or `preset:NAME`.
+Volumes are linear, 0..=16; pan is -1..=1. Checked against Duck Forge's
+own `audio.wav` for a Duck Craft run, the mix has the same length to the
+sample and lines up to the sample; the largest difference, 0.0036, comes
+from the log's volumes being written to two decimals.
+
+The mix is made at 44.1 kHz in stereo: mono files go to both sides, and
+other rates are read with straight lines between samples. It is written as `<name>.mix.wav` (32-bit
+float, so a mix over full volume is kept as it is) beside
+`<name>.mix.json` (the answer) and `<name>.mix.png` (the picture).
+
+| Field | Meaning |
+|---|---|
+| `summary` | Length, loudness, peak, and every problem by name and time: "6.0 s, -16.8 LUFS, peak +0.2 dBFS; 1 moment over full volume: at 2.54 s (latch + door + wind); buried: step 2 at 1.50 s, 17 dB under". |
+| `overs` | Every moment a sample goes over full volume (moments closer than 50 ms are one). Each has `start_seconds`, `end_seconds`, `peak_dbfs`, the `sounds` playing in it (loudest first, with their volume at that moment and their own peak there), and two fixes that bring the peak to -1 dBFS: `all_down` (every one of them down by `all_down_db`) and `loudest_alone` (only the loudest, found by halving until no sample of the moment is over; `null` when that alone cannot do it). |
+| `not_mixed` | Sounds in a Duck Forge log that could not be mixed (its own synthesizer sounds), with their name, start and why. |
+| `cues` | Every cue in time order: `start_seconds`, `end_seconds`, `volume`, `loudness_lufs` (its own loudness as it plays, K-weighted over its sounding part) and `rest_lufs` (everything else over the same part). A one-shot more than 15 dB under the rest is `buried`, with the sounds it is `under` and `lift_to`, the volume that puts it 10 dB under (`null` above 16: lower the others). Loops are beds and are never called buried. |
+| `short_term_lufs` | Short-term loudness at the end of each second: the 3 s before it (EBU R 128), K-weighted and ungated; `null` for silence. |
+| `sections` | The loudness (gated BS.1770) and peak of each section: the `sections` given (seconds), or every 10 s. |
+| `loudness_lufs`, `peak_dbfs` | The whole mix. |
+
+The rest of the mix under a cue is the K-weighted mix minus the cue's own
+K-weighted sound, which is exact because K-weighting is a linear filter.
+
+The picture: at the top, the mix's peak level per column (light blue,
+red above full volume, -60 to +6 dBFS, a red line at full volume) and its
+short-term loudness, a step per second (dark blue), with red bars over
+each over; below it every cue on a lane of its own, a tick and its name
+at its start, a light bar for a loop's length, buried cues in red; along
+the bottom the seconds, and each section's name with its loudness.
 
 ## `compare` fields
 

@@ -23,7 +23,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
 | 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops, the agent guide | done |
 | 2 | Duck Echo Studio: an app for people, with no terminal | done |
-| 3 | Link with Duck Forge, the game engine | |
+| 3 | Link with Duck Forge, the game engine | done (Duck Forge's part on its branch `claude/phase3-studio-sounds`) |
 | 4 | Duck Ear: listening models | |
 | 5 | Voices made from math only | |
 | Later | Sample layers, video editor link | |
@@ -39,7 +39,8 @@ Where the unfinished Phase 0 tasks went:
   agents.
 * **Task 5 (random ranges) moved to Phase 3**: it matters most when a game
   plays the same sound many times (footsteps, hits) and wants each one a
-  little different.
+  little different. It was then done at the start of Phase 3, with the
+  film fixes.
 
 ## Phase 0: sound effects foundation (done)
 
@@ -692,6 +693,9 @@ Lessons for the next builder (step 6):
   `toml_parser` in the lock file already need Rust 1.85, and so does
   `toml_edit` 0.25.18. CI builds with the newest Rust only. Either raise
   `rust-version` to 1.85 or add a CI job on 1.80 and pin older versions.
+  *Settled in Phase 3 step 2: `rust-version` is now 1.87 (the OGG encoder
+  needs it), which covers these too. CI still builds with the newest Rust
+  only.*
 
 ### 12. Smooth live changes [done: Phase 2 steps 3 and 7]
 
@@ -1029,32 +1033,133 @@ is done. Lessons for the next builder:
 
 ## Phase 3: link with Duck Forge
 
-### 13. Save into a game, with live reload
+### Film fixes: what "Pick a Door: Blocks" taught us [done]
 
-* **Known gap, found in Phase 1:** Duck Forge reads 44.1 kHz WAV but
-  mixes stereo down to mono, so a track's `pan` is lost in a game. The
-  songs are true stereo and need no change once the engine plays both
-  channels. Until then the Duck Craft loops are tested to keep their
-  level in mono. Fixing the engine side belongs to this phase.
+Making the sound for "Pick a Door: Blocks", a 58.6 s horror film made with
+Duck Forge, showed seven gaps. Each is a named command or a recipe field,
+so the CLI, the MCP server and the Studio all have it, and each has tests
+in `crates/duck-echo-tools/tests/film_fixes.rs`.
 
-* **Ask the Duck Forge owner for the details before writing code**: the
-  sounds folder layout, any manifest or asset IDs, and how the engine
-  notices changed files. Do not guess.
-* Duck Echo saves a sound (or a song) straight into a game's sounds
-  folder, with its recipe beside it so it can be re-rendered, and the
-  running game reloads it live.
-* Write down what the engine needs from Duck Echo, then build it:
-  * **per-sound volume** (a level the engine applies, matched to the
-    loudness targets);
-  * **real stereo** (stereo files played as stereo, not folded to mono);
-  * **better resampling** when the engine's mix rate is not the file's;
-  * **OGG** (or another compressed format) for music, since songs are
-    long.
-* Accept: a Duck Forge project hears a sound change within a second of
-  saving it in Duck Echo; the export is idempotent; the recipe path or hash
-  is recorded with the asset.
+1. **A layer longer than 30 s was cut at 30 s without a word.** Layers
+   now run to the 60 s limit; one that would run past it is an error at
+   `layers[n].envelope` with the length and a shorter `hold`.
+2. **Mix check** (`mix_check`, `duck-echo mix cues.json`): Duck Forge's
+   `log.json` as it is, or a plain list in seconds; every moment over full
+   volume with the sounds behind it and volumes that fix it; short-term
+   loudness each second and per section; buried cues (15 dB under the
+   rest) with the volume that lifts them; a picture with a marker and a
+   name for each cue; the mix itself as a WAV. Studio: Home > Check >
+   Check a mix from a cue list.
+3. **Facts beside every WAV** (`<name>.wav.json`, and `asset` in
+   `render --json`): length, loudness, peak, leading silence,
+   `hit_seconds`, loops, seed, `recipe_hash`. The Studio's Export writes
+   it too.
+4. **Sound sets** (`set_check`, `duck-echo set-check`): a folder or a set
+   file (`schema/set.schema.json`); a table (CSV), a contact sheet (PNG,
+   problems in red) and a loudness report per tag with the fix in words.
+   Studio: Home > Check > Check all my sounds.
+5. **Audio-rate LFO**: volume and the new `pitch` target up to 2000 Hz
+   (cutoff and duty stay at 50). Rates up to 50 use the old math, so every
+   pinned render is byte-identical.
+6. **How it feels**: `roughness`, `sharpness`, `boom`, `movement` and
+   `feel` in `analyze`, the words in its summary, and `expect` in a recipe
+   (`expect = { roughness = "high", loudness_lufs = [-20, -16] }`) with a
+   pass or fail line for each.
+7. **Random ranges** (task 5 below) and `sound_variants`: N numbered
+   variants with their facts and a `.variants.json` list for Duck Forge to
+   pick from at random. Studio: the sound's ... > Export 8 variants.
 
-### 5. Random ranges (moved here from Phase 0)
+What the next builder needs to know:
+
+* Ranges ride on the structure walker: a `{ min, max }` table where the
+  schema takes a decimal number is recorded on `Recipe::ranges` and
+  decoded as its `min`; `structure::check_against` (set files, cue lists)
+  keeps them off. Validation checks two corners, all-min and all-max, so a
+  rule that joins two ranged fields can still fail at a mixed corner (a
+  long ranged attack with a short ranged decay). No such rule bites today;
+  check all four corners if one is added.
+* The song schema shares its `Master` and `Effect` types with the
+  instruments inside it, so it shows the range form on a song's own
+  `master` too, where the loader refuses it. Splitting those types would
+  make the schema exact.
+* The Duck Forge log is read exactly as described when the film was made;
+  any other field is an error with its path. When Duck Forge writes more
+  (a total frame count, a bus), add it to `mix::ForgeLog` rather than
+  loosening the check.
+* The mix check holds the whole mix in memory (f32 sides plus f64
+  K-weighted copies: about 11 MB a second of mix). It is capped at 600 s;
+  a feature film would need it to work in pieces.
+* The rest of the mix under a cue is the K-weighted mix minus the cue's
+  own K-weighted sound, exact because K-weighting is linear
+  (`analyze::k_weighted`). Keep it that way rather than mixing twice.
+* The board's font (`analyze::board`) has capital letters only; small
+  letters are drawn as capitals. The sound pictures keep their own font,
+  so they did not change.
+* The Studio shows a ranged field in words ("random, 0.3 to 0.9") instead
+  of a slider; ranges are edited in the text. A slider for each end is
+  the obvious next step.
+* `list_files` now tells `asset_facts`, `variant_list`, `sound_set` and
+  `report` files apart from recipes, which keeps them off the Studio's
+  Home screen. Any new file Duck Echo writes beside sounds needs a kind.
+
+### 13. Save into a game, with live reload [done: Phase 3 steps 1 to 9]
+
+This section was out of date (it was written before Duck Forge changed,
+and before the film fixes). Corrected after reading Duck Forge's `main`
+(`src/sound.rs`, `src/engine.rs`, `src/files.rs`, `docs/decisions.md`,
+`studio/`):
+
+* **Already done in Duck Echo:** random ranges (task 5 below) and
+  `sound_variants` (`<name>_1..N.wav` plus `<name>.variants.json`); a
+  facts file beside every WAV (`<name>.wav.json`: length, loudness,
+  `hit_seconds`, `loops`, `seed`, `recipe_hash`); `mix_check` reads a cue
+  list in Duck Forge's `log.json` form (but see "Found" below).
+* **Already done in Duck Forge** (so they are no longer Duck Echo's to
+  ask for): stereo WAVs play as stereo (the old "known gap, folded to
+  mono" is fixed); volume and pan for each play (`play_with`,
+  `play_loop`, `set_loop_volume`); windowed-sinc resampling for WAVs at
+  other rates.
+* **Still missing:**
+  * WAV files are not watched. Only the text files read through
+    `files.rs` are, with the game's `reload` hook, and recordings keep
+    their text so replays match.
+  * No compressed format for long music. Decided: sound effects stay
+    WAV; music is OGG Vorbis, streamed while it plays, loops seamless.
+  * Duck Forge does not read `.variants.json` or `.wav.json`.
+  * No way to pick a Duck Echo sound in Duck Forge Studio, or to open
+    one in Duck Echo.
+* **Found while reading Duck Forge** (Duck Echo bugs, fixed in step 1
+  of the design, along with two more the real log showed: frames start at
+  1, and a loop's volume changes in steps): `mix_check` refuses a real `log.json`, because the log has
+  many more top-level fields than the cue list and its synthesizer
+  sounds have no `file`; it reads sound files from the log's folder,
+  where Duck Forge names them from the folder the game ran in; and it
+  pans with equal power where Duck Forge turns one side down. A comment
+  in `variants.rs` says Duck Forge avoids repeating a variant; it does
+  not read the list yet.
+* The plan, in nine steps across both repositories, with the measured
+  OGG sizes and the open questions: `docs/phase3-design.md`.
+* Done: step 1 (`mix_check` reads a real `log.json`), step 2 (Duck Echo
+  writes and checks OGG music), step 3 (`game_send` and `game_list`,
+  `duck-echo send`), step 4 (Send to game in the Studio, the Duck Forge
+  folder in Settings, `DuckEchoStudio --open`). In Duck Forge: step 5
+  (WAVs watched and swapped, replays exact through `out/sound-store`),
+  step 6 (OGG music streamed with `lewton`, the same samples in a window
+  and headless, on Linux and Windows), step 7 (`SoundSet`, `play_landing`,
+  facts and their warnings), step 8 (the Inspector lists Duck Echo's
+  sounds and opens their recipes). Step 9: Duck Craft uses sent sounds
+  end to end, the guide's "Send to a game" chapter, and playtest 4.
+* Accept: a Duck Forge game hears a sound change within a second of
+  sending it from Duck Echo; sending again with no change writes nothing;
+  the recipe and its hash are recorded with the asset; replays stay the
+  same; music is OGG and loops with no click.
+
+### 5. Random ranges (moved here from Phase 0) [done: film fixes]
+
+Done as written, with one change: each field picks from its own stream
+(the seed mixed with the field's path) rather than one stream in field
+order, so adding a range never changes another field's value. Songs take
+ranges inside their own instruments, picked note by note.
 
 * Any number in a recipe may be written as `{ min = x, max = y }`;
   `prepare` picks the value from the seed (its own stream, in field
@@ -1066,7 +1171,67 @@ is done. Lessons for the next builder:
   and ranges work together; errors point at paths like
   `layers[0].volume.max`.
 
+### Phase 3 is done
+
+Duck Echo sends a sound (WAV), a song (OGG) or a set of variants into a
+Duck Forge game by name (`game_send`, the Studio's Send to game, `duck-echo
+send`), and sending with no change writes nothing. Duck Forge hears the
+change within a second, streams OGG music with an exact loop, plays
+variants from its seed and lands hits on their frame, and replays sound
+the same. `mix_check` checks a game's real headless log. The guide's
+"Send to a game" chapter teaches it, and playtest 4
+(`playtest/playtest-4/`) did all of it with only the guide: three sounds
+sent, the game run, its mix clean, one near-buried step found and fixed.
+
+Lessons from the whole of Phase 3:
+
+* **Design across two repositories, and mark each part with its
+  repository.** `docs/phase3-design.md` said which steps were Duck Echo's
+  and which Duck Forge's, and the facts file was the one contract between
+  them. Nothing had to be redone when the second repository was built.
+* **"Unchanged" must be decided from the game's own files**, never from
+  this computer's encoder: the OGG bytes differ between Windows and Linux.
+  The facts file keeps the recipe's hash and the sound file's SHA-256.
+* **A decoder's maths can differ between computers.** `lewton` built its
+  tables with the system's `sin` and `cos`, so Windows decoded different
+  samples. Duck Forge vendors it with its own fixed maths. Any new
+  dependency on the audio path needs a Linux-and-Windows hash test.
+* **Decoders give extra frames at the end**, so a loop is trimmed to the
+  length written in the file (`DUCKECHO_FRAMES`), or it has a gap.
+* **One piece of code fed by two callers** (the window's decoder thread
+  and the headless mixer) is how the window and the test give the same
+  samples.
+* **Paths that cross from one program to the other are plain names
+  only.** A game is a name, never a path; a log's sound files are read
+  only from plain paths inside the Duck Forge folder.
+* **Writing the guide's chapter found a real gap** (`mix_check` could not
+  read a game's sounds when Duck Forge sits outside the project). Write
+  the chapter, then make its test run it.
+* **`cargo fmt` formats vendored code** unless it has a `rustfmt.toml`
+  with `disable_all_formatting`.
+
+From playtest 4 (fixed, see `playtest/playtest-4/REVIEW.md`): `game_list`
+gives a song's `tempo`, `beats_per_bar` and `bars`; a looping song's tracks
+are judged by their join; clearer errors for a file given as `recipe` and
+for `example:` outside `create`; "pass per_track to describe each". Still
+to do, for whoever next touches `mix_check` and `game_send`:
+
+* `mix_check`: a "nearly buried" list (within 3 dB of the line); a loop's
+  highest volume, not its first; a reason when a loop is never heard.
+* `game_send`: warn when a new theme's shape differs from a theme the
+  game already has.
+* One argument name for "the file" across tools (`path`, `file` and
+  `cues` today), with the old names still accepted.
+
 ## Phase 4: Duck Ear
+
+What Phase 4 should start with (from playtest 4: the agent made a whole
+tune, sent it and checked the mix by numbers alone, and said that nobody
+could tell whether it sounded good): write `docs/phase4-design.md` first,
+as for Phase 3, then build task 14 in this order. The protocol and the
+stub `duck-ear`, with the missing-program, timeout and broken-line tests,
+come before any model. Then the `ear` section in `analyze`, and only then
+real listening models.
 
 ### 14. Duck Ear bridge (`duck-echo-ear`)
 

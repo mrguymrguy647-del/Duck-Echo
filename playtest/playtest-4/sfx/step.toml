@@ -1,0 +1,30 @@
+# Duck footstep: a soft webbed-foot pat on grass and dirt.
+# Ranges make every seed a little different, so steps never repeat.
+version = 0
+name = "step"
+description = "A duck's webbed-foot pat: soft band-passed scuff over a low tap."
+tags = ["movement", "footstep", "short"]
+seed = 1
+variation = 0.15
+expect = { loudness_lufs = [-18.5, -17.5], sharpness = "low" }
+
+[master]
+normalize_lufs = -18
+trim_silence = true
+
+[[layers]]
+source = "noise"
+envelope = { attack = 0.002, decay = { min = 0.04, max = 0.07 } }
+filter = { kind = "bandpass", cutoff = { min = 700, max = 1300 }, resonance = 1.4 }
+
+[[layers]]
+source = "noise"
+volume = { min = 0.5, max = 0.8 }
+envelope = { attack = 0.001, decay = { min = 0.02, max = 0.035 } }
+filter = { kind = "lowpass", cutoff = { min = 250, max = 400 } }
+
+[[layers]]
+source = "sine"
+volume = 0.3
+envelope = { attack = 0.001, decay = 0.03 }
+pitch = { start = { min = 140, max = 180 }, end = 80, curve = "exponential" }

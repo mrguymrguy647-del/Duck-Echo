@@ -56,7 +56,9 @@ enum Command {
     Render {
         /// Recipe file (.toml or .json) or preset:NAME.
         recipe: PathBuf,
-        /// Output WAV path. Defaults to the recipe or preset name with `.wav`.
+        /// Output file: `.wav` (sound effects), or `.ogg` (music: OGG
+        /// Vorbis, decoded again and checked before it is kept). Defaults to
+        /// the recipe or preset name with `.wav`.
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Override the recipe seed.
@@ -65,6 +67,10 @@ enum Command {
         /// WAV sample format.
         #[arg(long, value_enum, default_value_t = Bits::Pcm16)]
         format: Bits,
+        /// OGG quality, 0 (smallest) to 10 (best), as `oggenc -q`. Default
+        /// 4. Only for an `.ogg` output.
+        #[arg(long)]
+        quality: Option<f32>,
         /// Print a JSON summary with the analysis of the render.
         #[arg(long)]
         json: bool,
@@ -160,9 +166,86 @@ enum Command {
         #[command(flatten)]
         project: ProjectArgs,
     },
-    /// Print the JSON Schema for recipes, or for songs with `schema song`.
+    /// Mix a cue list and check it: overs with the sounds behind them and
+    /// volumes that fix them, loudness each second and per section, buried
+    /// cues, and a picture with a marker for each cue. The cue list is
+    /// Duck Forge's log.json, or a JSON list with times in seconds. The
+    /// same as `duck-echo do mix_check`.
+    Mix {
+        /// The cue list, a .json file inside the project folder.
+        cues: String,
+        /// The mix's length in seconds. Default: the end of the last sound.
+        #[arg(long)]
+        length: Option<f64>,
+        /// Sections as JSON, seconds: '[{"name": "intro", "start": 0, "end": 12}]'.
+        /// Default: every 10 s.
+        #[arg(long)]
+        sections: Option<String>,
+        /// The folder for the mix, the report and the picture. Default:
+        /// the cue list's folder.
+        #[arg(short, long)]
+        out: Option<String>,
+        /// The folder the cues' files are named from. Default: for Duck
+        /// Forge's log.json, the Duck Forge folder it is in.
+        #[arg(long)]
+        base: Option<String>,
+        /// Print the whole report as JSON instead of a few lines.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+    /// Send a sound (as WAV), a song (as OGG) or numbered variants into a
+    /// Duck Forge game: into its assets folder with a facts file, and the
+    /// recipe into its art folder. Sending again with no change writes
+    /// nothing. The Duck Forge folder is --duck-forge, or
+    /// DUCK_ECHO_DUCK_FORGE. The same as `duck-echo do game_send`.
+    Send {
+        /// The sound or song: a recipe or song file, or preset:NAME.
+        file: String,
+        /// The game, by name (`duck-echo do game_list` lists them).
+        #[arg(long)]
+        game: String,
+        /// Its name in the game. Default: the file's name.
+        #[arg(long)]
+        name: Option<String>,
+        /// Send this many numbered variants and their list instead.
+        #[arg(long)]
+        variants: Option<u32>,
+        /// wav or ogg. Default: wav for a sound, ogg for a song.
+        #[arg(long)]
+        format: Option<String>,
+        /// OGG quality, 0 to 10. Default 4.
+        #[arg(long)]
+        quality: Option<f32>,
+        /// The Duck Forge folder. Default: DUCK_ECHO_DUCK_FORGE.
+        #[arg(long)]
+        duck_forge: Option<PathBuf>,
+        /// Print the whole answer as JSON.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+    /// Render a set of sounds (a folder or a set file) and write a table,
+    /// a contact sheet and a loudness report per tag. The same as
+    /// `duck-echo do set_check`.
+    SetCheck {
+        /// The set: a set file (film.set.toml) or a folder.
+        set: String,
+        /// The folder for the WAVs and the reports. Default checks/<name>.
+        #[arg(short, long)]
+        out: Option<String>,
+        /// Print the whole report as JSON instead of a few lines.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+    /// Print the JSON Schema for recipes, songs (`schema song`) or sound
+    /// sets (`schema set`).
     Schema {
-        /// Which schema: `recipe` (default) or `song`.
+        /// Which schema: `recipe` (default), `song` or `set`.
         #[arg(value_enum, default_value_t = SchemaKind::Recipe)]
         kind: SchemaKind,
     },
@@ -254,6 +337,8 @@ enum SchemaKind {
     Recipe,
     /// The schema of a song.
     Song,
+    /// The schema of a sound set file (`set_check`).
+    Set,
 }
 
 #[derive(Subcommand)]
@@ -325,9 +410,16 @@ fn main() -> ExitCode {
             output,
             seed,
             format,
+            quality,
             json,
             extras,
-        } => render(&recipe, output, seed, format.into(), json, &extras),
+        } => {
+            let format = duck_echo_tools::ogg::RenderFormat {
+                wav: format.into(),
+                quality,
+            };
+            render(&recipe, output, seed, format, json, &extras)
+        }
         Command::Analyze {
             input,
             compact,
@@ -364,12 +456,100 @@ fn main() -> ExitCode {
             project,
         } => do_command(&name, &arguments, &project),
         Command::Run { script, project } => run_script(&script, &project),
+        Command::Mix {
+            cues,
+            length,
+            sections,
+            out,
+            base,
+            json,
+            project,
+        } => {
+            let mut args = serde_json::json!({ "cues": cues });
+            if let Some(b) = base {
+                args["base"] = b.into();
+            }
+            if let Some(l) = length {
+                args["length_seconds"] = l.into();
+            }
+            if let Some(o) = out {
+                args["out"] = o.into();
+            }
+            if let Some(text) = sections {
+                match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(v) => args["sections"] = v,
+                    Err(e) => {
+                        return tool_error(
+                            ToolError::issue(duck_echo_core::Issue::error(
+                                duck_echo_core::Code::Syntax,
+                                "--sections",
+                                format!("the sections are not JSON: {e}"),
+                            )),
+                            json,
+                        )
+                    }
+                }
+            }
+            check_command(
+                "mix_check",
+                &args,
+                &project,
+                json,
+                &["mix_wav", "picture_png", "report_json"],
+            )
+        }
+        Command::Send {
+            file,
+            game,
+            name,
+            variants,
+            format,
+            quality,
+            duck_forge,
+            json,
+            project,
+        } => {
+            let mut args = serde_json::json!({ "file": file, "game": game });
+            for (key, value) in [("name", name), ("format", format)] {
+                if let Some(v) = value {
+                    args[key] = v.into();
+                }
+            }
+            if let Some(n) = variants {
+                args["variants"] = n.into();
+            }
+            if let Some(q) = quality {
+                args["quality"] = q.into();
+            }
+            send(&args, &project, duck_forge.as_deref(), json)
+        }
+        Command::SetCheck {
+            set,
+            out,
+            json,
+            project,
+        } => {
+            let mut args = serde_json::json!({ "set": set });
+            if let Some(o) = out {
+                args["out"] = o.into();
+            }
+            check_command(
+                "set_check",
+                &args,
+                &project,
+                json,
+                &["table_csv", "sheet_png", "check_json"],
+            )
+        }
         Command::Schema { kind } => {
             println!(
                 "{}",
                 match kind {
                     SchemaKind::Recipe => duck_echo_core::schema::recipe_schema_json(),
                     SchemaKind::Song => duck_echo_core::schema::song_schema_json(),
+                    SchemaKind::Set =>
+                        serde_json::to_string_pretty(&duck_echo_tools::sets::set_schema())
+                            .expect("schema serializes"),
                 }
             );
             ExitCode::SUCCESS
@@ -399,14 +579,27 @@ fn list_commands(json: bool) -> ExitCode {
 }
 
 /// The project folder of `do` and `run`.
+/// The project folder, with the Duck Forge folder from
+/// `DUCK_ECHO_DUCK_FORGE` when it is set (for game_send and game_list).
 fn open_root(args: &ProjectArgs) -> Result<Root, ToolError> {
-    Root::new(&args.root).map_err(|e| {
+    let root = Root::new(&args.root).map_err(|e| {
         ToolError::issue(duck_echo_core::Issue::error(
             duck_echo_core::Code::NotFound,
             "--root",
             e,
         ))
-    })
+    })?;
+    let Some(dir) = std::env::var_os(duck_echo_tools::forge::ENV_VARIABLE) else {
+        return Ok(root);
+    };
+    match duck_echo_tools::forge::DuckForge::open(Path::new(&dir)) {
+        Ok(forge) => Ok(root.with_duck_forge(forge)),
+        Err(why) => {
+            // Only the game commands need it: say so, and carry on.
+            eprintln!("duck-echo: {}: {why}", duck_echo_tools::forge::ENV_VARIABLE);
+            Ok(root)
+        }
+    }
 }
 
 fn do_command(name: &str, arguments: &str, args: &ProjectArgs) -> ExitCode {
@@ -430,6 +623,79 @@ fn do_command(name: &str, arguments: &str, args: &ProjectArgs) -> ExitCode {
     match result {
         Ok(v) => print_json(&v, false),
         Err(e) => tool_error(e, true),
+    }
+}
+
+/// `duck-echo send`: game_send with `--duck-forge` (or the environment
+/// variable), printing what it did.
+fn send(
+    arguments: &serde_json::Value,
+    args: &ProjectArgs,
+    duck_forge: Option<&Path>,
+    json: bool,
+) -> ExitCode {
+    let result = open_root(args).and_then(|root| {
+        let root = match duck_forge {
+            Some(dir) => {
+                let forge = duck_echo_tools::forge::DuckForge::open(dir).map_err(|why| {
+                    ToolError::issue(duck_echo_core::Issue::error(
+                        duck_echo_core::Code::NotFound,
+                        "--duck-forge",
+                        why,
+                    ))
+                })?;
+                root.with_duck_forge(forge)
+            }
+            None => root,
+        };
+        let command = commands::parse("game_send", arguments, "--")?;
+        commands::run(&Project::new(&root), command, args.by.into(), None, "--")
+    });
+    match result {
+        Ok(v) if json => print_json(&v, false),
+        Ok(v) => {
+            println!("{}", v["summary"].as_str().unwrap_or_default());
+            for f in v["written"].as_array().into_iter().flatten() {
+                println!("wrote {}", f.as_str().unwrap_or_default());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => tool_error(e, json),
+    }
+}
+
+/// Run a check command and print its summary and the files it wrote (or,
+/// with `json`, its whole answer). Arguments are named as the command's
+/// (`arguments.cues`), the same as `duck-echo do`.
+fn check_command(
+    name: &str,
+    arguments: &serde_json::Value,
+    args: &ProjectArgs,
+    json: bool,
+    files: &[&str],
+) -> ExitCode {
+    let result = open_root(args).and_then(|root| {
+        let command = commands::parse(name, arguments, "arguments.")?;
+        commands::run(
+            &Project::new(&root),
+            command,
+            args.by.into(),
+            None,
+            "arguments.",
+        )
+    });
+    match result {
+        Ok(v) if json => print_json(&v, false),
+        Ok(v) => {
+            println!("{}", v["summary"].as_str().unwrap_or_default());
+            for key in files {
+                if let Some(f) = v[*key].as_str() {
+                    println!("wrote {f}");
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => tool_error(e, json),
     }
 }
 
@@ -540,7 +806,7 @@ fn render(
     reference: &Path,
     output: Option<PathBuf>,
     seed: Option<u64>,
-    format: WavFormat,
+    format: duck_echo_tools::ogg::RenderFormat,
     json: bool,
     args: &ExtrasArgs,
 ) -> ExitCode {

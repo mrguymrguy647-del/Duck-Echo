@@ -1,0 +1,8 @@
+duckforge: ran "Duck Craft - duckforge" for 797 frames (13.3 s of game time) in 0.31 s, seed 1, replaying 46 of 46 input events
+final: air = 15, coal = 0, crafted = 0, day = 1, ducklings_following = 0, dug = 2, eaten = 0, fainted = false, flying = false, food = 20, and 21 more (see log.json)
+lowest to highest: dug 0 to 2, placed 0 to 7, x 27.6 to 32.5, y 17 to 21.4, yaw 0.01 to 6.26, z 24.9 to 27.5
+help: true on frame 32, false on 511
+also changed: holding, looking_at, message, on_ground, stage, view (see log.json)
+sounds: break x2, click x1, dig x2, land x1, pick x2, place x7, quack x3, step x4; loops: music_title from frame 1 to the end, music_day from frame 1 to the end, music_night from frame 1 to the end, hum from frame 1 to the end, heartbeat from frame 1 to the end
+checks: 4 rules, none failed
+saved in /home/user/Duck-Echo/playtest/playtest-4/out/duck_craft: last.png, last.scene.json, audio.wav, log.json, summary.txt

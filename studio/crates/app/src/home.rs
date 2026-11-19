@@ -41,6 +41,11 @@ impl StudioApp {
     /// steps' titles.
     pub fn rescan(&mut self) {
         self.files = library::scan(&self.project);
+        if self.game.is_some() {
+            // A Duck Forge game: only its recipes, in art/ (its other
+            // .json files are the game's own: scenes, sheets, tunes).
+            self.files.retain(|f| f.rel.starts_with("art/"));
+        }
         self.thumbs.keep_only(&self.files);
         self.last_scan = Some(Instant::now());
         let (undo, redo) = match &self.root {
@@ -86,6 +91,57 @@ impl StudioApp {
         answer
     }
 
+    /// Check every sound and song of the project together (the
+    /// `set_check` command), into `checks/all`.
+    pub fn check_all_sounds(&mut self) {
+        let args = json!({ "set": ".", "out": "checks/all" });
+        if let Some(answer) = self.run_command("set_check", args) {
+            self.say(format!(
+                "{} The table, the contact sheet and the loudness report are in checks/all.",
+                sentence(answer["summary"].as_str().unwrap_or_default())
+            ));
+        }
+    }
+
+    /// Choose a cue list with the system's Open window and check its mix.
+    fn choose_and_check_mix(&mut self) {
+        let Some(root) = &self.root else {
+            return;
+        };
+        let chosen = rfd::FileDialog::new()
+            .set_title("Check a mix from a cue list")
+            .add_filter("Cue list", &["json"])
+            .set_directory(root.dir())
+            .pick_file();
+        let Some(path) = chosen else {
+            return;
+        };
+        match path.canonicalize().ok().and_then(|p| {
+            p.strip_prefix(root.dir())
+                .ok()
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+        }) {
+            Some(rel) => self.check_mix(&rel),
+            None => self.warn(format!(
+                "Put the cue list and its sounds in your Duck Echo folder ({}) first.",
+                root.dir().display()
+            )),
+        }
+    }
+
+    /// Check the mix of the cue list `rel` (the `mix_check` command): the
+    /// mix, its picture and its report go next to it.
+    pub fn check_mix(&mut self, rel: &str) {
+        if let Some(answer) = self.run_command("mix_check", json!({ "cues": rel })) {
+            self.say(format!(
+                "{} Listen to {}; its picture is {}.",
+                sentence(answer["summary"].as_str().unwrap_or_default()),
+                answer["mix_wav"].as_str().unwrap_or_default(),
+                answer["picture_png"].as_str().unwrap_or_default(),
+            ));
+        }
+    }
+
     /// New sound or New song: a fresh file, named "new sound" (or "new
     /// sound 2"...), to rename later.
     pub fn new_file(&mut self, kind: Kind) {
@@ -93,7 +149,7 @@ impl StudioApp {
             Kind::Sound => ("file_new_sound", "new sound"),
             Kind::Song => ("file_new_song", "new song"),
         };
-        let rel = library::free_name(&self.project, "", stem, "toml");
+        let rel = library::free_name(&self.project, self.sounds_folder(), stem, "toml");
         if self.run_command(command, json!({ "file": rel })).is_some() {
             self.say(format!(
                 "Made {}. Rename it with ... on its card.",
@@ -105,7 +161,7 @@ impl StudioApp {
     /// Make a copy: `source` (`preset:coin`) is copied into the project as
     /// a file of its own, named after it.
     pub fn make_copy(&mut self, source: &str, name: &str) {
-        let rel = library::free_name(&self.project, "", name, "toml");
+        let rel = library::free_name(&self.project, self.sounds_folder(), name, "toml");
         if self
             .run_command("file_copy_from", json!({ "from": source, "to": rel }))
             .is_some()
@@ -387,6 +443,39 @@ impl StudioApp {
                     }
                     if ui.add(theme::primary_button("New song")).clicked() {
                         self.new_file(Kind::Song);
+                    }
+                    let mut check_sounds = false;
+                    let mut check_mix = false;
+                    ui.menu_button("Check", |ui| {
+                        if ui
+                            .button("Check all my sounds")
+                            .on_hover_text(
+                                "Render every sound and song side by side: a table, a picture \
+                                 of each, and their loudness against the targets of their tags.",
+                            )
+                            .clicked()
+                        {
+                            check_sounds = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button("Check a mix from a cue list...")
+                            .on_hover_text(
+                                "Choose Duck Forge's log.json (or a list of cues in seconds) in \
+                                 your Duck Echo folder: hear the mix, and see where it is too \
+                                 loud and which sounds are buried.",
+                            )
+                            .clicked()
+                        {
+                            check_mix = true;
+                            ui.close();
+                        }
+                    });
+                    if check_sounds {
+                        self.check_all_sounds();
+                    }
+                    if check_mix {
+                        self.choose_and_check_mix();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let edit = ui.add(

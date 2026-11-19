@@ -17,7 +17,37 @@ const TAIL_FLOOR: f32 = 0.001;
 
 /// Validate a parsed recipe. Errors mean it must not render; warnings mean it
 /// renders but something looks off.
+///
+/// A recipe with random ranges is checked twice, with every range at its
+/// `min` and at its `max`. A problem with a range's own value is reported
+/// at that end, such as `layers[0].volume.max`; any other problem once.
 pub fn validate(recipe: &Recipe) -> Report {
+    if recipe.ranges.is_empty() {
+        return validate_values(recipe);
+    }
+    use crate::random::{at, End};
+    let mut out = Report::new();
+    for (end, word) in [(End::Min, "min"), (End::Max, "max")] {
+        let report = validate_values(&at(recipe, end));
+        for mut issue in report.errors.into_iter().chain(report.warnings) {
+            if recipe.ranges.iter().any(|r| r.path == issue.path) {
+                issue.path = format!("{}.{word}", issue.path);
+            }
+            let seen = out
+                .errors
+                .iter()
+                .chain(&out.warnings)
+                .any(|i| i.path == issue.path && i.message == issue.message);
+            if !seen {
+                out.push(issue);
+            }
+        }
+    }
+    out
+}
+
+/// [`validate`] for one set of values (no ranges left to pick).
+fn validate_values(recipe: &Recipe) -> Report {
     let mut v = Validator {
         report: Report::new(),
     };
@@ -124,6 +154,41 @@ impl Validator {
                 .one_of([CURRENT_VERSION.to_string()]),
             );
         }
+        if let Some(e) = &r.expect {
+            for (field, pair) in [
+                ("loudness_lufs", &e.loudness_lufs),
+                ("peak_dbfs", &e.peak_dbfs),
+                ("duration_seconds", &e.duration_seconds),
+            ] {
+                let Some(pair) = pair else { continue };
+                let path = format!("expect.{field}");
+                let ok = pair.len() == 2 && pair[0].is_finite() && pair[1].is_finite();
+                if !ok {
+                    self.report.push(
+                        Issue::error(
+                            Code::Invalid,
+                            &path,
+                            format!(
+                                "`{field}` is two numbers, the lowest and the highest: [-20, -16]"
+                            ),
+                        )
+                        .suggest("[-20, -16]"),
+                    );
+                } else if pair[0] > pair[1] {
+                    self.report.push(
+                        Issue::error(
+                            Code::Invalid,
+                            &path,
+                            format!(
+                                "the lowest ({}) is above the highest ({}); write them the other way round",
+                                pair[0], pair[1]
+                            ),
+                        )
+                        .suggest(format!("[{}, {}]", pair[1], pair[0])),
+                    );
+                }
+            }
+        }
         self.check("sample_rate", r.sample_rate as f32, ranges::SAMPLE_RATE);
         self.check("channels", r.channels as f32, ranges::CHANNELS);
         self.check("variation", r.variation, ranges::VARIATION);
@@ -156,6 +221,35 @@ impl Validator {
         }
         for (i, effect) in r.effects.iter().enumerate() {
             self.effect(&format!("effects[{i}]"), effect, r.sample_rate);
+        }
+
+        // Each layer on its own: its offset and envelope must fit in the
+        // 60 s limit (a `duration` cuts the sound anyway, so then it is
+        // not an error). Reported at the envelope, the usual thing to
+        // shorten.
+        if r.duration.is_none() && self.report.errors.is_empty() {
+            for (i, l) in r.layers.iter().enumerate() {
+                let lasts = l.offset + l.envelope.length();
+                if lasts > MAX_DURATION {
+                    self.report.push(
+                        Issue::error(
+                            Code::OutOfRange,
+                            format!("layers[{i}].envelope"),
+                            format!(
+                                "this layer lasts {lasts:.2} s (offset {} s plus an envelope of {:.2} s), past the {MAX_DURATION} s limit of a recipe; shorten the envelope or the offset, or set `duration` to cut the sound",
+                                l.offset,
+                                l.envelope.length()
+                            ),
+                        )
+                        .got(f64_clean(lasts))
+                        .range(0.0, MAX_DURATION as f64)
+                        .suggest(format!(
+                            "hold = {:.2}",
+                            (l.envelope.hold - (lasts - MAX_DURATION)).max(0.0)
+                        )),
+                    );
+                }
+            }
         }
 
         // Total length check uses the un-jittered values; variation may
@@ -218,13 +312,28 @@ impl Validator {
         }
         if let Some(lfo) = &l.lfo {
             let lp = format!("{p}.lfo");
-            self.check(&format!("{lp}.rate"), lfo.rate, ranges::LFO_RATE);
+            // The rate's range depends on the target: only volume and
+            // pitch move at audio rates.
+            let rate = ranges::lfo_rate(lfo.target);
+            let rate_ok = self.check(&format!("{lp}.rate"), lfo.rate, rate);
+            if !rate_ok && lfo.rate > rate.max as f32 && lfo.rate <= ranges::LFO_RATE.max as f32 {
+                if let Some(last) = self.report.errors.last_mut() {
+                    last.message = format!(
+                        "value {} is outside the allowed range 0.01..={} for target `{}`: only `volume` and `pitch` move at audio rates (up to 2000)",
+                        lfo.rate,
+                        rate.max,
+                        lfo_target_name(lfo.target)
+                    );
+                    last.suggestion = Some("target = \"volume\"".into());
+                }
+            }
             self.check(&format!("{lp}.delay"), lfo.delay, ranges::LFO_DELAY);
             let max = ranges::lfo_depth(lfo.target).max as f32;
             let unit = match lfo.target {
                 LfoTarget::Volume => "a part of the volume",
                 LfoTarget::Cutoff => "octaves",
                 LfoTarget::Duty => "an amount of duty",
+                LfoTarget::Pitch => "semitones",
             };
             if lfo.depth.is_nan() || lfo.depth < 0.0 || lfo.depth > max {
                 self.report.push(
@@ -249,6 +358,14 @@ impl Validator {
                         "an LFO on `cutoff` needs a filter on this layer; add `filter = { cutoff = 1000 }`, or use target `volume`",
                     )
                     .got("cutoff"),
+                ),
+                LfoTarget::Pitch if !l.has_pitch() => self.report.push(
+                    Issue::error(
+                        Code::Invalid,
+                        format!("{lp}.target"),
+                        "an LFO on `pitch` needs a layer with a pitch; plain white noise has none (use `noise_mode = \"pitched\"`, another source, or target `volume`)",
+                    )
+                    .got("pitch"),
                 ),
                 LfoTarget::Duty if l.source != Source::Square => self.report.push(
                     Issue::error(
@@ -443,6 +560,7 @@ fn lfo_target_name(t: LfoTarget) -> &'static str {
         LfoTarget::Volume => "volume",
         LfoTarget::Cutoff => "cutoff",
         LfoTarget::Duty => "duty",
+        LfoTarget::Pitch => "pitch",
     }
 }
 
@@ -558,5 +676,27 @@ mod applies_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use crate::{load_str, Format};
+
+    #[test]
+    fn a_layer_past_60_seconds_is_an_error_at_its_envelope() {
+        // Each envelope time may be up to 30 s; together they may not
+        // pass 60 s.
+        let text = "version = 0\n[[layers]]\nsource = \"noise\"\nenvelope = { attack = 30, hold = 30, decay = 10 }\n";
+        let report = load_str(text, Format::Toml).unwrap_err();
+        let issue = &report.errors[0];
+        assert_eq!(issue.path, "layers[0].envelope", "{report:?}");
+        assert!(issue.message.contains("70.00 s"), "{}", issue.message);
+        // 45 s is fine: a recipe may last 60 s.
+        let text = "version = 0\n[[layers]]\nsource = \"noise\"\nenvelope = { attack = 2, hold = 25, decay = 18 }\n";
+        assert!(load_str(text, Format::Toml).is_ok());
+        // With `duration` the sound is cut on purpose: no error.
+        let text = "version = 0\nduration = 10\n[[layers]]\nsource = \"noise\"\nenvelope = { attack = 30, hold = 30, decay = 10 }\n";
+        assert!(load_str(text, Format::Toml).is_ok());
     }
 }

@@ -25,8 +25,19 @@ Never write a sound from nothing, and never change many things at once.
    A person may have the same file open in Duck Echo Studio: they see
    your change within a second, with your step's title, and can undo it.
    `edit_history` shows their steps as "You".
-4. **Render.** `render` with an `output` such as `sfx/coin.wav`. The
-   result already holds the analysis.
+4. **Render.** `render` with the file as `path` and an `output` such as
+   `sfx/coin.wav` (`recipe` is only for a recipe written inline). The
+   result already holds the analysis. Next to the WAV it writes
+   `sfx/coin.wav.json` with the facts a game or film engine needs (the
+   same object is `asset` in the result): `duration_seconds`,
+   `loudness_lufs`, `peak_dbfs`, `leading_silence_seconds`,
+   `hit_seconds` (when the main hit lands: start the sound this much
+   before its event), `loops` and `recipe_hash` (changes only when the
+   sound would). Hand that file to Duck Forge with the WAV. Music for a
+   game goes as OGG: `output` such as `music/theme.ogg` (about 14 times
+   smaller; `quality` 0 to 10, default 4). The OGG is decoded again and
+   checked before it is kept: a loop that would click is an error.
+   Sound effects stay WAV.
 5. **Read the numbers.** Start with `summary`. Then look at the one field
    your change should have moved.
 6. **Compare.** `compare` with `a` (before) and `b` (after) says what
@@ -110,6 +121,8 @@ Compare short sounds with short sounds. When the two methods differ,
 | How does it fade? | `energy_over_time` (20 slices, dBFS) |
 | Is it broken? | `clipping.clipped`, `dc_offset`, `is_silent` |
 | Does it end with a click? | `ending.clean`, summary words "ends cleanly" or "ENDS WITH A CLICK" |
+| Is it rough, piercing, booming, moving? | `feel` (`low`, `medium`, `high` each) and the numbers `roughness`, `sharpness`, `boom`, `movement`; summary words "rough", "piercing", "booming", "moving" |
+| Which tones are in it? | `peaks`: the strongest frequencies with their level |
 
 A sound that is still loud when the file ends clicks when it stops. Let
 it fade: a longer `release`, or a `duration` long enough for the
@@ -123,12 +136,46 @@ shortening an envelope's `attack` may not move it. Then read
 `per_layer` (each layer's own attack) and the first `energy_over_time`
 slices instead.
 
+### Say what it should measure: `expect`
+
+Write what the sound is for into the recipe, and every `analyze` and
+`render` says whether it still is:
+
+```toml
+version = 0
+name = "growl"
+expect = { roughness = "high", loudness_lufs = [-20, -16] }
+
+[master]
+normalize_lufs = -18
+
+[[layers]]
+source = "saw"
+pitch = { start = 90 }
+envelope = { attack = 0.02, hold = 0.6, decay = 0.3 }
+lfo = { target = "volume", rate = 70, depth = 0.8 }
+```
+
+The answer's `expect` lists each line with what was wanted and what was
+measured, and the summary ends with "expect: all 2 met" or "EXPECT: 1 of
+2 met (roughness is low, wanted high)". Lines: `roughness`, `sharpness`,
+`boom`, `movement` (`low`, `medium` or `high`), and `loudness_lufs`,
+`peak_dbfs`, `duration_seconds` as `[lowest, highest]`.
+
+That growl uses an **audio-rate LFO**: `volume` and `pitch` may move up to
+2000 times a second (cutoff and duty up to 50). At 20 to 150 a second a
+volume LFO is a growl or a rasp (it reads as `roughness`); faster, it
+adds side tones at the note plus and minus the rate (they show in
+`peaks`), for metal, bells and radio voices. A layer may last up to the
+60 s limit; a longer one is an error that says how long it is.
+
 ### When the summary is not enough
 
-* **Several layers.** When the summary ends with "N layers; per_layer
-  describes each", the summary describes the mix, which is often just its
-  loudest layer. Add `per_layer: true` to get each layer alone, at its
-  level in the mix. Use `solo: [1]` or `mute: [0]` to hear only some.
+* **Several layers.** When the summary ends with "N layers; pass
+  per_layer to describe each", the summary describes the mix, which is
+  often just its loudest layer. Add `per_layer: true` to get each layer
+  alone, at its level in the mix, in `layers` at the top of the result
+  (each `{index, analysis}`; a song's are in `tracks`). Use `solo: [1]` or `mute: [0]` to hear only some.
 * **Texture.** `picture: true` returns an image: level over time on top,
   a spectrogram below. It shows grit, a noisy tail or a click the
   numbers hide. Check what you see against the numbers.
@@ -138,6 +185,64 @@ slices instead.
 The default `aliasing = "clean"` keeps high notes free of false tones.
 Set `aliasing = "retro"` only when you want the raw, gritty sound of an
 old sound chip on purpose.
+
+### A sound that plays many times: ranges and variants
+
+A footstep or a hit that plays the same file ten times sounds like a
+machine. Write the numbers that should differ as ranges, and each seed
+picks its own values:
+
+```toml
+version = 0
+name = "step"
+tags = ["movement"]
+
+[master]
+normalize_lufs = -20
+
+[[layers]]
+source = "noise"
+filter = { kind = "lowpass", cutoff = { min = 900, max = 1400 } }
+envelope = { attack = 0.002, decay = { min = 0.06, max = 0.1 } }
+```
+
+Then `sound_variants` with `{"file": "sfx/step.toml", "count": 8}` writes
+`sfx/step_1.wav` ... `sfx/step_8.wav` (variant N is seed N), a facts file
+for each, and `sfx/step.variants.json`, the list a game picks from at
+random, with each variant's loudness and `loudness_range_lufs` for all of
+them. With `master.normalize_lufs` every variant lands on the target and
+the ranges change only the tone and the length; a range on `volume`
+without it changes the loudness too, so keep `loudness_range_lufs` within
+about 3 LU, or the quiet ones get lost. If
+the answer's `seeds_matter` is false, nothing in the recipe changes with
+the seed: add a range or a `variation`. Errors in a range name the end at
+fault, such as `layers[0].volume.max`.
+
+### Many sounds, and a whole mix
+
+Sounds made one at a time end up at many levels. `set_check` with
+`{"set": "sfx"}` (a folder) or `{"set": "film.set.toml"}` (a set file
+with a loudness target per tag) renders them all and writes a table, a
+contact sheet (read it: every picture with its name, problems in red)
+and a loudness report per tag whose `fix` says what to change. Fix the
+red ones and run it again.
+
+When the sounds play together (a film, a level), check the mix too:
+`mix_check` with `{"cues": "out/duck_craft/log.json"}` reads the log a
+Duck Forge headless run wrote (or a list of `{"time", "file", "volume",
+"pan"}` in seconds), mixes it as the game does and answers
+with every moment over full volume (`overs`, with the volumes that fix
+it), the loudness each second and per section, and every cue `buried`
+more than 15 dB under what plays with it (`lift_to` is its fix). Change
+the volumes in the cue list, or `master.normalize_lufs` in a recipe, and
+check again until `overs` is empty and nothing is buried. A sound made
+in mono reads about 3 LU louder in the mix than alone, because it plays
+in both ears. Duck Forge's
+own synthesizer sounds are not in the mix (`not_mixed` names them). A
+game's files are read from the Duck Forge folder around the log, or the
+server's (see "Send to a game"); `base` names another folder in the
+project. Read
+`<name>.mix.png` once: it shows where in time the trouble is.
 
 ### A small example
 
@@ -323,11 +428,82 @@ mix: raise its `volume`. `per_track: true` gives every track's analysis.
 Duck Echo cannot tell you whether a tune is *good*. Say so, and ask a
 person to listen.
 
+## Send to a game
+
+When the person makes a game with Duck Forge, send your sounds straight
+into it. The MCP server needs the Duck Forge folder (started with
+`--duck-forge FOLDER`, or set in Duck Echo Studio's Settings); if a tool
+says none is set, ask the person for it.
+
+**1. See the games.** `game_list` names each game (the folder
+`examples/<game>` of Duck Forge) and the Duck Echo sounds it already has,
+with the recipe each came from. To change one of those sounds, send to
+its name. For a song it also gives `song`: its `tempo`, `beats_per_bar`
+and `bars`. A new theme the game fades to or from that one (day and
+night) must use the same three, so the two stay in time.
+
+**2. Send.** `game_send` takes the file and the game:
+
+```json
+{"file": "sfx/thud.toml", "game": "mygame"}
+{"file": "music/theme.toml", "game": "mygame", "name": "theme_day"}
+{"file": "sfx/step.toml", "game": "mygame", "name": "step", "variants": 6}
+```
+
+* **A sound goes as WAV**: `assets/thud.wav`, with its facts file
+  `assets/thud.wav.json` (length, loudness, `hit_seconds`, `loops`...).
+* **A song goes as OGG**: `assets/theme_day.ogg`, about 14 times smaller
+  than a WAV (`"quality"` 0 to 10, default 4). It is decoded and checked
+  before it is kept: its length is exact and its loop joins cleanly.
+* **Variants** go as `assets/step_1.wav` to `step_6.wav`, each with its
+  facts, and their list `assets/step.variants.json`. Make sure the recipe
+  has something random (a range or `variation`), or every variant is the
+  same; the answer says so.
+* The recipe is copied to `art/<name>.toml`, so the game keeps where each
+  sound came from.
+* `game` is a name from `game_list`, never a path. `name` is letters,
+  digits, `-` and `_` only (anything else is refused, with a safe name
+  suggested).
+* **Sending again with no change writes nothing**: `unchanged: true`,
+  `written: []`. So send after every change.
+
+**3. What the game does with them.** Duck Forge plays them like this
+(Rust, in the game's code; tell the person, or whoever writes the game):
+
+```rust
+let thud = Wav::load("examples/mygame/assets/thud.wav")?;
+let steps = SoundSet::load("examples/mygame/assets/step.variants.json")?;
+let theme = Music::load("examples/mygame/assets/theme_day.ogg")?;
+// In update:
+ctx.play_with(&steps, 0.8, 0.0); // one footstep, never the same twice running
+ctx.play_landing(&thud, 6); // it lands in 6 frames: the hit is on that frame
+let music = ctx.play_loop(&theme, 0.6); // once; it loops with no gap
+```
+
+* A running game hears a sent sound within about a second (a loop
+  switches when it next starts again), and its recordings keep which
+  version played when, so replays sound the same.
+* `play_landing` uses `hit_seconds` from the facts file. A sound with no
+  facts plays at once, and the game warns.
+* The game chooses variants from its seed, so a replay plays the same
+  ones.
+
+**4. Check the mix in the game.** Ask the person to run the game
+headless with one of its playthroughs, writing into your project (from
+the Duck Forge folder:
+`cargo run --example mygame -- --headless --inputs playthroughs/mygame.json --out <your project>/out/mygame`).
+Then `mix_check` with `{"cues": "out/mygame/log.json"}`. The game's sound
+files are read from the Duck Forge folder. Fix until `overs` is empty and
+nothing is `buried`: change the volume in the game's code, or the sound's
+loudness in its recipe and send it again. Duck Forge's own synthesizer
+sounds are listed in `not_mixed`.
+
 ## Undo, and working beside a person
 
-Every change you make to a file (`create`, `edit`, and the commands such
-as `sound_set`, `sound_add_layer` or `song_add_note`) is one step of the
-project's Undo history, shared with the person in Duck Echo Studio.
+Every change you make to a file of the project (`create`, `edit`, and
+the commands such as `sound_set`, `sound_add_layer` or `song_add_note`;
+not `game_send`, which writes into the game) is one step of the project's
+Undo history, shared with the person in Duck Echo Studio.
 `edit_undo` takes back the newest step, whoever made it, so check
 `edit_history` first: it lists each step with who made it (`You`, `AI
 assistant` or `Outside Duck Echo`). If a call says a file "kept changing",

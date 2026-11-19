@@ -13,6 +13,8 @@ pub mod controls;
 pub mod editor;
 pub mod home;
 pub mod library;
+pub mod opening;
+pub mod send;
 pub mod settings;
 pub mod song_edit;
 pub mod song_screen;

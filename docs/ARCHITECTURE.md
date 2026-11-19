@@ -28,21 +28,30 @@ Cargo.toml                 workspace: shared versions, lints, profiles
 crates/
   duck-echo-core/          recipe and song types, defaults, TOML/JSON loading,
                            validation, diagnostics, JSON Schemas. No audio code.
-  duck-echo-audio/         AudioBuffer type and WAV read/write (hound behind a
-                           `wav` feature so synth can depend on just the type).
+  duck-echo-audio/         AudioBuffer type, WAV read/write (hound behind a
+                           `wav` feature so synth can depend on just the type)
+                           and OGG Vorbis (vorbis_rs and lewton behind `ogg`).
   duck-echo-synth/         deterministic renderer: Recipe -> Voice -> samples,
                            and the song player (one Voice per note).
   duck-echo-analyze/       measurements over f32 samples -> JSON report, plus
                            compare (deltas and cross-correlation), onsets and
-                           energy over time, a picture (spectrogram and level)
-                           as PNG, and its own small FFT and PNG encoder.
+                           energy over time, how a sound feels (character),
+                           a picture (spectrogram and level) as PNG, a board
+                           with a small font for labelled pictures (board),
+                           and its own small FFT and PNG encoder.
   duck-echo-tools/         operations shared by the CLI and the MCP server:
                            load a WAV or render a recipe, compare, presets,
                            variations, edits, analysis extras (per layer,
                            solo, mute, picture) and file listings; the path
                            rules (`root`), the named commands (`commands`),
                            the shared Undo history (`project`, `history`)
-                           and writing files in one step (`save`).
+                           and writing files in one step (`save`); a
+                           rendered WAV's facts file (`asset`), writing and
+                           checking OGG music (`ogg`), `expect`
+                           lines, the variant export (`variants`), the
+                           sound-set check (`sets`), the mix check from
+                           a cue list (`mix`) and sending sounds into a
+                           Duck Forge game (`forge`).
   duck-echo-live/          the realtime mixer for playing through speakers:
                            a pool of 32 voice slots, two lock-free queues,
                            fades and clipping, and the background song
@@ -53,7 +62,7 @@ crates/
                            server over stdio.
   duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
 studio/                    Duck Echo Studio, a workspace of its own (Rust
-                           1.95 for egui; the libraries above stay at 1.80):
+                           1.95 for egui; the libraries above need 1.87):
   crates/app/              DuckEchoStudio: the window, Home (home.rs, with
                            library.rs for the files, thumbnails and
                            gallery without a window), the sound editor
@@ -67,7 +76,8 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
                            song timeline (song_view.rs for its lanes,
                            mute, solo and note check, song_edit.rs for
                            the commands its edits run, song_screen.rs to
-                           draw it), the
+                           draw it), Send to game and the Duck Forge
+                           folder (send.rs), `--open FILE` (opening.rs), the
                            speakers (tinyaudio + duck-echo-live),
                            settings, the update check, the Linux app-menu
                            entry.
@@ -78,12 +88,14 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 examples/recipes/          the example recipes (TOML, plus coin.json)
 examples/songs/            the example songs
+examples/film/             a sound set and a cue list to check (set-check, mix)
 presets/                   tagged starting-point recipes, compiled into the
                            tools crate with include_str!
 instruments/               the starter instruments for songs, compiled in the
                            same way (see instruments/README.md)
 schema/recipe.schema.json  generated from the Rust types; a test fails when stale
 schema/song.schema.json    the same, for songs
+schema/set.schema.json     the same, for sound set files
 ```
 
 Dependency direction (arrows point at what is depended on):
@@ -115,16 +127,20 @@ server and a future UI reuse the libraries rather than shelling out.
         ▼
  core::structure walk the tree against the generated JSON Schema: every
         │        unknown field, bad enum value, missing field and type
-        │        mismatch at once; prune them
+        │        mismatch at once; prune them. A `{ min, max }` table where
+        │        a number goes is a random range: recorded on
+        │        `Recipe::ranges`, decoded as its `min`
         ▼
  typed decode    clean documents straight from the source with serde;
         │        documents with structural errors from the pruned tree
         ▼
- core::validate  range and rule checks, all collected, warnings separate;
+ core::validate  range and rule checks, all collected, warnings separate
+        │        (a recipe with random ranges twice: all at min, all at max);
         │        issues under an already-reported path are dropped
         │        -> Issue { code, path, message, got, allowed, suggestion, line }
         ▼
- synth::prepare  variation jitter from seed, lengths, allocations -> Voice
+ synth::prepare  random ranges picked from the seed (core::random), then
+        │        variation jitter from seed, lengths, allocations -> Voice
         │
         ▼
  Voice::process  block by block, allocation-free, f32 (interleaved if stereo)
@@ -192,7 +208,11 @@ with multiplication only so every platform agrees on the frame count.
 
 * All randomness comes from the recipe `seed` through SplitMix64. Each layer
   gets its own forked stream, so adding a layer does not change the noise of
-  the others. `variation` draws its jitter from a separate stream.
+  the others. `variation` draws its jitter from a separate stream. A random
+  range's pick (`core::random`) is SplitMix64 seeded with the render's (or
+  the note's) seed mixed with an FNV-1a hash of the field's path, so every
+  field has a stream of its own; a recipe without ranges skips this step
+  entirely, so its bytes are as before.
 * The audio path never calls platform libm. `synth::math` provides
   polynomial `sin`, `exp2`, `log2` and `pow` built from `+ - * /`, `floor`,
   `sqrt` and bit casts, all of which are IEEE-754 exact. Rust does not
@@ -220,6 +240,13 @@ is the same on both. In plain words:
   the render path uses only operations that IEEE-754 defines exactly.
 * **A sound only changes on purpose.** Every example and preset is pinned;
   a commit that changes one says so.
+* **OGG music is compared, not promised.** An `.ogg` render comes from
+  Xiph's libvorbis, C code with floating point, so its bytes may differ
+  between systems. CI renders the two Duck Craft themes as OGG on both
+  and says whether they match (`OGGSUMS`), without failing. What is
+  promised: the WAV of the same recipe is exact, and the OGG decodes to
+  the same number of frames and passes the same loop check everywhere;
+  `recipe_hash` (not the bytes) says whether a sound changed.
 * **Not promised to match:** analysis numbers (`analyze`, `compare`) may
   differ in the last decimals between platforms, because they use the
   platform's math library; pictures are drawn from those numbers. macOS
@@ -410,6 +437,22 @@ effects. The hash of the file goes into the recipe so determinism holds.
 
 `duck-echo-mcp` serves these tools over stdio. All take and return JSON
 objects; the work is done by `duck-echo-tools`, the same code the CLI uses.
+It is started as `duck-echo-mcp --root DIR [--duck-forge DIR]`. Every path
+a tool takes stays inside the root; with `--duck-forge` (a folder whose
+`Cargo.toml` names `duckforge`), `game_send` may also write into that
+folder's games, by name only and only into each game's `assets` and `art`
+folders (`tools::forge`). The command line takes the same folder from
+`DUCK_ECHO_DUCK_FORGE` (or `duck-echo send --duck-forge`), and the Studio
+from its settings (`Documents/Duck Forge` when that is one).
+
+A project's Undo history and recycle bin are kept in `.duck-echo` inside
+it, unless its `Root` is given another folder (`Root::with_own_folder`):
+the Studio does this for a Duck Forge game opened with `--open`, keeping
+it in its own settings folder (`projects/<game>-<8 hex digits of the
+game folder's path's SHA-256>`), so nothing of Duck Echo's lands in the
+game. An agent working on that game through the MCP server (root = the
+game) would keep its own `.duck-echo` there instead: the two do not share
+one history in that case.
 A recipe argument is either `recipe` (an inline JSON object) or `path` (a
 `.toml`/`.json` file, or `preset:NAME`). Wherever the table says "recipe",
 a song works too: the tools tell the two apart by looking inside.
@@ -426,7 +469,7 @@ a song works too: the tools tell the two apart by looking inside.
 | `validate` | recipe | The `Report`. An invalid recipe is a normal answer here, not a tool error. |
 | `create` | `path`, and `recipe` or `from`, optional `overwrite` | `{ok, path, kind, warnings}` (`kind` is `recipe` or `song`; with `from`, also `from`). Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. `from` (`preset:NAME`, `instrument:NAME` or a file) runs the `file_copy_from` command: the copy is named after its file, its description says what it was copied from, and a TOML copy keeps its comments. One Undo step either way. |
 | `edit` | recipe, `ops`, optional `write` | `{ok, recipe, warnings, written, path}`. Each op is `{path, value}` or `{path, remove: true}`, with paths as in error messages; an index equal to the length appends. Edits apply to the document as written (defaults stay implicit), and a file is rewritten only when the result is valid. Comments are not kept. |
-| `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. A song adds `song` (`tempo`, `beats_per_bar`, `bars`, `loop`, `song_frames`, `seconds_per_bar`, `tracks`, `notes`), `heard_tracks` and `tracks` when asked, for a loop `loop_seam` (`seam_step`, `largest_step`, `clean`), and with `per_track` or `notes` the `note_check`. |
+| `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis, asset, asset_file}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. A song adds `song` (`tempo`, `beats_per_bar`, `bars`, `loop`, `song_frames`, `seconds_per_bar`, `tracks`, `notes`), `heard_tracks` and `tracks` when asked, for a loop `loop_seam` (`seam_step`, `largest_step`, `clean`), and with `per_track` or `notes` the `note_check`. Every render also writes `<output>.json` (`asset::AssetInfo`: length, loudness, peak, leading silence, `hit_seconds`, `loops`, `recipe_hash` as the SHA-256 of the document's JSON data), and the Studio's Export does the same. |
 | `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. For a song also `song`, `loop_seam` and always `note_check` (the notes written next to the notes heard; `notes: true` lists every note). |
 | `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
 | `variations` | recipe (not a song), optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
@@ -523,7 +566,10 @@ Names use `_`, not `.`, because Claude's tool names must match
 `file_copy_from`, `file_rename`, `file_delete`, `file_restore`,
 `file_set_text`...), sound commands (`sound_set`, `sound_add_layer`...),
 song commands (`song_add_note`, `song_place_pattern`, `song_set_loop`...)
-and `edit_undo`, `edit_redo`, `edit_history`. A command checks its result
+and `edit_undo`, `edit_redo`, `edit_history`. `sound_variants` writes
+audio and lists, not recipes or songs, and `game_send` writes into a
+Duck Forge game, not the project, so neither is an Undo step
+(`changes_files: false`). A command checks its result
 (a recipe, or a song with its instruments) before it writes; an invalid
 result changes nothing and returns the usual report. Commands that change
 data (and the MCP `edit` tool) change only the values that changed,
@@ -747,13 +793,15 @@ output is one line per issue in the same order.
 | serde_path_to_error | core | Field path for the rare serde error the schema walk does not pre-empt. |
 | strsim | core | "Did you mean" suggestions. |
 | hound | audio | WAV read and write, zero dependencies of its own. |
+| vorbis_rs 0.5 | audio (`ogg` feature), tools | Writes OGG Vorbis, for music sent to a game (Phase 3: about 14 times smaller than a WAV, streamed by Duck Forge). There is no mature Vorbis encoder in Rust, so it builds Xiph's `libvorbis`, with the aoTuV tuning, from C (about 37,700 lines, through `aotuv_lancer_vorbis_sys` and `ogg_next_sys`): building Duck Echo from source now needs a C compiler. BSD-3-Clause. Its default feature (a random stream serial, through `getrandom`) is off: Duck Echo makes the serial from the recipe's hash. It needs Rust 1.87, so the libraries' `rust-version` went from 1.80 to 1.87 (Duck Forge needs 1.87 as well). |
+| lewton 0.10 | audio (`ogg` feature), tools | Reads OGG Vorbis: `analyze`, `compare` and `mix_check` take `.ogg`, and every OGG Duck Echo writes is decoded again and checked before it is kept. Pure Rust (about 6,400 lines, with `ogg` 0.8, `tinyvec` and `byteorder`), MIT or Apache-2.0, and the decoder Duck Forge streams music with, so Duck Echo checks its files with the code that will play them. |
 | clap | cli | Argument parsing. |
 | rtrb | live | A lock-free ring buffer with one writer and one reader, made for audio threads: the audio thread takes and sends messages without ever waiting on a lock or allocating. No dependencies of its own. Writing one ourselves needs `unsafe` code, which the workspace forbids. |
 | eframe (egui) 0.37 | studio | The window and every widget: the same library and version as Duck Quill and Duck Forge Studio, so the three apps look alike. Its default wgpu renderer draws on Direct3D 12 (or its software fallback, WARP) on Windows and on Vulkan or OpenGL on Linux. |
 | egui_kittest 0.37 | studio (tests only) | Draws every screen with no window and finds things by their words, as a person would; with wgpu it also saves pictures of the screens. The same as Duck Forge Studio. |
 | tinyaudio 2 | studio | Plays the mixer's blocks through the speakers: DirectSound on Windows, ALSA on Linux, linked in the normal way (ALSA reaches PipeWire and PulseAudio too), with no `unsafe` code of ours. The lightest crate that does it, and Duck Forge's choice. Building on Linux needs `libasound2-dev`. |
 | dirs 6 | studio | Where Documents and the settings folder really are: Windows' own answer (OneDrive often moves Documents), the XDG folders on Linux. The design named `windows-sys` for this, as Duck Forge uses; `windows-sys` would need `unsafe` code of ours to call Windows, and would leave Linux to us, so `dirs` (which wraps the same Windows call) does both. |
-| sha2 0.10 | studio | The SHA-256 fingerprint of a downloaded update, checked against the release's `SHA256SUMS` before it is used, as Duck Quill does. |
+| sha2 0.10 | studio | The SHA-256 fingerprint of a downloaded update, checked against the release's `SHA256SUMS` before it is used, as Duck Quill does.  The tools crate does not use it: the `recipe_hash` in a render's facts file comes from a 60-line SHA-256 in `tools::asset` (checked against the standard test vectors), so the command line and the MCP server gain no crate for one hash per render. |
 | rfd 0.18 | studio | The system's own Save As window for Export WAV: Windows' standard one, and on Linux the desktop's own through the XDG portal (spoken to over D-Bus in Rust, no system library; the AppImage still links only ALSA). Without a portal, "Export WAV to my Duck Echo folder" needs no window. |
 | toml_edit 0.25 | tools | Changes values inside a TOML file's text, so a person's comments and layout survive every command and the `edit` tool. It shares its parser and writer crates (`toml_parser`, `toml_writer`, `toml_datetime`) with `toml`, so it adds one crate. |
 | winresource 0.1 | studio (build only) | Puts the icon and the version into `DuckEchoStudio.exe`, as both siblings do. |

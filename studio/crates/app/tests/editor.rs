@@ -275,6 +275,13 @@ fn export_wav_writes_exactly_what_render_writes() {
         std::fs::read(&path).unwrap(),
         std::fs::read(&expected).unwrap()
     );
+    // With the same timing and level facts beside it.
+    assert_eq!(
+        std::fs::read_to_string(out.join("my coin.wav.json")).unwrap(),
+        std::fs::read_to_string(dir.join("expected.wav.json"))
+            .unwrap()
+            .replace("expected.wav", "my coin.wav")
+    );
     // A name without .wav gets it; the exports folder takes a free name.
     let path = editor::export_wav(&root, "coin.toml", &out.join("again")).unwrap();
     assert_eq!(path.file_name().unwrap(), "again.wav");

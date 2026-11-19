@@ -27,7 +27,7 @@
 //! never jumps over it.
 
 use crate::history::{now_seconds, FileChange, History, Step, Who};
-use crate::root::{Root, OWN_FOLDER};
+use crate::root::Root;
 use crate::ToolError;
 use duck_echo_core::{Code, Issue};
 use serde::{Deserialize, Serialize};
@@ -145,7 +145,7 @@ impl<'r> Project<'r> {
     }
 
     fn own_dir(&self) -> PathBuf {
-        self.root.dir().join(OWN_FOLDER)
+        self.root.own_dir()
     }
 
     /// The project's Undo history.

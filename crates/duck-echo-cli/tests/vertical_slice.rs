@@ -790,7 +790,9 @@ fn bad_note_name_is_reported_at_its_path() {
 fn schema_offers_number_or_note_name() {
     let schema = duck_echo_core::schema::recipe_schema();
     let freq = &schema["$defs"]["Frequency"]["anyOf"];
-    assert_eq!(freq[0]["type"], "number");
+    // A number, or a random range of numbers.
+    assert_eq!(freq[0]["type"], serde_json::json!(["number", "object"]));
+    assert_eq!(freq[0]["required"], serde_json::json!(["min", "max"]));
     assert_eq!(freq[1]["type"], "string");
     assert_eq!(freq[1]["format"], "note-name");
     assert_eq!(freq[1]["pattern"], duck_echo_core::note::NOTE_PATTERN);
@@ -1175,4 +1177,16 @@ fn cli_renders_a_loop_to_its_exact_length() {
     // loop they are at the start instead, so the file does not begin
     // from silence.
     assert!(wav.samples[..4410].iter().any(|s| s.abs() > 0.001));
+}
+
+#[test]
+fn checked_in_set_schema_is_current() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/set.schema.json");
+    let on_disk = std::fs::read_to_string(&path).expect("schema file");
+    let fresh = serde_json::to_string_pretty(&duck_echo_tools::sets::set_schema()).unwrap();
+    assert_eq!(
+        on_disk.trim(),
+        fresh.trim(),
+        "schema/set.schema.json is stale; run `duck-echo schema set > schema/set.schema.json`"
+    );
 }

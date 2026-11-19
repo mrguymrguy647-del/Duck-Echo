@@ -39,6 +39,18 @@ for name in $("$bin" presets list | cut -d' ' -f1); do
   "$bin" render "preset:$name" -o "$out/preset-$name.wav" 2>/dev/null
 done
 
+# Music as OGG (Phase 3): the two Duck Craft themes. Their hashes go in
+# a list of their own, OGGSUMS: an OGG comes from C code with floating
+# point, so its bytes are compared between systems but not promised (the
+# WAVs above are).
+for song in duck_craft_day duck_craft_night; do
+  "$bin" render "examples/songs/$song.toml" -o "$out/ogg-$song.ogg" 2>/dev/null
+done
+for ogg in "$out"/*.ogg; do
+  hash="$(sha256sum "$ogg" | cut -d' ' -f1)"
+  echo "$hash  $(basename "$ogg")"
+done | LC_ALL=C sort -k2 > "$out/OGGSUMS"
+
 # `sha256sum` prints "hash  name" on Linux but may print "hash *name" on
 # Windows, so print the two columns ourselves.
 for wav in "$out"/*.wav; do

@@ -257,9 +257,13 @@ impl Walker<'_> {
                 return (shape, optional || inner_optional);
             }
             // A number or a note name: a pitch.
-            if real.iter().any(|s| s["type"] == "number")
-                && real.iter().any(|s| s["format"] == "note-name")
-            {
+            // (A number may also be written as a random range, so its
+            // `type` can be `["number", "object"]`.)
+            let takes_number = |s: &&Value| match &s["type"] {
+                Value::Array(types) => types.iter().any(|t| t == "number"),
+                t => t == "number",
+            };
+            if real.iter().any(takes_number) && real.iter().any(|s| s["format"] == "note-name") {
                 return (Shape::Pitch, optional);
             }
             return (Shape::TextOnly, optional);
@@ -573,6 +577,17 @@ fn control(
             held,
         })
     };
+    // A random range, `{ min, max }`: each play picks a value between the
+    // two. Shown in words, so a slider cannot quietly replace it; the text
+    // changes it.
+    if let Some(range) = value.and_then(Value::as_object)
+        && let (Some(lo), Some(hi)) = (range.get("min"), range.get("max"))
+        && matches!(shape, Shape::Number { .. } | Shape::Pitch)
+    {
+        ui.label(format!("random, {lo} to {hi}"))
+            .on_hover_text("Each play picks a value between the two. Change it in the text.");
+        return;
+    }
     match shape {
         Shape::Number { min, max, integer } => {
             let mut v = value

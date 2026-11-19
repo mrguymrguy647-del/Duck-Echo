@@ -13,7 +13,7 @@ fn recipe() -> Value {
         "master": {"gain": 1, "normalize_peak_db": -1, "normalize_lufs": -16},
         "layers": [{
             "source": "square", "volume": 0.8, "offset": 0, "duty": 0.5, "pan": 0,
-            "lfo": {"rate": 5, "delay": 0, "depth": 0.5, "target": "cutoff"},
+            "lfo": {"rate": 5, "delay": 0, "depth": 0.5, "target": "pitch"},
             "envelope": {"attack": 0.01, "hold": 0, "decay": 0.1, "sustain": 0.5, "sustain_time": 0.1, "release": 0.1},
             "pitch": {
                 "start": 440, "end": 880, "sweep_time": 0.1,
@@ -184,7 +184,7 @@ fn every_range_is_enforced_with_the_tables_own_limits() {
 
 #[test]
 fn an_lfos_depth_depends_on_its_target() {
-    for (target, max) in [("volume", 1.0), ("cutoff", 4.0)] {
+    for (target, max) in [("volume", 1.0), ("cutoff", 4.0), ("pitch", 24.0)] {
         let mut doc = recipe();
         set(&mut doc, "layers[0].lfo.target", json!(target));
         set(&mut doc, "layers[0].lfo.depth", json!(max));
@@ -199,6 +199,25 @@ fn an_lfos_depth_depends_on_its_target() {
         assert_eq!(issue["allowed"]["max"], json!(max));
     }
     assert_eq!(ranges::lfo_depth(duck_echo_core::LfoTarget::Duty).max, 0.5);
+}
+
+#[test]
+fn an_lfos_rate_depends_on_its_target() {
+    for (target, max) in [("volume", 2000.0), ("pitch", 2000.0), ("cutoff", 50.0)] {
+        let mut doc = recipe();
+        set(&mut doc, "layers[0].lfo.target", json!(target));
+        set(&mut doc, "layers[0].lfo.depth", json!(0.5));
+        set(&mut doc, "layers[0].lfo.rate", json!(max));
+        assert!(
+            load_str(&doc.to_string(), Format::Json).is_ok(),
+            "{target} at {max}"
+        );
+        set(&mut doc, "layers[0].lfo.rate", json!(max + 1.0));
+        let report = load_str(&doc.to_string(), Format::Json).unwrap_err();
+        let issue = serde_json::to_value(&report.errors[0]).unwrap();
+        assert_eq!(issue["path"], "layers[0].lfo.rate");
+        assert_eq!(issue["allowed"]["max"], json!(max));
+    }
 }
 
 #[test]

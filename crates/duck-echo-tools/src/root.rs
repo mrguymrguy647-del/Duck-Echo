@@ -45,6 +45,12 @@ use std::path::{Component, Path, PathBuf};
 /// The root directory, canonical.
 pub struct Root {
     dir: PathBuf,
+    /// The Duck Forge folder `game_send` may write into (only into its
+    /// games' `assets` and `art` folders: see [`crate::forge`]).
+    duck_forge: Option<crate::forge::DuckForge>,
+    /// Where Duck Echo keeps this project's Undo history and recycle bin,
+    /// when not in the project itself (see [`Root::own_dir`]).
+    own: Option<PathBuf>,
 }
 
 fn refuse(key: &str, arg: &str, why: impl std::fmt::Display) -> ToolError {
@@ -84,7 +90,47 @@ impl Root {
         if !dir.is_dir() {
             return Err(format!("root {} is not a directory", dir.display()));
         }
-        Ok(Self { dir })
+        Ok(Self {
+            dir,
+            duck_forge: None,
+            own: None,
+        })
+    }
+
+    /// The same root, keeping its Undo history and recycle bin in `folder`
+    /// instead of `.duck-echo` inside it. Duck Echo Studio does this for a
+    /// Duck Forge game opened with `--open`, so nothing of Duck Echo's
+    /// appears in the game's folder.
+    pub fn with_own_folder(mut self, folder: PathBuf) -> Self {
+        self.own = Some(folder);
+        self
+    }
+
+    /// Where Duck Echo keeps this project's Undo history and recycle bin:
+    /// `.duck-echo` in the root, or the folder given to
+    /// [`Root::with_own_folder`].
+    pub fn own_dir(&self) -> PathBuf {
+        self.own
+            .clone()
+            .unwrap_or_else(|| self.dir.join(OWN_FOLDER))
+    }
+
+    /// Set (or clear) the Duck Forge folder, as when it is chosen in
+    /// Settings.
+    pub fn set_duck_forge(&mut self, duck_forge: Option<crate::forge::DuckForge>) {
+        self.duck_forge = duck_forge;
+    }
+
+    /// The same root, with a Duck Forge folder for `game_send` and
+    /// `game_list`.
+    pub fn with_duck_forge(mut self, duck_forge: crate::forge::DuckForge) -> Self {
+        self.duck_forge = Some(duck_forge);
+        self
+    }
+
+    /// The Duck Forge folder, if one was given.
+    pub fn duck_forge(&self) -> Option<&crate::forge::DuckForge> {
+        self.duck_forge.as_ref()
     }
 
     /// The root directory.
@@ -202,6 +248,15 @@ impl Root {
         }
         // Checked on the text, before any parsing: on Windows `X:` is a
         // drive, wherever it appears once paths are joined.
+        if arg.starts_with(crate::examples::EXAMPLE_PREFIX) {
+            // Playtest 4 tried `example:NAME` in `analyze` and was told
+            // about drive letters.
+            return Err(refuse(
+                key,
+                arg,
+                "`example:NAME` works only to copy an example (`create` with `from`, or `file_copy_from`); copy it into the project first, then use its path",
+            ));
+        }
         if arg.contains(':') {
             return Err(refuse(
                 key,
@@ -393,6 +448,12 @@ mod tests {
             assert!(e.errors[0].message.contains("own folder"), "{own}");
             assert!(root.read("k", own).is_err(), "{own}");
         }
+        // `example:NAME` is refused too, saying where it does work.
+        let e = root
+            .read("k", "example:duck_craft_night")
+            .unwrap_err()
+            .into_report();
+        assert!(e.errors[0].message.contains("copy an example"), "{e:?}");
         // Whatever is accepted resolves inside the root.
         for good in ["a.toml", "sub/a.wav", "./sub/deep/a.wav"] {
             let path = root.write("k", good).unwrap();

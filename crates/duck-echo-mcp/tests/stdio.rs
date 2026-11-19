@@ -14,9 +14,15 @@ struct Session {
 
 impl Session {
     fn start(root: &Path) -> Self {
+        Self::start_with(root, &[])
+    }
+
+    /// Start the server with more arguments after `--root ROOT`.
+    fn start_with(root: &Path, more: &[&std::ffi::OsStr]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_duck-echo-mcp"))
             .arg("--root")
             .arg(root)
+            .args(more)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -626,18 +632,21 @@ fn files_pictures_layers_and_loudness_targets() {
             )
         })
         .collect();
+    // Each rendered WAV has its timing and level facts beside it.
     let want = [
         ("loud.wav", "audio"),
+        ("loud.wav.json", "asset_facts"),
         ("sfx", "folder"),
         ("sfx/coin.toml", "recipe"),
         ("sfx/coin.wav", "audio"),
+        ("sfx/coin.wav.json", "asset_facts"),
     ];
     assert_eq!(
         entries,
         want.map(|(p, k)| (p.to_string(), k.to_string())),
         "{files}"
     );
-    let wav = &files["entries"][3];
+    let wav = &files["entries"][4];
     assert!(
         (wav["seconds"].as_f64().unwrap() - r["analysis"]["duration_seconds"].as_f64().unwrap())
             .abs()
@@ -645,7 +654,8 @@ fn files_pictures_layers_and_loudness_targets() {
     );
     let (flat, err) = s.call("list_files", json!({"path": "sfx", "recursive": false}));
     assert!(!err);
-    assert_eq!(flat["entries"].as_array().unwrap().len(), 2);
+    // coin.toml, coin.wav and its facts.
+    assert_eq!(flat["entries"].as_array().unwrap().len(), 3);
     #[cfg(unix)]
     {
         let outside = fresh_root("mcp_playtest_outside");
@@ -999,7 +1009,7 @@ fn tag_typos_and_layer_counts_help_the_agent() {
     assert!(!err, "{a}");
     let summary = a["summary"].as_str().unwrap();
     assert!(
-        summary.ends_with("2 layers; per_layer describes each"),
+        summary.ends_with("2 layers; pass per_layer to describe each"),
         "{summary}"
     );
 }
@@ -1499,7 +1509,7 @@ fn drive_letters_inside_a_path_cannot_leave_the_root() {
     );
     let after: Vec<String> = files_under(&root)
         .into_iter()
-        .filter(|f| !f.ends_with("evil.wav"))
+        .filter(|f| !f.ends_with("evil.wav") && !f.ends_with("evil.wav.json"))
         .collect();
     assert_eq!(after, before_root, "a refused call wrote something");
     assert!(!outside.join("evil.wav").exists());
@@ -1587,4 +1597,62 @@ fn get_guide_and_create_from_a_preset() {
         assert!(!err);
     }
     assert!(!root.join("sfx/my_coin.toml").exists());
+}
+
+/// Phase 3 step 3: with --duck-forge, an agent sends a sound into a game
+/// and lists the games; without it, the tools say how to set it.
+#[test]
+fn an_agent_sends_a_sound_into_a_duck_forge_game() {
+    let dir = fresh_root("duck-forge-link");
+    let forge = dir.join("forge");
+    std::fs::create_dir_all(forge.join("examples/duck_craft")).unwrap();
+    std::fs::write(
+        forge.join("Cargo.toml"),
+        "[package]\nname = \"duckforge\"\n",
+    )
+    .unwrap();
+    std::fs::write(forge.join("examples/duck_craft/main.rs"), "fn main() {}\n").unwrap();
+    let project = dir.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let mut s = Session::start_with(&project, &["--duck-forge".as_ref(), forge.as_os_str()]);
+    s.request(
+        "initialize",
+        json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}),
+    );
+    let (sent, err) = s.call(
+        "game_send",
+        json!({"file": "preset:coin", "game": "duck_craft"}),
+    );
+    assert!(!err, "{sent}");
+    assert_eq!(sent["audio"], "assets/coin.wav");
+    assert!(forge.join("examples/duck_craft/assets/coin.wav").is_file());
+    assert!(forge.join("examples/duck_craft/art/coin.toml").is_file());
+    let (again, _) = s.call(
+        "game_send",
+        json!({"file": "preset:coin", "game": "duck_craft"}),
+    );
+    assert_eq!(again["unchanged"], true);
+    let (games, err) = s.call("game_list", json!({}));
+    assert!(!err);
+    assert_eq!(games["games"][0]["sounds"][0]["name"], "coin");
+    let (refused, err) = s.call(
+        "game_send",
+        json!({"file": "preset:coin", "game": "../../x"}),
+    );
+    assert!(err);
+    assert_eq!(refused["errors"][0]["path"], "arguments.game");
+    drop(s);
+
+    // Without --duck-forge the tool says how to set it.
+    let mut s = started(&project);
+    let (refused, err) = s.call(
+        "game_send",
+        json!({"file": "preset:coin", "game": "duck_craft"}),
+    );
+    assert!(err);
+    assert!(refused["errors"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("--duck-forge"));
 }

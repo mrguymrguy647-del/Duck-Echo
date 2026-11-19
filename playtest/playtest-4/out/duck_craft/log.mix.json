@@ -1,0 +1,246 @@
+{
+  "ok": true,
+  "kind": "duck-echo-mix-check",
+  "name": "log",
+  "form": "duck_forge_log",
+  "length_seconds": 13.283333333333333,
+  "sample_rate": 44100,
+  "mix_wav": "playtest-4/out/duck_craft/log.mix.wav",
+  "picture_png": "playtest-4/out/duck_craft/log.mix.png",
+  "report_json": "playtest-4/out/duck_craft/log.mix.json",
+  "loudness_lufs": -24.4,
+  "peak_dbfs": -6.1,
+  "summary": "13.3 s, -24.4 LUFS, peak -6.1 dBFS; never over full volume; no cue buried; not in the mix: 17 of Duck Forge's own synthesizer sounds (click, dig, break, place, pick, quack)",
+  "overs": [],
+  "cues": [
+    {
+      "name": "music_title",
+      "file": "examples/duck_craft/assets/music_title.wav",
+      "start_seconds": 0.0,
+      "end_seconds": 13.283,
+      "looping": true,
+      "volume": 0.01,
+      "loudness_lufs": -31.1,
+      "rest_lufs": -34.7,
+      "buried": false
+    },
+    {
+      "name": "music_day",
+      "file": "examples/duck_craft/assets/music_day.ogg",
+      "start_seconds": 0.0,
+      "end_seconds": 13.283,
+      "looping": true,
+      "volume": 0.0,
+      "loudness_lufs": -25.1,
+      "rest_lufs": -32.3,
+      "buried": false
+    },
+    {
+      "name": "music_night",
+      "file": "examples/duck_craft/assets/music_night.ogg",
+      "start_seconds": 0.0,
+      "end_seconds": 13.283,
+      "looping": true,
+      "volume": 0.0,
+      "loudness_lufs": null,
+      "rest_lufs": null,
+      "buried": false
+    },
+    {
+      "name": "hum",
+      "file": "examples/duck_craft/assets/hum.wav",
+      "start_seconds": 0.0,
+      "end_seconds": 13.283,
+      "looping": true,
+      "volume": 0.01,
+      "loudness_lufs": -35.8,
+      "rest_lufs": -24.8,
+      "buried": false
+    },
+    {
+      "name": "heartbeat",
+      "file": "examples/duck_craft/assets/heartbeat.wav",
+      "start_seconds": 0.0,
+      "end_seconds": 13.283,
+      "looping": true,
+      "volume": 0.0,
+      "loudness_lufs": null,
+      "rest_lufs": null,
+      "buried": false
+    },
+    {
+      "name": "step",
+      "file": "examples/duck_craft/assets/step_5.wav",
+      "start_seconds": 10.783,
+      "end_seconds": 10.847,
+      "looping": false,
+      "volume": 0.3,
+      "loudness_lufs": -25.4,
+      "rest_lufs": -28.5,
+      "buried": false
+    },
+    {
+      "name": "step",
+      "file": "examples/duck_craft/assets/step_3.wav",
+      "start_seconds": 11.467,
+      "end_seconds": 11.533,
+      "looping": false,
+      "volume": 0.3,
+      "loudness_lufs": -25.4,
+      "rest_lufs": -13.1,
+      "buried": false
+    },
+    {
+      "name": "land",
+      "file": "examples/duck_craft/assets/land.wav",
+      "start_seconds": 11.467,
+      "end_seconds": 11.627,
+      "looping": false,
+      "volume": 1.0,
+      "loudness_lufs": -17.0,
+      "rest_lufs": -21.4,
+      "buried": false
+    },
+    {
+      "name": "step",
+      "file": "examples/duck_craft/assets/step_6.wav",
+      "start_seconds": 11.85,
+      "end_seconds": 11.903,
+      "looping": false,
+      "volume": 0.3,
+      "loudness_lufs": -25.4,
+      "rest_lufs": -25.9,
+      "buried": false
+    },
+    {
+      "name": "step",
+      "file": "examples/duck_craft/assets/step_2.wav",
+      "start_seconds": 12.317,
+      "end_seconds": 12.37,
+      "looping": false,
+      "volume": 0.3,
+      "loudness_lufs": -25.4,
+      "rest_lufs": -24.6,
+      "buried": false
+    }
+  ],
+  "not_mixed": [
+    {
+      "name": "click",
+      "start_seconds": 0.5,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "dig",
+      "start_seconds": 2.967,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "break",
+      "start_seconds": 3.167,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "dig",
+      "start_seconds": 3.417,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "break",
+      "start_seconds": 3.617,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "place",
+      "start_seconds": 4.1,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "place",
+      "start_seconds": 4.383,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "pick",
+      "start_seconds": 5.0,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "place",
+      "start_seconds": 5.117,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "quack",
+      "start_seconds": 5.117,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "pick",
+      "start_seconds": 5.233,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "place",
+      "start_seconds": 6.15,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "place",
+      "start_seconds": 6.85,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "place",
+      "start_seconds": 7.55,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "place",
+      "start_seconds": 8.25,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "quack",
+      "start_seconds": 10.967,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    },
+    {
+      "name": "quack",
+      "start_seconds": 11.8,
+      "why": "Duck Forge's own synthesizer sound (it has a wave, not a file): not in this mix"
+    }
+  ],
+  "short_term_lufs": [
+    -29.4,
+    -26.3,
+    -25.3,
+    -24.5,
+    -24.5,
+    -24.9,
+    -24.6,
+    -24.3,
+    -23.7,
+    -24.2,
+    -25.2,
+    -24.3,
+    -23.6,
+    -23.5
+  ],
+  "sections": [
+    {
+      "name": "0-10 s",
+      "start_seconds": 0.0,
+      "end_seconds": 10.0,
+      "loudness_lufs": -24.7,
+      "peak_dbfs": -12.0
+    },
+    {
+      "name": "10-13 s",
+      "start_seconds": 10.0,
+      "end_seconds": 13.283333333333333,
+      "loudness_lufs": -23.6,
+      "peak_dbfs": -6.1
+    }
+  ]
+}

@@ -27,7 +27,7 @@ fn summary_counts_layers_and_points_at_per_layer() {
     let r = recipe(THREE_LAYERS);
     let plain = summary(&r, &Extras::default());
     assert!(
-        plain.ends_with(", 3 layers; per_layer describes each"),
+        plain.ends_with(", 3 layers; pass per_layer to describe each"),
         "{plain}"
     );
 
@@ -46,7 +46,7 @@ fn summary_counts_layers_and_points_at_per_layer() {
     };
     let s = summary(&r, &two);
     assert!(
-        s.ends_with(", 2 of 3 layers heard; per_layer describes each"),
+        s.ends_with(", 2 of 3 layers heard; pass per_layer to describe each"),
         "{s}"
     );
     let one = Extras {

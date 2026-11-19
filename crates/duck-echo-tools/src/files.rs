@@ -18,8 +18,12 @@ pub const MAX_ENTRIES: usize = 500;
 pub struct Entry {
     /// Path relative to the listing's base, with `/` separators.
     pub path: String,
-    /// `folder`, `recipe` (.toml or .json), `audio` (.wav), `image`
-    /// (.png), `link` (a symbolic link, not followed) or `other`.
+    /// `folder`, `recipe` (.toml or .json: a sound or a song), `audio`
+    /// (.wav or .ogg), `image` (.png), `asset_facts` (a WAV's `.wav.json`
+    /// or an OGG's `.ogg.json`),
+    /// `variant_list` (`.variants.json`), `sound_set` (`.set.toml` or
+    /// `.set.json`), `report` (`.check.json`, `.mix.json`), `link` (a
+    /// symbolic link, not followed) or `other`.
     pub kind: &'static str,
     /// File size in bytes (files only).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,8 +72,25 @@ fn entry(path: &Path, base: &Path) -> Result<Entry, ToolError> {
         "folder"
     } else {
         match ext.as_deref() {
+            // The timing and level facts written next to a rendered WAV
+            // (see `asset`), not a recipe.
+            Some("json") if name_ends(path, ".wav.json") || name_ends(path, ".ogg.json") => {
+                "asset_facts"
+            }
+            // The list `sound_variants` writes.
+            Some("json") if name_ends(path, ".variants.json") => "variant_list",
+            // A sound set (`set_check`), and the reports of `set_check`
+            // and `mix_check`.
+            Some("toml" | "json")
+                if name_ends(path, ".set.toml") || name_ends(path, ".set.json") =>
+            {
+                "sound_set"
+            }
+            Some("json") if name_ends(path, ".check.json") || name_ends(path, ".mix.json") => {
+                "report"
+            }
             Some("toml" | "json") => "recipe",
-            Some("wav") => "audio",
+            Some("wav" | "ogg") => "audio",
             Some("png") => "image",
             _ => "other",
         }
@@ -139,9 +160,37 @@ fn walk(
     Ok(())
 }
 
+/// True when the file name of `path` ends with `suffix` (any letter case).
+fn name_ends(path: &std::path::Path, suffix: &str) -> bool {
+    path.file_name()
+        .is_some_and(|n| n.to_string_lossy().to_lowercase().ends_with(suffix))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_files_duck_echo_writes_beside_sounds_have_kinds_of_their_own() {
+        let base = std::env::temp_dir().join(format!("duck_echo_kinds_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let names = [
+            ("a.toml", "recipe"),
+            ("a.wav.json", "asset_facts"),
+            ("a.variants.json", "variant_list"),
+            ("film.set.toml", "sound_set"),
+            ("film.check.json", "report"),
+            ("reel.mix.json", "report"),
+        ];
+        for (name, _) in names {
+            std::fs::write(base.join(name), "{}").unwrap();
+        }
+        for (name, kind) in names {
+            assert_eq!(entry(&base.join(name), &base).unwrap().kind, kind, "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn lists_sorted_with_kinds_and_skips_hidden() {

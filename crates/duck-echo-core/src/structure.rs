@@ -39,6 +39,9 @@ pub struct Checked {
     /// were decoded under the confidently suggested name, innermost first.
     /// Semantic issues under a decoded path belong at the written path.
     pub renames: Vec<(String, String)>,
+    /// The numbers written as random ranges (`{ min = x, max = y }`), in
+    /// document order. `pruned` holds each one's `min`.
+    pub ranges: Vec<crate::random::RandomRange>,
 }
 
 /// The recipe schema, generated once. This is the schema of the types
@@ -55,18 +58,26 @@ fn song_schema() -> &'static J {
     SCHEMA.get_or_init(crate::schema::song_structure)
 }
 
-/// Check a document against the recipe schema.
+/// Check a document against the recipe schema. Numbers may be random
+/// ranges.
 pub fn check(root: &Node) -> Checked {
-    check_against(root, recipe_schema())
+    walk_document(root, recipe_schema(), true)
 }
 
-/// Check a document against the song schema.
+/// Check a document against the song schema. Numbers may be random
+/// ranges (the loader keeps those in the song's own instruments).
 pub fn check_song(root: &Node) -> Checked {
-    check_against(root, song_schema())
+    walk_document(root, song_schema(), true)
 }
 
-/// Check a document against an arbitrary schema of the supported subset.
+/// Check a document against an arbitrary schema of the supported subset
+/// (a set file, a cue list). Its numbers are plain numbers: a table where
+/// a number goes is a type mismatch.
 pub fn check_against(root: &Node, schema: &J) -> Checked {
+    walk_document(root, schema, false)
+}
+
+fn walk_document(root: &Node, schema: &J, ranges: bool) -> Checked {
     let empty = Map::new();
     let defs = schema.get("$defs").and_then(J::as_object).unwrap_or(&empty);
     let mut w = Walker {
@@ -79,6 +90,8 @@ pub fn check_against(root: &Node, schema: &J) -> Checked {
         issues: Vec::new(),
         poisoned: Vec::new(),
         renames: Vec::new(),
+        ranges: Vec::new(),
+        allow_ranges: ranges,
     };
     let pruned = w.walk(schema, root, "");
     Checked {
@@ -86,6 +99,12 @@ pub fn check_against(root: &Node, schema: &J) -> Checked {
         poisoned: w.poisoned,
         pruned,
         renames: w.renames,
+        ranges: {
+            // In the order they are written (a parser may keep keys sorted).
+            let mut ranges = w.ranges;
+            ranges.sort_by_key(|(pos, _)| pos.unwrap_or((usize::MAX, 0)));
+            ranges.into_iter().map(|(_, r)| r).collect()
+        },
     }
 }
 
@@ -120,6 +139,9 @@ struct Walker<'s> {
     issues: Vec<Issue>,
     poisoned: Vec<String>,
     renames: Vec<(String, String)>,
+    ranges: Vec<(Pos, crate::random::RandomRange)>,
+    /// Whether a `{ min, max }` table may stand for a number.
+    allow_ranges: bool,
 }
 
 impl<'s> Walker<'s> {
@@ -141,6 +163,17 @@ impl<'s> Walker<'s> {
     /// `None` when the value must be dropped (an issue was recorded).
     fn walk(&mut self, schema: &'s J, node: &Node, path: &str) -> Option<J> {
         let s = self.resolve(schema);
+
+        // A table where a number goes: a random range.
+        if let Value::Table(entries) = &node.value {
+            if self.allow_ranges
+                && self.takes_number(s)
+                && !self.accepts_kind(s, &node.value)
+                && !is_under(path, "expect")
+            {
+                return self.walk_range(entries, node, path);
+            }
+        }
 
         if let Some(branches) = s.get("anyOf").and_then(J::as_array) {
             for b in branches {
@@ -271,6 +304,116 @@ impl<'s> Walker<'s> {
             }
             _ => node.to_json(),
         }
+    }
+
+    /// Whether `schema` takes a (non-integer) number, itself or in one of
+    /// its `anyOf` branches.
+    fn takes_number(&self, schema: &'s J) -> bool {
+        let s = self.resolve(schema);
+        if let Some(branches) = s.get("anyOf").and_then(J::as_array) {
+            return branches.iter().any(|b| self.takes_number(b));
+        }
+        type_list(s).iter().any(|t| t == "number")
+    }
+
+    /// A random range, `{ min = x, max = y }`, where a number goes. Both
+    /// ends must be numbers and `min` no more than `max`; the field's own
+    /// range is checked on both ends later, by validation. Returns `min`.
+    fn walk_range(&mut self, entries: &[crate::tree::Entry], node: &Node, path: &str) -> Option<J> {
+        let (mut min, mut max, mut ok) = (None, None, true);
+        for e in entries {
+            let p = join(path, &e.key);
+            let number = match &e.node.value {
+                Value::Int(i) => Some(*i as f64),
+                Value::Float(f) => Some(*f),
+                _ => None,
+            };
+            match (e.key.as_str(), number) {
+                ("min" | "max", Some(v)) if v.is_finite() => {
+                    if e.key == "min" {
+                        min = Some(v);
+                    } else {
+                        max = Some(v);
+                    }
+                }
+                ("min" | "max", Some(v)) => {
+                    self.issues.push(at(
+                        Issue::error(
+                            Code::OutOfRange,
+                            &p,
+                            format!("value {v} is not a finite number"),
+                        )
+                        .got(e.node.value.to_got()),
+                        e.node.pos,
+                    ));
+                    ok = false;
+                }
+                ("min" | "max", None) => {
+                    self.type_mismatch(&p, &e.node, "a number");
+                    ok = false;
+                }
+                (other, _) => {
+                    let mut issue = Issue::error(
+                        Code::UnknownField,
+                        &p,
+                        format!("unknown field `{other}`: a random range has only `min` and `max`"),
+                    )
+                    .got(other.to_string())
+                    .one_of(["min", "max"]);
+                    if let Some(sg) = suggest(other, &["min".to_string(), "max".to_string()]) {
+                        issue = issue.suggest(sg.name);
+                    }
+                    self.issues.push(at(issue, e.key_pos));
+                    ok = false;
+                }
+            }
+        }
+        for (end, got) in [("min", min), ("max", max)] {
+            if got.is_none() && !entries.iter().any(|e| e.key == end) {
+                self.issues.push(at(
+                    Issue::error(
+                        Code::MissingField,
+                        join(path, end),
+                        format!(
+                            "a random range needs `min` and `max`; `{end}` is missing \
+                             (or write one number for a fixed value)"
+                        ),
+                    )
+                    .suggest("{ min = 0.5, max = 0.8 }"),
+                    node.pos,
+                ));
+                ok = false;
+            }
+        }
+        let (Some(min), Some(max), true) = (min, max, ok) else {
+            return None;
+        };
+        if min > max {
+            let pos = entries
+                .iter()
+                .find(|e| e.key == "max")
+                .and_then(|e| e.node.pos);
+            self.issues.push(at(
+                Issue::error(
+                    Code::OutOfRange,
+                    join(path, "max"),
+                    format!("max ({max}) is below min ({min})"),
+                )
+                .got(max)
+                .suggest(format!("{{ min = {max}, max = {min} }}")),
+                pos,
+            ));
+            return None;
+        }
+        self.ranges.push((
+            node.pos,
+            crate::random::RandomRange {
+                path: path.to_string(),
+                min,
+                max,
+            },
+        ));
+        Some(J::from(min))
     }
 
     fn walk_object(&mut self, s: &'s J, node: &Node, path: &str) -> Option<J> {

@@ -1,0 +1,20 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "day.ogg",
+  "duration_seconds": 22.857142857142858,
+  "frames": 1008000,
+  "sample_rate": 44100,
+  "channels": 2,
+  "loudness_lufs": -18.010206,
+  "loudness_method": "bs1770_gated",
+  "peak_dbfs": -5.4514213,
+  "leading_silence_seconds": 0.0,
+  "hit_seconds": 4.301,
+  "loops": true,
+  "format": "ogg",
+  "quality": 4.0,
+  "seed": 0,
+  "recipe_hash": "sha256:bfcefc0192220aa6d441cd8ba05128792166f760694c484afac30f4cfb2febd6",
+  "file_sha256": "sha256:1b2f9e6c3b72ac5df4de581da4503ec8f23baecdcb4ae31a46bc19b23905944a"
+}

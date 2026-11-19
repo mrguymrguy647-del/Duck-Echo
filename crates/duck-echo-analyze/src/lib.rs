@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod board;
+pub mod character;
 pub mod compare;
 pub mod features;
 pub mod fft;
@@ -16,6 +18,7 @@ pub mod picture;
 pub mod png;
 pub mod timeline;
 
+pub use character::{Feel, Level, SpectralPeak};
 pub use compare::{compare, Comparison, Signal};
 pub use features::PitchPoint;
 pub use picture::{Picture, PictureInfo};
@@ -133,6 +136,31 @@ pub struct Analysis {
     /// `loop_seam` instead: a loop never stops.
     #[serde(default)]
     pub ending: Ending,
+    /// Fast loudness wobble, 20 to 150 times a second, as a share of the
+    /// mean level: growls, screams, rasps. `null` when silent. See `feel`.
+    #[serde(default)]
+    pub roughness: Option<f32>,
+    /// Share of the power between 2 and 5 kHz: harsh, piercing. `null`
+    /// when silent.
+    #[serde(default)]
+    pub sharpness: Option<f32>,
+    /// Share of the power below 80 Hz. `null` when silent.
+    #[serde(default)]
+    pub boom: Option<f32>,
+    /// How much the brightness and level change over time (spread across
+    /// 50 ms frames). `null` when silent.
+    #[serde(default)]
+    pub movement: Option<f32>,
+    /// The four above as `low`, `medium` or `high`, with fixed thresholds
+    /// (see `docs/ANALYSIS.md`). The summary names each that is `high`:
+    /// rough, piercing, booming, moving.
+    #[serde(default)]
+    pub feel: Option<Feel>,
+    /// Up to 8 strongest peaks of the average spectrum, strongest first,
+    /// each with its level against the strongest (0 dB). A fast wobble
+    /// shows as side tones at the note plus and minus its rate.
+    #[serde(default)]
+    pub peaks: Vec<SpectralPeak>,
     /// Threshold used for the silence measurements, in dBFS.
     pub silence_threshold_dbfs: f32,
 }
@@ -326,6 +354,7 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
     };
     let active = first.zip(last);
     let spectral = features::spectral(&mono, sample_rate, active);
+    let character = active.map(|(f, l)| character::measure(&mono, sample_rate, f, l));
     let onsets = timeline::onsets(&mono, sample_rate, active);
     let energy_over_time = timeline::energy_over_time(samples, ch, sample_rate);
     let times = features::envelope_times(samples, ch, sample_rate, first);
@@ -369,6 +398,12 @@ pub fn analyze(samples: &[f32], sample_rate: u32, channels: u16) -> Analysis {
         energy_over_time,
         onsets,
         ending: ending(samples, sample_rate, channels),
+        roughness: character.as_ref().map(|c| c.roughness),
+        sharpness: character.as_ref().map(|c| c.sharpness),
+        boom: character.as_ref().map(|c| c.boom),
+        movement: character.as_ref().map(|c| c.movement),
+        feel: character.as_ref().map(|c| c.feel),
+        peaks: character.map(|c| c.peaks).unwrap_or_default(),
         silence_threshold_dbfs: SILENCE_THRESHOLD_DBFS,
     };
     analysis.summary = features::summary(&analysis);
@@ -491,6 +526,27 @@ impl Biquad {
     }
 }
 
+/// One channel through the K-weighting of ITU-R BS.1770 (the filter
+/// loudness is measured through), sample by sample. The pre-filter and
+/// the RLB filter use the parameters behind the 48 kHz coefficients in
+/// the spec, recomputed for `sample_rate`. The filter is linear, so the
+/// K-weighting of a sum is the sum of the K-weightings: the mix check
+/// takes one sound out of a mix this way.
+pub fn k_weighted(channel: &[f32], sample_rate: u32) -> Vec<f64> {
+    let sr = sample_rate as f64;
+    let mut shelf = Biquad::high_shelf(
+        sr,
+        1_681.974_450_955_533,
+        3.999_843_853_973_347,
+        0.707_175_196_848_751_9,
+    );
+    let mut hp = Biquad::high_pass(sr, 38.135_470_876_002_17, 0.500_327_040_491_404_6);
+    channel
+        .iter()
+        .map(|&s| hp.process(shelf.process(s as f64)))
+        .collect()
+}
+
 /// Loudness of a signal given as one slice per channel (equal lengths),
 /// with the method used. Channel weights are 1.0 (BS.1770 for left, right
 /// and centre). Returns `None` for silence.
@@ -500,25 +556,13 @@ pub fn loudness(channels: &[&[f32]], sample_rate: u32) -> Option<(f32, LoudnessM
     if frames == 0 {
         return None;
     }
-    // Squared K-weighted signal per channel. Pre-filter and RLB filter use
-    // the parameters behind the 48 kHz coefficients in the spec,
-    // recomputed for the actual sample rate.
+    // Squared K-weighted signal per channel.
     let squared: Vec<Vec<f64>> = channels
         .iter()
         .map(|ch| {
-            let mut shelf = Biquad::high_shelf(
-                sr,
-                1_681.974_450_955_533,
-                3.999_843_853_973_347,
-                0.707_175_196_848_751_9,
-            );
-            let mut hp = Biquad::high_pass(sr, 38.135_470_876_002_17, 0.500_327_040_491_404_6);
-            ch[..frames]
-                .iter()
-                .map(|&s| {
-                    let w = hp.process(shelf.process(s as f64));
-                    w * w
-                })
+            k_weighted(&ch[..frames], sample_rate)
+                .into_iter()
+                .map(|w| w * w)
                 .collect()
         })
         .collect();

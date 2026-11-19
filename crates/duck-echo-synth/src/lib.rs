@@ -143,6 +143,15 @@ const NOTE_MAX_HZ: f32 = 20_000.0;
 /// The shared planner behind [`prepare_unchecked`] (`note` is `None`) and
 /// [`prepare_note`].
 fn build(recipe: &Recipe, note: Option<&NotePlay>) -> Voice {
+    // Random ranges take their values from this render's (or note's) seed
+    // before anything else; `variation` then jitters on top.
+    let picked;
+    let recipe = if recipe.ranges.is_empty() {
+        recipe
+    } else {
+        picked = duck_echo_core::random::resolve(recipe, note.map_or(recipe.seed, |n| n.seed));
+        &picked
+    };
     let sample_rate = note.map_or(recipe.sample_rate, |n| n.sample_rate);
     let sr = sample_rate as f32;
     let root = Rng::new(note.map_or(recipe.seed, |n| n.seed));
@@ -237,7 +246,9 @@ impl LayerVoice {
             Some(g) => EnvShape::gated(&layer.envelope, time_scale, g),
             None => EnvShape::new(&layer.envelope, time_scale),
         };
-        let env_len = env.length().min(30.0);
+        // A layer may last as long as a whole recipe may (60 s). It used
+        // to be cut at 30 s without a word, though validation allowed more.
+        let env_len = env.length().min(duck_echo_core::validate::MAX_DURATION);
         let tail = chain_tail_seconds(&layer.effects);
         let start_frame = (layer.offset * sr).round() as usize;
         let env_frames = (env_len * sr).round() as usize;
@@ -372,12 +383,24 @@ impl LayerVoice {
             let local = self.local;
             if local < self.env_frames {
                 let t = local as f32 * self.inv_sample_rate;
-                let hz = self.pitch.at(t);
+                let mut hz = self.pitch.at(t);
                 let mut level = self.env.level(t) * self.volume;
                 if let Some(lfo) = &self.lfo {
                     match target {
+                        // A fast LFO keeps its phase in 64-bit time; a
+                        // slow one is worked out exactly as before audio
+                        // rates existed, so old sounds keep their bytes.
+                        Some(LfoTarget::Volume) if lfo.is_fast() => {
+                            level *= lfo.gain_exact(local, f64::from(self.inv_sample_rate));
+                        }
                         Some(LfoTarget::Volume) => level *= lfo.gain(t),
                         Some(LfoTarget::Duty) => self.osc.set_duty(self.duty + lfo.offset(t)),
+                        Some(LfoTarget::Pitch) => {
+                            // Kept under the same ceiling as the pitch
+                            // curve (45% of the sample rate).
+                            hz = (hz * lfo.ratio_exact(local, f64::from(self.inv_sample_rate)))
+                                .min(0.45 / self.inv_sample_rate);
+                        }
                         _ => {}
                     }
                 }

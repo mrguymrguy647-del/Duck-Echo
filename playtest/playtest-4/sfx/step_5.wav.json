@@ -1,0 +1,19 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "step_5.wav",
+  "duration_seconds": 0.06356009070294785,
+  "frames": 2803,
+  "sample_rate": 44100,
+  "channels": 1,
+  "loudness_lufs": -20.000015,
+  "loudness_method": "k_weighted_ungated",
+  "peak_dbfs": -5.6462913,
+  "leading_silence_seconds": 0.00006802721088435374,
+  "hit_seconds": 0.003,
+  "loops": false,
+  "format": "wav",
+  "seed": 5,
+  "recipe_hash": "sha256:035570e7c7e356a966d87780602cee495ec7098f4232a6db6c480710ef093f5b",
+  "file_sha256": "sha256:d7c3f72ad617a3655443936d0b552520ab7834099b5bb9a3b2f24ea192325308"
+}

@@ -248,7 +248,11 @@ fn two_real_threads_the_audio_thread_never_allocates_or_frees() {
         let slot = i % SLOTS;
         let recipe = &recipes[i % recipes.len()];
         let _ = match i % 4 {
-            0 => player.play(slot, Sound::from_recipe(recipe).unwrap(), i % 8 == 0),
+            0 => player.play(
+                slot,
+                Sound::from_recipe(recipe).unwrap(),
+                i.is_multiple_of(8),
+            ),
             1 => player.update(
                 slot,
                 ParamUpdate::LayerVolume {

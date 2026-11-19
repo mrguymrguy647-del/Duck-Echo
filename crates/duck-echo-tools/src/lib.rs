@@ -8,18 +8,25 @@ use duck_echo_core::{load_path, Code, Format, Issue, Report};
 use std::fmt;
 use std::path::Path;
 
+pub mod asset;
 pub mod commands;
 pub mod examples;
+pub mod expect;
 pub mod files;
+pub mod forge;
 pub mod guide;
 pub mod history;
 pub mod instruments;
 pub mod measure;
+pub mod mix;
 pub mod notecheck;
+pub mod ogg;
 pub mod project;
 pub mod root;
 pub mod save;
+pub mod sets;
 pub mod song;
+pub mod variants;
 
 pub use measure::{Extras, LayerAnalysis, Measured, Options, TrackAnalysis};
 pub use song::{load_document, load_document_value, Document, FileResolver, SongFacts, SongRef};
@@ -115,7 +122,7 @@ pub fn is_recipe_path(path: &Path) -> bool {
     )
 }
 
-/// Audio from a path: a WAV file is read; a recipe or song file or
+/// Audio from a path: a WAV or OGG file is read; a recipe or song file or
 /// `preset:NAME` is validated and rendered in memory. A song's instrument
 /// files are read from the song file's own folder.
 pub fn load_audio(path: &Path) -> Result<AudioBuffer, ToolError> {
@@ -127,6 +134,8 @@ pub fn load_audio_with(path: &Path, files: &FileResolver) -> Result<AudioBuffer,
     if is_recipe_ref(path) {
         let doc = load_document(path, files)?;
         Ok(measure::measure_document(&doc, None, &Options::default(), "")?.buffer)
+    } else if ogg::is_ogg_path(path) {
+        ogg::read_ogg_file(path)
     } else {
         read_wav(path).map_err(|e| match e {
             WavError::Io(io) => {
@@ -135,7 +144,7 @@ pub fn load_audio_with(path: &Path, files: &FileResolver) -> Result<AudioBuffer,
             WavError::Format(why) => ToolError::failed(
                 Code::Io,
                 format!(
-                    "{} is not a WAV file Duck Echo can read ({why}); give a .wav file, a .toml/.json recipe or preset:NAME",
+                    "{} is not a WAV file Duck Echo can read ({why}); give a .wav or .ogg file, a .toml/.json recipe or preset:NAME",
                     path.display()
                 ),
             ),
@@ -258,6 +267,18 @@ pub struct Rendered {
     /// The picture as PNG bytes, not serialized.
     #[serde(skip)]
     pub png: Option<Vec<u8>>,
+    /// For a recipe with `expect`: each line, checked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expect: Option<expect::Expected>,
+    /// Timing and level facts for a game engine (length, loudness, peak,
+    /// leading silence, `hit_seconds`, whether it loops, the recipe's
+    /// hash). The same is written next to the WAV as `<output>.json`.
+    pub asset: asset::AssetInfo,
+    /// Where those facts were written.
+    pub asset_file: String,
+    /// For an `.ogg` output: the encoded file decoded again and checked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ogg: Option<ogg::OggCheck>,
 }
 
 /// Render a validated recipe to a WAV file, optionally overriding the
@@ -267,29 +288,51 @@ pub fn render_to_file(
     loaded: &duck_echo_core::Loaded,
     output: &Path,
     seed: Option<u64>,
-    format: duck_echo_audio::WavFormat,
+    format: impl Into<ogg::RenderFormat>,
     extras: &Extras,
 ) -> Result<Rendered, ToolError> {
-    if !has_wav_extension(output) {
-        return Err(ToolError::failed(
-            Code::PathRefused,
-            format!(
-                "render output {} must end in .wav; refusing to write audio over another kind of file",
-                output.display()
-            ),
-        ));
-    }
+    let kind = ogg::output_kind(output)?;
     let mut recipe = loaded.recipe.clone();
     if let Some(s) = seed {
         recipe.seed = s;
     }
-    let m = measure::measure_recipe(&recipe, &loaded.report.warnings, extras)?;
-    write_wav_file(output, &m.buffer, format)?;
-    Ok(rendered(output, recipe.seed, m.measured))
+    let mut m = measure::measure_recipe(&recipe, &loaded.report.warnings, extras)?;
+    let data = asset::recipe_data(&recipe);
+    let written = ogg::write_render(output, kind, &m.buffer, format.into(), &data, false, "")?;
+    m.measured.warnings.extend(written.warning.clone());
+    let analysis = written.analysis.as_ref().unwrap_or(&m.measured.analysis);
+    let mut info = asset::info(
+        written.buffer(&m.buffer),
+        analysis,
+        output,
+        &data,
+        recipe.seed,
+        false,
+    );
+    written.mark(&mut info);
+    let file = asset::write_sidecar(output, &mut info)?;
+    Ok(rendered(
+        output,
+        recipe.seed,
+        m.measured,
+        info,
+        &file,
+        written.check,
+    ))
 }
 
-fn rendered(output: &Path, seed: u64, measured: Measured) -> Rendered {
+fn rendered(
+    output: &Path,
+    seed: u64,
+    measured: Measured,
+    asset: asset::AssetInfo,
+    asset_file: &Path,
+    ogg: Option<ogg::OggCheck>,
+) -> Rendered {
     Rendered {
+        ogg,
+        asset,
+        asset_file: asset_file.display().to_string(),
         ok: true,
         output: output.display().to_string(),
         seed,
@@ -304,6 +347,7 @@ fn rendered(output: &Path, seed: u64, measured: Measured) -> Rendered {
         note_check: measured.note_check,
         picture: measured.picture,
         png: measured.png,
+        expect: measured.expect,
     }
 }
 
@@ -314,26 +358,49 @@ pub fn render_document_to_file(
     doc: &Document,
     output: &Path,
     seed: Option<u64>,
-    format: duck_echo_audio::WavFormat,
+    format: impl Into<ogg::RenderFormat>,
     options: &Options,
     prefix: &str,
 ) -> Result<Rendered, ToolError> {
-    if !has_wav_extension(output) {
-        return Err(ToolError::failed(
-            Code::PathRefused,
-            format!(
-                "render output {} must end in .wav; refusing to write audio over another kind of file",
-                output.display()
-            ),
-        ));
-    }
-    let m = measure::measure_document(doc, seed, options, prefix)?;
-    write_wav_file(output, &m.buffer, format)?;
+    let kind = ogg::output_kind(output)?;
+    let mut m = measure::measure_document(doc, seed, options, prefix)?;
     let used = seed.unwrap_or(match doc {
         Document::Recipe(r) => r.loaded.recipe.seed,
         Document::Song(s) => s.loaded.song.seed,
     });
-    Ok(rendered(output, used, m.measured))
+    let (data, loops) = match doc {
+        Document::Recipe(r) => {
+            let mut recipe = r.loaded.recipe.clone();
+            recipe.seed = used;
+            (asset::recipe_data(&recipe), false)
+        }
+        Document::Song(s) => {
+            let mut song = s.loaded.song.clone();
+            song.seed = used;
+            (asset::song_data(&song), song.loop_)
+        }
+    };
+    let written = ogg::write_render(output, kind, &m.buffer, format.into(), &data, loops, prefix)?;
+    m.measured.warnings.extend(written.warning.clone());
+    let analysis = written.analysis.as_ref().unwrap_or(&m.measured.analysis);
+    let mut info = asset::info(
+        written.buffer(&m.buffer),
+        analysis,
+        output,
+        &data,
+        used,
+        loops,
+    );
+    written.mark(&mut info);
+    let file = asset::write_sidecar(output, &mut info)?;
+    Ok(rendered(
+        output,
+        used,
+        m.measured,
+        info,
+        &file,
+        written.check,
+    ))
 }
 
 /// Write a picture's PNG bytes to `path`, which must end in `.png`.
@@ -380,7 +447,7 @@ pub fn file_safe(name: &str) -> String {
     }
 }
 
-fn write_wav_file(
+pub(crate) fn write_wav_file(
     output: &Path,
     buffer: &AudioBuffer,
     format: duck_echo_audio::WavFormat,
@@ -393,6 +460,9 @@ fn write_wav_file(
 
 /// Most renders one `variations` call may make.
 pub const MAX_VARIATIONS: u32 = 64;
+
+/// Why every seed sounds the same, for [`variations`] and the variant export.
+pub const SAME_FOR_EVERY_SEED: &str = "variation is 0, no layer uses noise and no field is a random range, so every seed renders the same audio; set a variation such as 0.3, or write a field as a range such as volume = { min = 0.6, max = 0.9 }";
 
 /// One render of a variation set.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -453,10 +523,8 @@ pub fn variations(
         .layers
         .iter()
         .any(|l| duck_echo_synth::source_uses_seed(l.source));
-    let seeds_matter = base.variation > 0.0 || uses_noise;
-    let note = (!seeds_matter).then(|| {
-        "variation is 0 and no layer uses noise, so every seed renders the same audio; set a variation such as 0.3".to_string()
-    });
+    let seeds_matter = base.variation > 0.0 || uses_noise || !base.ranges.is_empty();
+    let note = (!seeds_matter).then(|| SAME_FOR_EVERY_SEED.to_string());
     let mut renders = Vec::with_capacity(count as usize);
     for seed in 1..=count as u64 {
         let mut r = base.clone();
@@ -466,6 +534,10 @@ pub fn variations(
             Some(dir) => {
                 let path = dir.join(format!("{}_seed{seed}.wav", file_safe(&recipe.stem)));
                 write_wav_file(&path, &buffer, duck_echo_audio::WavFormat::Pcm16)?;
+                let data = asset::recipe_data(&r);
+                let mut info =
+                    asset::info(&buffer, &analyze_buffer(&buffer), &path, &data, seed, false);
+                asset::write_sidecar(&path, &mut info)?;
                 Some(path.display().to_string())
             }
             None => None,

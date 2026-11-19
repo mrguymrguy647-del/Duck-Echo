@@ -165,6 +165,7 @@ impl StudioApp {
         let mut stop = false;
         let mut actions = Vec::new();
         let mut undo_visit = false;
+        let mut send_choice = None;
 
         egui::Panel::top("song bar").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -206,6 +207,14 @@ impl StudioApp {
                     })
                     .response
                     .on_hover_text("New and moved notes land on this grid");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.menu_button("...", |ui| {
+                        if let Some(choice) = self.send_menu(ui, &view.rel) {
+                            send_choice = Some(choice);
+                            ui.close();
+                        }
+                    });
+                });
                 if let Some((song, arrangement)) = &view.loaded {
                     ui.add_space(12.0);
                     ui.label(
@@ -328,6 +337,12 @@ impl StudioApp {
                 view.visit = None;
             }
             self.undo();
+        }
+        if let Some(choice) = send_choice {
+            let rel = self.song_view.as_ref().map(|v| v.rel.clone());
+            if let Some(rel) = rel {
+                self.act_on_send(&rel, choice);
+            }
         }
         if back {
             self.close_song();

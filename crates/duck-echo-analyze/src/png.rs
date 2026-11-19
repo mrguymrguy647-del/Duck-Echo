@@ -310,7 +310,7 @@ pub(crate) mod tests {
         let mut data = Vec::new();
         for i in 0..20_000u32 {
             data.push(((i * 7919) % 251) as u8);
-            data.extend(std::iter::repeat((i % 5) as u8).take((i % 300) as usize));
+            data.extend(std::iter::repeat_n((i % 5) as u8, (i % 300) as usize));
         }
         for case in [&b""[..], b"a", b"abcabcabcabcabcabc", &data] {
             let z = zlib(case);

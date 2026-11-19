@@ -1,0 +1,7 @@
+[
+  {"time": 0.0, "file": "preset:wind", "name": "wind", "loop": true, "stop": 6.0, "volume": 0.6},
+  {"time": 1.0, "file": "preset:footstep", "name": "step 1", "pan": -0.3},
+  {"time": 1.5, "file": "preset:footstep", "name": "step 2", "pan": 0.3, "volume": 0.05},
+  {"time": 2.5, "file": "preset:thud", "name": "door", "volume": 1.4},
+  {"time": 2.52, "file": "preset:metal_clang", "name": "latch", "volume": 1.2}
+]

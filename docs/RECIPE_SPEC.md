@@ -30,10 +30,11 @@ which renders a 0.205 s square-wave blip at 440 Hz.
 | `name` | string | none | | For humans and agents; ignored by the renderer. |
 | `description` | string | none | | One sentence for humans and agents; ignored by the renderer. |
 | `tags` | array of strings | `[]` | | Search tags such as `["pickup", "bright"]`; ignored by the renderer. Presets put their category first. |
+| `expect` | table | none | | What the sound should measure as; `analyze` and `render` check each line and report pass or fail (see `expect`). Ignored by the renderer. |
 | `seed` | integer | `0` | 0..2^63 | Drives the noise source and `variation`. Same recipe and seed give identical audio. |
 | `sample_rate` | integer | `44100` | 8000..192000 | Output rate in Hz. |
 | `channels` | integer | `1` | 1..2 | `1` mono, `2` stereo (see Stereo). |
-| `variation` | number | `0` | 0..1 | How far the seed may jitter the sound (see Variation). |
+| `variation` | number | `0` | 0..1 | How far the seed may jitter the sound (see Variation). Any number may also be a random range (see Random ranges). |
 | `duration` | number | computed | 0.001..60 | Force the output length. Omit to compute it. |
 | `master` | table | defaults | | Master output stage. |
 | `layers` | array of tables | `[]` | at least one | The sounds to mix. |
@@ -94,7 +95,7 @@ stack of layers must not clip.
 | `envelope` | table | defaults | | Volume envelope. |
 | `pitch` | table | defaults | | Pitch over time. |
 | `filter` | table | none | | Optional filter. |
-| `lfo` | table | none | | Optional slow wave that moves the volume, the cutoff or the duty. |
+| `lfo` | table | none | | Optional wave that moves the volume, the cutoff, the duty or the pitch: slowly (a wobble), or for volume and pitch at audio rates (a growl, buzz or rasp). |
 | `effects` | array | `[]` | | Per-layer effect chain. |
 
 Source details:
@@ -145,6 +146,12 @@ segments are linear. The layer's length is the sum of the five times.
 
 A zero-length envelope is an error. `sustain > 0` with no `sustain_time`
 and no `release` gives a warning because the sound stops abruptly.
+
+A layer may last as long as a whole recipe: its `offset` plus its
+envelope's length may be up to 60 s (each time above is up to 30 s). A
+longer layer is an error at `layers[n].envelope`, unless `duration` is
+set, which cuts the sound on purpose. (Before, layers were cut at 30 s
+without a word.)
 
 ### `layers[].pitch`
 
@@ -197,16 +204,45 @@ Cutoff is clamped to 45% of the sample rate. Coefficients update every 16
 samples, which is inaudible for sweeps but means the filter is not sample
 accurate.
 
+### `expect`
+
+What the sound should be, written down so `analyze` (and `render`) can
+check it. The renderer ignores it. Each line that is written is checked;
+the result's `expect` lists them with `wanted`, `got` and `pass`, and the
+summary ends with "expect: all 3 met" or "EXPECT: 2 of 3 met (roughness is
+low, wanted high)". A solo or mute hears only part of the sound, so it
+is not checked then.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `roughness`, `sharpness`, `boom`, `movement` | `"low"`, `"medium"` or `"high"` | The analysis's `feel` (see `docs/ANALYSIS.md`, How it feels). |
+| `loudness_lufs` | `[lowest, highest]` | Loudness. |
+| `peak_dbfs` | `[lowest, highest]` | Peak. |
+| `duration_seconds` | `[shortest, longest]` | Length. |
+
+A range is two numbers, lowest first; anything else is an error at its
+path, with the fix as a suggestion.
+
+```toml
+expect = { roughness = "high", loudness_lufs = [-20, -16] }   # a scream
+```
+
 ### `layers[].lfo`
 
-An LFO ("low-frequency oscillator") is a slow wave that moves one setting
+An LFO ("low-frequency oscillator") is a wave that moves one setting
 while the sound plays. One per layer. It starts when the layer starts, so
-in a song it starts again with each note.
+in a song it starts again with each note. Slow, it is a wobble you hear as
+a wobble. On `volume` and `pitch` it may also run at audio rates, up to
+2000 cycles a second: then it is too fast to hear as a wobble and becomes
+part of the tone, a growl, buzz or rasp, with side tones at the note plus
+and minus the rate ("ring" style on volume, FM style on pitch). Gritty
+footsteps, growls, screams and rasps want 20 to 150 a second; buzzes and
+metallic tones more.
 
 | Field | Type | Default | Range | Meaning |
 |---|---|---|---|---|
-| `target` | string | `"volume"` | `volume`, `cutoff`, `duty` | What the wave moves. `cutoff` needs a `filter` on the layer and `duty` needs `source = "square"` (errors otherwise). |
-| `rate` | number | `5` | 0.01..50 | Cycles per second. |
+| `target` | string | `"volume"` | `volume`, `cutoff`, `duty`, `pitch` | What the wave moves. `cutoff` needs a `filter` on the layer, `duty` needs `source = "square"`, and `pitch` needs a layer with a pitch (not plain white noise); errors otherwise. |
+| `rate` | number | `5` | 0.01..2000 by target | Cycles per second: up to 2000 for `volume` and `pitch`, up to 50 for `cutoff` and `duty` (the filter takes a new cutoff every 16 samples, so faster would not be heard). |
 | `depth` | number | `0.5` | by target | How far it moves; see below. |
 | `shape` | string | `"sine"` | `sine`, `triangle`, `square` | The wave. `square` jumps between the two ends. |
 | `delay` | number | `0` | 0..30 | Seconds before the wave starts. |
@@ -223,6 +259,15 @@ What `depth` means:
 * `duty` (0..0.5): added to and taken from `duty`; the result is kept
   inside 0.01..0.99. It starts at `duty` and goes up first. This is
   pulse-width movement, which makes a square wave sound thicker.
+* `pitch` (0..24): semitones up and down from the note (after its own
+  sweep, vibrato and arpeggio). It starts at the note and goes up first.
+  Slow, it is a vibrato with other shapes than `pitch.vibrato`; fast, half
+  a semitone to a few semitones gives a growl or a rasp.
+
+Faster than 50 a second, the wave's place is worked out in 64-bit time,
+so it stays exact for a whole minute. Slower LFOs are worked out exactly
+as before audio rates existed, so every older sound renders the same
+bytes. `analyze` lists the side tones in `peaks`.
 
 ```toml
 [[layers]]
@@ -231,7 +276,13 @@ filter = { cutoff = 800, resonance = 2.0 }
 lfo = { target = "cutoff", rate = 1.0, depth = 2.0 }   # a slow "wah"
 ```
 
-Pitch has its own wave already: `pitch.vibrato`.
+```toml
+[[layers]]
+source = "noise"
+noise_mode = "pitched"
+pitch = { start = 180 }
+lfo = { target = "volume", rate = 70, depth = 0.8 }    # a gritty growl
+```
 
 ### Stereo
 
@@ -331,6 +382,69 @@ seed draws two numbers in -1..1 and applies:
 With `variation = 0` the seed only affects noise, so a tone recipe gives the
 same audio for every seed. The draws happen for every layer regardless, so a
 layer's jitter does not depend on earlier layers' settings.
+
+## Random ranges
+
+Any number of a sound may be written as a range instead:
+
+```toml
+[[layers]]
+source = "noise"
+volume = { min = 0.6, max = 0.9 }
+pitch = { start = { min = 300, max = 500 } }
+envelope = { attack = 0.002, decay = { min = 0.08, max = 0.14 } }
+```
+
+Each render picks one value between `min` and `max` from the seed, so seed 1,
+seed 2 and seed 3 are three footsteps, and the same seed always picks the
+same values (on every computer: the picks use integer math only). Each field
+has its own random stream (the seed mixed with the field's path), so adding
+or removing a range never changes what another field picks. `variation`
+then jitters the picked values as usual, and noise follows the seed as
+always.
+
+Rules:
+
+* A range is a table of exactly `min` and `max`, both numbers, with
+  `min <= max`. Errors name the end at fault: `layers[0].volume.max`.
+* Both ends must be allowed values of the field: validation checks the
+  recipe with every range at its `min` and again at its `max`. (The rules
+  that join two fields, such as a layer's length, are checked at those two
+  corners.)
+* Any field that takes a decimal number takes a range, a pitch's
+  `start` and `end` too (as Hz, not note names). Whole numbers (`seed`,
+  `sample_rate`, `channels`, `version`) and the lines of `expect` do not.
+* In a song, a range works inside the song's own `instruments` (each note
+  picks its values from its own seed, so every hit of a snare can differ).
+  A song's own fields (`tempo`, a note's `velocity` ...) take plain
+  numbers; a range there is a `type_mismatch` error.
+* The schema says this with `type: ["number", "object"]` and `properties`
+  `min` and `max` under the field's own limits, marked
+  `x-random-range: true`. (The song schema shares `master` and `effects`
+  with the instruments inside it, so it shows the range form on a song's
+  own `master` and `effects` too; there the loader refuses it.)
+
+`sound_variants` exports N seeds of a sound as numbered WAVs for a game to
+pick from at random (see `AGENT_GUIDE.md`).
+
+## Sound sets
+
+A set file names sounds to check together with `set_check` (see
+`ANALYSIS.md`). It is TOML (`film.set.toml`) or JSON (`film.set.json`),
+with its own schema (`duck-echo schema set`, `schema/set.schema.json`);
+unknown fields are errors, as in a recipe.
+
+```toml
+name = "door scene"                      # default: the file's name
+sounds = ["sfx", "music/bed.toml", "preset:wind"]
+targets = { ambient = -30, impact = -18 }  # LUFS per tag, -60..=0
+tolerance = 2                             # LU, 0..=20, default 2
+```
+
+`sounds` are files, folders (every sound and song in them and below) and
+presets, relative to the project folder. A sound is held to the target of
+its first tag in `targets`, or else of its first category tag. Numbers in
+a set file are plain numbers: random ranges are for recipes.
 
 ## Validation
 
@@ -574,6 +688,7 @@ What a song uses from an instrument recipe:
 | top-level `effects` | run **once per track**, on the sum of its notes: one reverb is one room, echoes carry over the next notes, and a fast melody does not stack reverbs. A kit runs each piece's effects once for that piece |
 | `seed` | mixed into every note's seed |
 | `variation` | applies per note, so each note differs a little |
+| random ranges (`volume = { min = 0.4, max = 0.7 }`) | picked per note, from the note's seed |
 | `master.gain`, `normalize`, `normalize_peak_db`, `normalize_lufs` | used once, as one fixed level: the gain the recipe's master applies when the recipe is rendered alone. An instrument is as loud in a song as on its own, and `velocity` still works |
 | `sample_rate`, `channels`, `duration`, `master.trim_silence` | not used; the song decides |
 
@@ -684,7 +799,6 @@ error until implemented. See `ROADMAP.md` for the order.
 
 * More than one LFO per layer, LFO rates in beats, and an LFO that runs
   on across the notes of a song (it restarts with each note).
-* Per-parameter random ranges (`volume = { min = 0.6, max = 0.9 }`).
 * Sample layers.
 * Formant voice sources (Phase 5).
 * In songs: a separate "first time" file for a loop (one without the
