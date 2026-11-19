@@ -1,39 +1,22 @@
-# Duck Echo: rules for builders
+@AGENTS.md
 
-Read `docs/ARCHITECTURE.md`, `docs/RECIPE_SPEC.md` and `docs/ROADMAP.md`
-before changing anything.
+Everything for agents is in AGENTS.md, above, so there is one text to
+keep right. What follows is only for Claude Code.
 
-## Non-negotiable
+## The project's MCP server
 
-- The recipe is the source of truth. Never add behaviour that is not
-  expressed in the recipe or in a documented CLI/tool option.
-- Renders are deterministic: same recipe + same seed = identical bytes. No
-  wall clock, no global state, no hash-map iteration, no platform libm on
-  the audio path (use `duck_echo_synth::math`).
-- TOML files and JSON tool calls deserialize into the same Rust types.
-  One schema. Unknown fields are errors, never ignored.
-- Every error carries an exact field path and, where possible, the allowed
-  range or options and a suggestion. Agents read errors as JSON.
-- Nothing is silently deferred. If a field exists in the schema it works;
-  if it does not work yet it is not in the schema and is listed in
-  `docs/RECIPE_SPEC.md` under Deferred.
-- `Voice::process` must stay allocation-free and lock-free.
-- Keep dependencies minimal; justify each new one in `ARCHITECTURE.md`.
-- Never implement voice cloning or anything that imitates a real person.
-- The CLI and the MCP server share their operations through
-  `duck-echo-tools`; add behaviour there, not in one front end only.
-- Renders of every example and preset are pinned by fingerprint tests.
-  Change a fingerprint only when the sound is meant to change, and say so
-  in the commit.
+`.mcp.json` starts the `duck-echo` server for anyone who opens Claude
+Code here. It runs `cargo run --release -q -p duck-echo-mcp` with
+`--root` set to `playtest/`, so every file the tools write lands there.
 
-## Workflow
-
-- `cargo test --workspace`, `cargo clippy --workspace --all-targets` and
-  `cargo fmt --all -- --check` must pass before a commit.
-- After changing recipe types: `cargo run -p duck-echo-cli -- schema >
-  schema/recipe.schema.json` and update `docs/RECIPE_SPEC.md`. After
-  changing song types: the same with `schema song >
-  schema/song.schema.json`.
-- New features get an example recipe or a test that renders it.
-- Keep `docs/ROADMAP.md` current: tick off what you did, add what you
-  learned the next builder needs.
+- Build it once before the first session:
+  `cargo build --release -p duck-echo-mcp`. A cold build takes longer
+  than Claude Code's 30-second start timeout. Or let the first start
+  build it, with a longer timeout: `MCP_TIMEOUT=120000 claude`.
+- Start Claude Code from the repository's top folder (the server stops
+  if it cannot find `playtest/`) and approve the server once. `/mcp` in a
+  session, or `claude mcp list`, shows it.
+- Playtest results are committed: give each playtest its own folder
+  under `playtest/`, with its recipes, its WAVs and a review, as in
+  `playtest/playtest-2`. WAV files are committed there, unlike in the
+  rest of the repository.
