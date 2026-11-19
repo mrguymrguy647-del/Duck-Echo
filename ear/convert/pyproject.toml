@@ -1,0 +1,28 @@
+[project]
+name = "duck-ear-convert"
+version = "0.1.0"
+description = "Run once, by Duck Echo's builders: converts the Duck Ear's score models to ONNX and checks them against the originals."
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "torch>=2.4",
+    "torchvision",
+    "open_clip_torch>=4.2.1",
+    "transformers>=4.45",
+    "soundfile>=0.12",
+    "onnx>=1.16",
+    "onnxscript>=0.3",
+    "onnxruntime>=1.18",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+package = false
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }

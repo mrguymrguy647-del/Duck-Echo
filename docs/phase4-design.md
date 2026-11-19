@@ -4,7 +4,9 @@ Status: **approved**, with questions 1 to 8 as recommended and three
 changes, written in below: the same question gets the same answer (a
 cache), `llama-server` stops after 2 minutes with no describe question,
 and the Ear ships with scores only if no describe model passes its test.
-Done so far: steps 1 (the bridge and the stub) and 2 (what agents get, with the stub).
+Done so far: steps 1 (the bridge and the stub), 2 (what agents get, with
+the stub) and 3 (the score model: LAION-CLAP was chosen, see
+`docs/ear-check.md`).
 
 ## 1. What we want, and why
 
@@ -191,7 +193,10 @@ Asking the Ear the same thing twice gives the identical answer:
   the question (the method and its parameters, with the sound's path left
   out), the Ear's version and the revision of every model it reported in
   `hello`. Before asking, Duck Echo looks in the cache; a hit is answered
-  at once, without starting the Ear.
+  at once, without loading a model. (Duck Echo still greets the Ear
+  first, which takes well under a second, so the revisions are always
+  the Ear's own: step 3 found that a remembered `hello` gave one model's
+  answers for another.)
 * Every answer says where it came from: `"cached": true` or `false`.
 * Only answers are kept, never errors or timeouts: those are asked again.
 * A new model or Ear version gives new keys, so it is asked afresh, and
@@ -379,14 +384,21 @@ same way for every sound, so two scores can be compared:
 1. The score model gives the closeness of the sound to the asked text
    **and** to every word of the Ear's list (about 120 game-sound and music
    words, section 6).
-2. `match` is the share the asked text gets when those closenesses are
-   turned into shares that add up to 1 (a "softmax", with the model's own
-   scale). It means: *how much more this text fits than the usual game
-   sounds do.* `rank` says where the text came.
-3. The list and the scale are pinned with the model, and `hello` reports
-   their version, so a score today means the same tomorrow.
-4. Where `yes` starts (for example 0.6) and `no` ends (0.3) is set in
-   step 3 from the test set, and printed in `docs/ear-check.md`.
+2. `match` comes from the text's **z-score**: how far its closeness to
+   this sound is above its usual closeness to Duck Echo's own sounds (the
+   presets and examples, saved with the model), put through a logistic
+   curve so it runs from 0 to 1 and is 0.5 halfway between the yes and no
+   lines. It means: *how much more this text fits this sound than it fits
+   Duck Echo's sounds in general.* `rank` says where the text came among
+   the words. (Step 3 first tried a softmax over the words, as planned
+   here: it gave 0.00 for everything.) A silent sound is not given to the
+   model at all.
+3. The list, the reference sounds and the curve are pinned with the
+   model, and `hello` reports their version in the model's revision, so a
+   score today means the same tomorrow.
+4. Where `yes` starts and `no` ends is set from the test set, reported in
+   `hello`, and printed in `docs/ear-check.md` (LAION-CLAP: yes from
+   0.662, no below 0.338).
 
 The describe model runs with temperature 0 and a fixed seed, so the same
 question gets the same words (and the answer cache in section 3 makes
@@ -932,21 +944,25 @@ What you test on Windows:
 What you test on Linux:
 - [ ] The same three.
 
-### Step 3: the real Ear, part 1: the score model (stronger model)
+### Step 3: the real Ear, part 1: the score model (stronger model) [done]
 
 * `ear/duck_ear/`: a Python package with `pyproject.toml` and `uv.lock`:
   reading WAVs, resampling, the score model through ONNX Runtime, the
   word list, `match` and `rank`, the network guard.
-* `ear/tools/convert_clap.py` (run once, by us, with PyTorch): converts
+* `ear/convert/convert_clap.py` (run once, by us, with PyTorch): converts
   CLAP2-S and LAION-CLAP to ONNX and checks them against the originals.
 * The test set (`ear/testset/`) and `duck-echo ear check` (score part).
   Both models measured; the better one on our sounds chosen; the yes and
   no lines set; results in `docs/ear-check.md`.
-* Run from the source with `DUCK_ECHO_EAR=...` (no installer yet).
+* Run from the source with `--ear-program ear/.venv/bin/duck-ear` or
+  `DUCK_ECHO_EAR` (no installer yet).
+* As built: LAION-CLAP was chosen, not CLAP2-S (pairs 98% against 88%);
+  `match` uses z-scores, not a softmax (above); `ear check` has the score
+  part only, so it has no `--part` yet.
 
 What you test on Windows:
-- [ ] `uv run` in `ear/` starts the Ear; `duck-echo listen preset:coin --like "a coin pickup" --like "an explosion"` puts the coin first, in under 2 s.
-- [ ] `duck-echo ear check --part score` finishes and prints its table.
+- [ ] `uv sync` in `ear/`, the model converted with `--install` (`ear/convert/README.md`); `duck-echo listen preset:coin --like "a coin pickup" --like "an explosion" --ear-program ear\.venv\Scripts\duck-ear.exe` says yes to the coin (about 0.74) and no to the explosion. It takes a few seconds, most of it loading the model; with `--json`, `seconds` (the listening itself) is under 2.
+- [ ] `duck-echo ear check --ear-program ear\.venv\Scripts\duck-ear.exe` finishes and prints its table.
 - [ ] Pull the network cable (or turn Wi-Fi off): listening still works.
 
 What you test on Linux:

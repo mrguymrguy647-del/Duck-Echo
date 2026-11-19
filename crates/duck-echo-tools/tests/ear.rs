@@ -454,7 +454,7 @@ fn listen_answers_likes_a_question_a_comparison_and_quickly() {
 }
 
 #[test]
-fn the_same_question_gets_the_identical_answer_from_the_cache_without_the_ear() {
+fn the_same_question_gets_the_identical_answer_from_the_cache_without_asking_the_ear() {
     if !python_found() {
         return;
     }
@@ -472,9 +472,12 @@ fn the_same_question_gets_the_identical_answer_from_the_cache_without_the_ear() 
 
     let second = run(&root, "listen", question.clone()).unwrap();
     assert_eq!(second["ear"]["cached"], true);
+    // The Ear was greeted (its hello names its models), never asked.
+    let log = keeper.log_tail();
+    assert!(log.contains("hello"), "{log}");
     assert!(
-        !keeper.is_running(),
-        "the cache answered: the Ear was not started"
+        !log.contains("answered score"),
+        "the cache answered, yet: {log}"
     );
     let without_cached = |mut v: Value| {
         v["ear"].as_object_mut().unwrap().remove("cached");
@@ -507,6 +510,34 @@ fn the_same_question_gets_the_identical_answer_from_the_cache_without_the_ear() 
     assert_eq!(newer_answer["ear"]["models"]["score"], "stub@1");
     let again = run(&newer_root, "listen", question).unwrap();
     assert_eq!(again["ear"]["cached"], true);
+}
+
+#[test]
+fn the_same_program_with_another_model_misses_the_cache() {
+    // Step 3 found this: the real Ear is one program for every model (it
+    // reads which from its folder or DUCK_EAR_SCORE_MODEL). So the cache
+    // keys must come from the running Ear's hello, never from the program.
+    if !python_found() {
+        return;
+    }
+    let dir = folder("cache-model");
+    let stub = dir.join("stub").join("duck_ear_stub.py");
+    std::fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    std::fs::copy(stub_file(), &stub).unwrap();
+    std::fs::write(dir.join("stub/stub_revision.txt"), "a").unwrap();
+    let keeper = EarKeeper::new(config(&stub, &dir.join("ear-home")));
+    let (_dir, root) = project("cache-model-project", &keeper);
+    let question = json!({"path": "sfx/coin.toml", "like": ["a coin"], "quick": true});
+    let first = run(&root, "listen", question.clone()).unwrap();
+    assert_eq!(first["ear"]["models"]["score"], "stub@a");
+    keeper.stop();
+    std::fs::write(dir.join("stub/stub_revision.txt"), "b").unwrap();
+    let second = run(&root, "listen", question).unwrap();
+    assert_eq!(second["ear"]["models"]["score"], "stub@b", "{second}");
+    assert_eq!(
+        second["ear"]["cached"], false,
+        "another model gave the old model's answer"
+    );
 }
 
 #[test]
@@ -605,4 +636,87 @@ fn the_sounds_written_for_the_ear_are_deleted() {
     drop(root);
     drop(keeper);
     assert!(!sounds.exists(), "{} is still there", sounds.display());
+}
+
+/// Step 3: `ear check` on a small test set, with the stub (which says 0.9
+/// to any text with "coin" in it and 0.1 to anything else, whatever the
+/// sound).
+#[test]
+fn ear_check_measures_a_test_set_and_writes_its_report() {
+    if !python_found() {
+        return;
+    }
+    let dir = folder("check");
+    let keeper = EarKeeper::new(config(&stub_file(), &dir.join("ear-home")));
+    let testset = dir.join("testset.toml");
+    std::fs::write(
+        &testset,
+        r#"
+version = 1
+
+[[sound]]
+file = "preset:coin"
+true = ["a coin pickup"]
+wrong = ["an explosion"]
+
+[[sound]]
+file = "preset:explosion"
+true = ["an explosion"]
+wrong = ["a coin pickup"]
+
+[[sound]]
+file = "silence"
+true = ["silence"]
+wrong = ["a coin pickup"]
+"#,
+    )
+    .unwrap();
+
+    let report = duck_echo_tools::ear_check::check(&keeper, &testset).unwrap();
+    assert_eq!((report.sounds, report.texts), (3, 3));
+    let measure = |name: &str| {
+        let m = report.measures.iter().find(|m| m.name == name).unwrap();
+        (m.right, m.of)
+    };
+    // Only the coin has its true text above its wrong one.
+    assert_eq!(measure("Kind of sound"), (1, 3));
+    // Yes only for "a coin pickup" on the coin; no only for "an explosion"
+    // on the coin.
+    assert_eq!(measure("Yes on true texts"), (1, 3));
+    assert_eq!(measure("No on wrong texts"), (1, 3));
+    // The stub says yes to a coin in silence: not listening.
+    assert_eq!(measure("Silence"), (0, 1));
+    let explosion = &report.results[1];
+    assert_eq!(explosion.file, "preset:explosion");
+    assert_eq!(explosion.beaten_by, ["a coin pickup"]);
+    // The stub reports no lines: the defaults.
+    assert_eq!(report.lines.yes_from, ear::YES_FROM);
+    assert!(report.table.contains("| Kind of sound | 1 of 3 |"));
+
+    let out = dir.join("out");
+    duck_echo_tools::ear_check::write(&report, &out).unwrap();
+    let written: Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("ear-check.json")).unwrap())
+            .unwrap();
+    assert_eq!(written["sounds"], 3);
+    assert!(std::fs::read_to_string(out.join("ear-check.md"))
+        .unwrap()
+        .contains("`preset:explosion`"));
+}
+
+#[test]
+fn ear_check_refuses_a_test_set_with_an_unknown_field() {
+    let dir = folder("check-bad");
+    let keeper = EarKeeper::new(config(&stub_file(), &dir.join("ear-home")));
+    let testset = dir.join("testset.toml");
+    std::fs::write(
+        &testset,
+        "version = 1\n[[sound]]\nfile = \"preset:coin\"\ntrue = []\nwrong = []\nloud = true\n",
+    )
+    .unwrap();
+    let error = duck_echo_tools::ear_check::check(&keeper, &testset)
+        .unwrap_err()
+        .into_report();
+    let text = serde_json::to_string(&error).unwrap();
+    assert!(text.contains("loud"), "{text}");
 }

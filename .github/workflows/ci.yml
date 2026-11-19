@@ -37,6 +37,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The real Ear's own tests (ear/tests), without its models: reading
+      # WAVs, resampling, the protocol, the network guard. Its three
+      # libraries only; no PyTorch.
+      - name: The Duck Ear's Python tests
+        run: |
+          python -m pip install --quiet "numpy>=1.26" "onnxruntime>=1.18" "tokenizers>=0.19"
+          python -m unittest discover -s ear/tests -v
+
       - name: Formatting
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
@@ -59,6 +67,8 @@ jobs:
           cargo test -p duck-echo-ear --no-run
           sudo unshare --net -- sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" \
             DUCK_ECHO_REQUIRE_PYTHON=1 cargo test --offline -p duck-echo-ear
+          sudo unshare --net -- sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" \
+            python -m unittest discover -s ear/tests
 
       - name: Render every example and preset, and hash each WAV
         run: |

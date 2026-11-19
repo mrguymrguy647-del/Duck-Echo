@@ -1,0 +1,242 @@
+# The Duck Ear's test set: sounds made by Duck Echo, each with texts that
+# are true for it and texts that are wrong for it. `duck-echo ear check`
+# renders every sound, asks the Ear to score every text, and measures how
+# often the Ear gets them right (docs/phase4-design.md, section 8). The
+# results are in docs/ear-check.md.
+#
+# `file` is a preset (`preset:coin`), an example song
+# (`example:duck_craft_day`), a recipe or song file named from this folder
+# (`coin_soft.toml`, `../../examples/recipes/chime.toml`), or `silence`
+# (one second of nothing).
+#
+# `group` puts sounds side by side for the measures that compare two
+# sounds: "soft/harsh" and "calm/tense" pairs.
+
+version = 1
+
+# ---- Pickups -----------------------------------------------------------
+
+[[sound]]
+file = "preset:coin"
+true = ["a coin pickup", "a short bright game pickup sound"]
+wrong = ["an explosion", "footsteps", "wind blowing", "a heavy thud", "an engine hum"]
+
+[[sound]]
+file = "../../examples/recipes/coin.toml"
+true = ["a coin pickup", "a short bright game pickup sound"]
+wrong = ["an explosion", "footsteps", "wind blowing", "a heavy thud", "calm music"]
+
+[[sound]]
+file = "preset:gem"
+true = ["a sparkly pickup sound"]
+wrong = ["an explosion", "footsteps", "a heavy thud", "an engine hum"]
+
+[[sound]]
+file = "preset:key_pickup"
+true = ["a short bright game pickup sound"]
+wrong = ["an explosion", "wind blowing", "a heavy thud"]
+
+[[sound]]
+file = "preset:extra_life"
+true = ["a cheerful rising jingle"]
+wrong = ["an explosion", "footsteps", "wind blowing"]
+
+[[sound]]
+file = "preset:powerup"
+true = ["a rising power-up sound"]
+wrong = ["an explosion", "footsteps", "a heavy thud"]
+
+[[sound]]
+file = "../../examples/recipes/fanfare.toml"
+true = ["a short victory fanfare"]
+wrong = ["an explosion", "footsteps", "wind blowing"]
+
+# ---- Soft and harsh ----------------------------------------------------
+
+[[sound]]
+file = "coin_soft.toml"
+group = "coin"
+true = ["a soft coin pickup", "a gentle chime"]
+wrong = ["a harsh buzzy coin sound", "an explosion"]
+
+[[sound]]
+file = "coin_harsh.toml"
+group = "coin"
+true = ["a harsh buzzy coin sound"]
+wrong = ["a soft coin pickup", "a gentle chime"]
+
+# ---- Weapons and explosions --------------------------------------------
+
+[[sound]]
+file = "preset:laser"
+true = ["a laser shot"]
+wrong = ["a coin pickup", "footsteps", "calm music", "wind blowing"]
+
+[[sound]]
+file = "../../examples/recipes/laser.toml"
+true = ["a laser shot"]
+wrong = ["a coin pickup", "footsteps", "calm music"]
+
+[[sound]]
+file = "preset:blaster"
+true = ["a laser shot"]
+wrong = ["a coin pickup", "footsteps", "calm music"]
+
+[[sound]]
+file = "preset:shotgun"
+true = ["a gunshot"]
+wrong = ["a coin pickup", "a gentle chime", "calm music"]
+
+[[sound]]
+file = "preset:explosion"
+true = ["an explosion"]
+wrong = ["a coin pickup", "a gentle chime", "footsteps", "calm music", "a menu click"]
+
+[[sound]]
+file = "preset:big_explosion"
+true = ["an explosion", "a big explosion with a long rumble"]
+wrong = ["a coin pickup", "a gentle chime", "a menu click"]
+
+[[sound]]
+file = "../../examples/recipes/explosion.toml"
+true = ["an explosion"]
+wrong = ["a coin pickup", "a gentle chime", "footsteps", "calm music"]
+
+[[sound]]
+file = "preset:missile"
+true = ["a whoosh"]
+wrong = ["a coin pickup", "a gentle chime", "footsteps"]
+
+# ---- Hits --------------------------------------------------------------
+
+[[sound]]
+file = "preset:punch"
+true = ["a punch"]
+wrong = ["a coin pickup", "calm music", "wind blowing"]
+
+[[sound]]
+file = "preset:hit"
+true = ["a hit"]
+wrong = ["a coin pickup", "calm music", "wind blowing"]
+
+[[sound]]
+file = "preset:thud"
+true = ["a heavy thud"]
+wrong = ["a coin pickup", "a gentle chime", "a laser shot"]
+
+[[sound]]
+file = "preset:land"
+true = ["a heavy thud"]
+wrong = ["a coin pickup", "a laser shot", "an alarm"]
+
+[[sound]]
+file = "preset:metal_clang"
+true = ["a metal clang"]
+wrong = ["footsteps", "wind blowing", "calm music"]
+
+# ---- Movement ----------------------------------------------------------
+
+[[sound]]
+file = "preset:footstep"
+true = ["a footstep"]
+wrong = ["an explosion", "a laser shot", "a coin pickup", "calm music"]
+
+[[sound]]
+file = "preset:jump"
+true = ["a jump in a platform game"]
+wrong = ["an explosion", "footsteps", "wind blowing"]
+
+[[sound]]
+file = "../../examples/recipes/jump.toml"
+true = ["a jump in a platform game"]
+wrong = ["an explosion", "footsteps", "wind blowing"]
+
+# ---- Interface ---------------------------------------------------------
+
+[[sound]]
+file = "preset:ui_click"
+true = ["a menu click"]
+wrong = ["an explosion", "footsteps", "wind blowing", "a gunshot"]
+
+[[sound]]
+file = "preset:ui_confirm"
+true = ["a menu confirm beep"]
+wrong = ["an explosion", "footsteps", "wind blowing", "a gunshot"]
+
+[[sound]]
+file = "preset:ui_error"
+true = ["an error buzz"]
+wrong = ["a coin pickup", "footsteps", "calm music"]
+
+[[sound]]
+file = "../../examples/recipes/chime.toml"
+true = ["a gentle chime"]
+wrong = ["an explosion", "footsteps", "a gunshot", "a harsh buzzy coin sound"]
+
+# ---- Alarms and machines -----------------------------------------------
+
+[[sound]]
+file = "preset:alarm"
+true = ["an alarm"]
+wrong = ["calm music", "a coin pickup", "footsteps"]
+
+[[sound]]
+file = "../../examples/recipes/siren.toml"
+true = ["a siren"]
+wrong = ["calm music", "a coin pickup", "footsteps"]
+
+[[sound]]
+file = "preset:warning_beep"
+true = ["warning beeps"]
+wrong = ["calm music", "an explosion", "footsteps"]
+
+[[sound]]
+file = "preset:engine_hum"
+true = ["an engine hum"]
+wrong = ["a coin pickup", "a gentle chime", "footsteps"]
+
+[[sound]]
+file = "preset:wind"
+true = ["wind blowing"]
+wrong = ["a coin pickup", "a laser shot", "calm music"]
+
+# ---- Music -------------------------------------------------------------
+
+[[sound]]
+file = "calm_loop.toml"
+group = "mood"
+true = ["calm music", "slow gentle music"]
+wrong = ["tense music", "fast exciting music", "an explosion"]
+
+[[sound]]
+file = "tense_loop.toml"
+group = "mood"
+true = ["tense music", "fast exciting music"]
+wrong = ["calm music", "slow gentle music", "a coin pickup"]
+
+[[sound]]
+file = "example:duck_craft_day"
+true = ["calm music"]
+wrong = ["tense music", "an explosion", "footsteps"]
+
+[[sound]]
+file = "example:duck_craft_night"
+true = ["slow gentle music"]
+wrong = ["fast exciting music", "an explosion", "a coin pickup"]
+
+[[sound]]
+file = "example:four_bars"
+true = ["music"]
+wrong = ["an explosion", "footsteps", "wind blowing"]
+
+# ---- Not a game sound --------------------------------------------------
+
+[[sound]]
+file = "silence"
+true = ["silence"]
+wrong = ["a coin pickup", "an explosion", "music", "footsteps", "an alarm"]
+
+[[sound]]
+file = "noise.toml"
+true = ["white noise"]
+wrong = ["a coin pickup", "calm music", "a gentle chime", "a menu click"]

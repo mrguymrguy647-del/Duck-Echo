@@ -53,6 +53,9 @@ pub struct Hello {
     /// True for the stub Ear, which never really listens.
     #[serde(default)]
     pub stub: bool,
+    /// What the Ear cannot do yet, and why, by method: `{"describe": "..."}`.
+    #[serde(default)]
+    pub not_available: std::collections::BTreeMap<String, String>,
 }
 
 impl Hello {
@@ -75,6 +78,13 @@ pub struct Model {
     /// Is it loaded into memory now?
     #[serde(default)]
     pub loaded: bool,
+    /// For a score model: from this `match` up, the score says yes. Set
+    /// from the test set (docs/ear-check.md).
+    #[serde(default)]
+    pub yes_from: Option<f64>,
+    /// For a score model: below this `match`, the score says no.
+    #[serde(default)]
+    pub no_below: Option<f64>,
 }
 
 /// A progress line: the Ear is still working on a request. It never gives

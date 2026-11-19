@@ -326,6 +326,25 @@ enum EarAction {
         #[arg(long)]
         json: bool,
     },
+    /// Measure how often the Ear gets a test set right (sounds with texts
+    /// that are true and wrong for them), and write ear-check.json and
+    /// ear-check.md. The results of the shipped test set are in
+    /// docs/ear-check.md.
+    Check {
+        /// The test set.
+        #[arg(long, default_value = "ear/testset/testset.toml")]
+        testset: PathBuf,
+        /// Where to write ear-check.json and ear-check.md.
+        #[arg(long, default_value = "ear-check")]
+        out: PathBuf,
+        /// The Duck Ear program. Default: DUCK_ECHO_EAR, or the installed
+        /// Ear.
+        #[arg(long, value_name = "PROGRAM")]
+        ear_program: Option<PathBuf>,
+        /// Print the whole report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// The Ear program: `--ear-program`, or the old spelling `--ear PROGRAM`
@@ -560,6 +579,15 @@ fn main() -> ExitCode {
                     json,
                 },
         } => ear_status(ear_program_of(ear_program, old_ear), json),
+        Command::Ear {
+            action:
+                EarAction::Check {
+                    testset,
+                    out,
+                    ear_program,
+                    json,
+                },
+        } => ear_check(&testset, &out, ear_program, json),
         Command::Compare { a, b, compact } => {
             let a = duck_echo_tools::load_audio(&a).map_err(|e| e.at("a"));
             let b = duck_echo_tools::load_audio(&b).map_err(|e| e.at("b"));
@@ -824,6 +852,35 @@ fn ear_status(ear_program: Option<PathBuf>, json: bool) -> ExitCode {
             );
             println!("folder: {}", v["home"].as_str().unwrap_or_default());
             println!("answers kept: {}", v["answers_kept"]);
+            ExitCode::SUCCESS
+        }
+        Err(e) => tool_error(e, json),
+    }
+}
+
+/// `duck-echo ear check`.
+fn ear_check(testset: &Path, out: &Path, ear_program: Option<PathBuf>, json: bool) -> ExitCode {
+    let result = ear_keeper(ear_program).and_then(|keeper| {
+        let report = duck_echo_tools::ear_check::check(&keeper, testset)?;
+        duck_echo_tools::ear_check::write(&report, out)?;
+        Ok(report)
+    });
+    match result {
+        Ok(report) if json => print_json(&report, false),
+        Ok(report) => {
+            println!("{}", report.summary);
+            println!(
+                "lines: yes from {:.3}, no below {:.3}; the best on this set: yes from {:.2}, no below {:.2}",
+                report.lines.yes_from,
+                report.lines.no_below,
+                report.suggested_lines.yes_from,
+                report.suggested_lines.no_below
+            );
+            println!();
+            print!("{}", report.table);
+            println!();
+            println!("wrote {}", out.join("ear-check.json").display());
+            println!("wrote {}", out.join("ear-check.md").display());
             ExitCode::SUCCESS
         }
         Err(e) => tool_error(e, json),

@@ -47,9 +47,11 @@ pub const HOME_VARIABLE: &str = "DUCK_ECHO_EAR_HOME";
 /// What every answer from the Ear says about itself.
 pub const ADVICE: &str =
     "The Ear's answers come from listening models and can be wrong. Check them against the numbers.";
-/// From this `match` up, the score model says yes.
+/// From this `match` up, the score model says yes, when its Ear does not
+/// say its own line in `hello` (a real Ear does: the test set sets it).
 pub const YES_FROM: f64 = 0.6;
-/// Below this `match`, the score model says no. In between, it is unsure.
+/// Below this `match`, the score model says no; in between, it is unsure.
+/// Again only when the Ear does not say its own.
 pub const NO_BELOW: f64 = 0.3;
 /// Two matches closer than this are "about the same".
 pub const SAME_WITHIN: f64 = 0.05;
@@ -151,7 +153,7 @@ pub fn default_home() -> PathBuf {
 
 /// Why one question got no answer.
 #[derive(Debug, Clone)]
-enum Missed {
+pub(crate) enum Missed {
     /// The Ear cannot be asked at all.
     Unavailable(Unavailable),
     /// It was asked, and the question failed.
@@ -263,10 +265,7 @@ impl EarKeeper {
                     .then(|| self.config.home.join("ear.log")),
             };
             match Ear::start(&settings) {
-                Ok(ear) => {
-                    remember_hello(&self.config, &program, ear.hello());
-                    inner.ear = Some(ear);
-                }
+                Ok(ear) => inner.ear = Some(ear),
                 Err(unavailable) => {
                     inner.last_error = Some(unavailable.message.clone());
                     return Err(unavailable);
@@ -306,7 +305,7 @@ impl EarKeeper {
     /// Write `buffer` (its first [`LONGEST_HEARD`] seconds) as a WAV for the
     /// Ear to hear. The file is deleted when the returned [`Sound`] is
     /// dropped.
-    fn sound(&self, buffer: &AudioBuffer) -> Result<Sound, ToolError> {
+    pub(crate) fn sound(&self, buffer: &AudioBuffer) -> Result<Sound, ToolError> {
         let channels = usize::from(buffer.channels.max(1));
         let frames = buffer.samples.len() / channels;
         let longest = (LONGEST_HEARD * f64::from(buffer.sample_rate)) as usize;
@@ -377,7 +376,7 @@ fn watch_for_idle(keeper: Weak<EarKeeper>, idle: Duration) {
 }
 
 /// A sound written for the Ear to hear. Deleted when dropped.
-struct Sound {
+pub(crate) struct Sound {
     path: PathBuf,
     sha256: String,
     heard: Heard,
@@ -392,45 +391,6 @@ impl Drop for Sound {
 // ---------------------------------------------------------------------
 // The answer cache.
 // ---------------------------------------------------------------------
-
-/// The Ear's hello, kept in the cache folder with the program it came from,
-/// so that a cached answer can be found without starting the Ear. It is
-/// used only while the program file is unchanged (same size and time).
-fn remember_hello(config: &EarConfig, program: &Path, hello: &Hello) {
-    let record = json!({
-        "program": program.to_string_lossy(),
-        "program_stamp": program_stamp(program),
-        "hello": hello_value(hello),
-    });
-    let _ = write_whole(&config.answers().join("hello.json"), &record.to_string());
-}
-
-/// The hello remembered for the program `config` names, if it is still the
-/// same program.
-fn remembered_hello(config: &EarConfig) -> Option<Hello> {
-    let (program, _) = config.locate();
-    let text = std::fs::read_to_string(config.answers().join("hello.json")).ok()?;
-    let record: Value = serde_json::from_str(&text).ok()?;
-    let same_program = record["program"] == json!(program.to_string_lossy())
-        && record["program_stamp"] == json!(program_stamp(&program));
-    if !same_program {
-        return None;
-    }
-    serde_json::from_value(record["hello"].clone()).ok()
-}
-
-/// The program file's size and last change, so a changed Ear is noticed.
-fn program_stamp(program: &Path) -> Value {
-    let Ok(meta) = std::fs::metadata(program) else {
-        return Value::Null;
-    };
-    let changed = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos().to_string());
-    json!({"bytes": meta.len(), "changed": changed})
-}
 
 fn hello_value(hello: &Hello) -> Value {
     json!({
@@ -514,9 +474,9 @@ fn answers_kept(config: &EarConfig) -> usize {
 // ---------------------------------------------------------------------
 
 /// The questions of one call: each goes to the cache first, then to the Ear.
-struct Listening<'k> {
+pub(crate) struct Listening<'k> {
     keeper: &'k EarKeeper,
-    hello: Hello,
+    pub(crate) hello: Hello,
     /// True while every answer so far came from the cache.
     all_cached: bool,
     /// The Ear's own time for the answers (from the answers, so a cached
@@ -525,20 +485,15 @@ struct Listening<'k> {
 }
 
 impl<'k> Listening<'k> {
-    /// Begin: the Ear's hello from the running Ear, or remembered, or by
-    /// starting the Ear.
-    fn begin(keeper: &'k EarKeeper) -> Result<Listening<'k>, Unavailable> {
-        let running = {
-            let mut inner = keeper.lock();
-            inner
-                .ear
-                .as_mut()
-                .and_then(|ear| ear.is_running().then(|| ear.hello().clone()))
-        };
-        let hello = match running.or_else(|| remembered_hello(&keeper.config)) {
-            Some(hello) => hello,
-            None => keeper.hello()?,
-        };
+    /// Begin: the running Ear's hello, starting the Ear if needed. Its
+    /// hello names its models' exact revisions, which every cache key
+    /// needs; greeting it loads no model, so a cached answer still costs
+    /// no listening. (Step 2 kept the last hello in a file instead, to
+    /// answer from the cache without starting the Ear; but a program can
+    /// load another model without changing, and step 3's check then got
+    /// one model's answers for another.)
+    pub(crate) fn begin(keeper: &'k EarKeeper) -> Result<Listening<'k>, Unavailable> {
+        let hello = keeper.hello()?;
         Ok(Listening {
             keeper,
             hello,
@@ -547,7 +502,12 @@ impl<'k> Listening<'k> {
         })
     }
 
-    fn ask(&mut self, sound: &Sound, method: &str, params: Value) -> Result<Value, Missed> {
+    pub(crate) fn ask(
+        &mut self,
+        sound: &Sound,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, Missed> {
         let key = cache_key(sound, method, &params, &self.hello);
         let answer = match cached(&self.keeper.config, &key) {
             Some(answer) => answer,
@@ -786,7 +746,7 @@ impl EarSection {
 }
 
 /// Words for an Ear that cannot be asked, with what to do.
-fn unavailable_words(u: &Unavailable) -> String {
+pub(crate) fn unavailable_words(u: &Unavailable) -> String {
     match u.reason {
         duck_echo_ear::Reason::NotInstalled => format!(
             "The Duck Ear is not installed ({}). Ask the person to install it: Duck Echo Studio > Settings > Duck Ear, or duck-echo ear install.",
@@ -796,16 +756,45 @@ fn unavailable_words(u: &Unavailable) -> String {
     }
 }
 
-fn round(value: f64, places: i32) -> f64 {
+pub(crate) fn round(value: f64, places: i32) -> f64 {
     let scale = 10f64.powi(places);
     (value * scale).round() / scale
 }
 
+/// Where yes starts and no ends, for a score model's `match`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Lines {
+    /// From this match up: yes.
+    pub yes_from: f64,
+    /// Below this match: no. In between: unsure.
+    pub no_below: f64,
+}
+
+/// The lines of this Ear's score model: its own (from `hello`), else
+/// [`YES_FROM`] and [`NO_BELOW`].
+pub(crate) fn lines_of(hello: &Hello) -> Lines {
+    let model = hello.models.iter().find(|m| m.role == "score");
+    Lines {
+        yes_from: model.and_then(|m| m.yes_from).unwrap_or(YES_FROM),
+        no_below: model.and_then(|m| m.no_below).unwrap_or(NO_BELOW),
+    }
+}
+
+/// Why this Ear cannot do `method` (`describe`, `ask`): its own words from
+/// `hello`, or a plain reason.
+fn not_there(hello: &Hello, method: &str) -> String {
+    hello
+        .not_available
+        .get(method)
+        .cloned()
+        .unwrap_or_else(|| "this Ear has no describe model".to_string())
+}
+
 /// The score model's own word for a match.
-fn word_for_match(matched: f64) -> &'static str {
-    if matched >= YES_FROM {
+pub(crate) fn word_for_match(matched: f64, lines: Lines) -> &'static str {
+    if matched >= lines.yes_from {
         "yes"
-    } else if matched < NO_BELOW {
+    } else if matched < lines.no_below {
         "no"
     } else {
         "unsure"
@@ -814,8 +803,8 @@ fn word_for_match(matched: f64) -> &'static str {
 
 /// The verdict on one text: the score model's word and the describe
 /// model's answer must agree for a yes or a no.
-fn verdict(matched: f64, answer: Option<&str>) -> (String, Vec<String>) {
-    let by_match = word_for_match(matched);
+fn verdict(matched: f64, answer: Option<&str>, lines: Lines) -> (String, Vec<String>) {
+    let by_match = word_for_match(matched, lines);
     match answer {
         None => (by_match.to_string(), vec!["score".to_string()]),
         Some(answer) => {
@@ -889,7 +878,7 @@ fn listen_to(
         } else {
             section.description = Some(Said::Not(NotAsked {
                 available: false,
-                reason: "this Ear has no describe model".into(),
+                reason: not_there(&listening.hello, "describe"),
             }));
         }
         for (i, text) in texts.iter().enumerate() {
@@ -908,7 +897,7 @@ fn listen_to(
             } else {
                 (None, None)
             };
-            let (verdict, from) = verdict(matched, answer.as_deref());
+            let (verdict, from) = verdict(matched, answer.as_deref(), lines_of(&listening.hello));
             likes.push(LikeAnswer {
                 text: text.clone(),
                 matched,
@@ -934,7 +923,7 @@ fn listen_to(
                     reason: if quick {
                         "quick: only the score model listened".into()
                     } else {
-                        "this Ear has no describe model".into()
+                        not_there(&listening.hello, "ask")
                     },
                 })
             });
@@ -1416,20 +1405,32 @@ mod tests {
 
     #[test]
     fn the_two_models_must_agree_for_a_yes_or_a_no() {
-        assert_eq!(verdict(0.8, Some("yes")).0, "yes");
-        assert_eq!(verdict(0.1, Some("no")).0, "no");
-        assert_eq!(verdict(0.8, Some("no")).0, "unsure");
-        assert_eq!(verdict(0.1, Some("yes")).0, "unsure");
-        assert_eq!(verdict(0.45, Some("yes")).0, "unsure");
-        assert_eq!(verdict(0.8, Some("partly")).0, "unsure");
+        let lines = Lines {
+            yes_from: YES_FROM,
+            no_below: NO_BELOW,
+        };
+        assert_eq!(verdict(0.8, Some("yes"), lines).0, "yes");
+        assert_eq!(verdict(0.1, Some("no"), lines).0, "no");
+        assert_eq!(verdict(0.8, Some("no"), lines).0, "unsure");
+        assert_eq!(verdict(0.1, Some("yes"), lines).0, "unsure");
+        assert_eq!(verdict(0.45, Some("yes"), lines).0, "unsure");
+        assert_eq!(verdict(0.8, Some("partly"), lines).0, "unsure");
         // The score alone, when the describe model was not asked.
         assert_eq!(
-            verdict(0.8, None),
+            verdict(0.8, None, lines),
             ("yes".to_string(), vec!["score".to_string()])
         );
-        assert_eq!(verdict(0.29, None).0, "no");
-        assert_eq!(verdict(0.3, None).0, "unsure");
-        assert_eq!(verdict(0.6, None).0, "yes");
+        assert_eq!(verdict(0.29, None, lines).0, "no");
+        assert_eq!(verdict(0.3, None, lines).0, "unsure");
+        assert_eq!(verdict(0.6, None, lines).0, "yes");
+        // A model's own lines move them.
+        let own = Lines {
+            yes_from: 0.731,
+            no_below: 0.269,
+        };
+        assert_eq!(verdict(0.7, None, own).0, "unsure");
+        assert_eq!(verdict(0.28, None, own).0, "unsure");
+        assert_eq!(verdict(0.75, None, own).0, "yes");
     }
 
     #[test]

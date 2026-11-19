@@ -32,6 +32,7 @@ The protocol is in docs/phase4-design.md, section 3.
 """
 
 import json
+import os
 import sys
 import time
 
@@ -113,6 +114,19 @@ def read_wav(params):
     return path
 
 
+def score_revision():
+    """The score model's revision: SCORE_REVISION, or the text of a file
+    `stub_revision.txt` beside the stub. With that file a test can change
+    the model while the program stays the same, as when a real Ear is
+    pointed at another model folder."""
+    beside = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stub_revision.txt")
+    try:
+        with open(beside) as file:
+            return file.read().strip()
+    except OSError:
+        return SCORE_REVISION
+
+
 def hello(params):
     if params.get("protocol") != PROTOCOL:
         raise EarError(
@@ -130,7 +144,7 @@ def hello(params):
         "device": "none",
         "device_name": "no device: the stub does not listen",
         "models": [
-            {"role": "score", "name": "stub", "revision": SCORE_REVISION,
+            {"role": "score", "name": "stub", "revision": score_revision(),
              "loaded": "score" in State.loaded},
             {"role": "describe", "name": "stub", "revision": DESCRIBE_REVISION,
              "loaded": "describe" in State.loaded},
@@ -255,6 +269,7 @@ def main():
             if handler is None:
                 raise EarError("unknown_method", "the Ear cannot do %r" % method)
             send({"id": request_id, "result": handler(params)})
+            log("answered", method)
         except EarError as error:
             send({"id": request_id, "error": {"code": error.code, "message": error.message}})
     log("stdin closed: exiting")

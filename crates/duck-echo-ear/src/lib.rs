@@ -284,6 +284,7 @@ impl Ear {
                 device_name: None,
                 models: Vec::new(),
                 stub: false,
+                not_available: Default::default(),
             },
             running: true,
         };

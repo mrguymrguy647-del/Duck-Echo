@@ -95,6 +95,11 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
 ear/stub/                  the stub Duck Ear (Python, standard library only):
                            the protocol with no models, for tests
+ear/duck_ear/              the real Duck Ear (Python: numpy, ONNX Runtime,
+                           tokenizers), with its tests in ear/tests/
+ear/convert/               converts the score models to ONNX and checks
+                           them (PyTorch; run once, by builders)
+ear/testset/               sounds with known answers, for `ear check`
 examples/recipes/          the example recipes (TOML, plus coin.json)
 examples/songs/            the example songs
 examples/film/             a sound set and a cue list to check (set-check, mix)
@@ -768,18 +773,52 @@ the bridge; `duck-echo-tools` decides what to ask (step 2).
 * **The answer cache**: every answer is a file in `answers/` (named by the
   SHA-256 of its key, written whole then renamed). The key is the sound's
   SHA-256, the method and its parameters without the sound's path, the
-  Ear's version and every model's revision. The Ear's last hello is kept
-  in `answers/hello.json` with its program's size and time, so a cached
-  answer is found without starting the Ear; a changed program, or a new
-  model revision, misses the cache. Each section says `cached: true` when
-  every answer came from it. Errors are never cached.
+  Ear's version and every model's revision. Duck Echo greets the Ear
+  before every question (starting it takes well under a second; models
+  load only when needed), so the revisions are always the Ear's own: a
+  new model, word list or calibration misses the cache. Each section says
+  `cached: true` when every answer came from it. Errors are never cached.
 * **The sound heard**: the render (or the WAV or OGG file) is written as a
   16-bit WAV, at most its first 30 s, into the keeper's own temporary
   folder, and deleted as soon as it was heard; the folder goes with the
   keeper.
-* **Verdicts**: the score model's `match` says yes from 0.6, no below 0.3
-  (step 3 sets these from the test set); with the describe model's answer,
-  both must agree for a yes or a no, otherwise `unsure`.
+* **Verdicts**: the score model's `match` says yes from its `yes_from`
+  and no below its `no_below`, which the Ear reports in `hello` with the
+  model (0.662 and 0.338 for LAION-CLAP, set from the test set:
+  `docs/ear-check.md`; 0.6 and 0.3 when an Ear gives none, as the stub);
+  with the describe model's answer, both must agree for a yes or a no,
+  otherwise `unsure`.
+* **`duck-echo ear check`** (`ear_check.rs`): renders every sound of a
+  test set, asks the Ear to score every text, and measures the parts in
+  `docs/phase4-design.md` section 8 against their bars. It suggests yes
+  and no lines, and writes `ear-check.json` and `ear-check.md`.
+
+### The real Ear (`ear/duck_ear/`)
+
+A Python package, run as `duck-ear` (`duck_ear.server:main`). Step 3 has
+the score model; `describe` and `ask` answer `not_available`, and `hello`
+says why in `not_available`.
+
+* **No PyTorch.** The models run in ONNX Runtime. The audio is prepared
+  in numpy (`audio.py`: the WAV reader, a sinc resampler and the mel
+  spectrogram, the same sums as the PyTorch code the models were trained
+  with), and texts are cut into tokens by `tokenizers`. Three libraries,
+  each needed: numpy for the sums, ONNX Runtime to run the models on any
+  PC (and graphics cards later), tokenizers for the exact tokens each
+  model was trained on.
+* **The score model** (`score.py`): a model folder holds `audio.onnx`,
+  `text.onnx`, the mel filters, the tokenizer, `reference.npy` (the
+  embeddings of Duck Echo's 43 presets and examples) and `model.json`
+  (source, revision, licence, settings, calibration, lines, every file's
+  SHA-256). `match` comes from the text's z-score against the reference
+  sounds. A sound quieter than -60 dBFS is not given to the model.
+* **Converting** (`ear/convert/convert_clap.py`, PyTorch): downloads a
+  model at a pinned revision, exports its audio part (from the mel
+  spectrogram on) and text part to ONNX, and fails unless the Ear's path
+  gives the original's embeddings (closeness 0.999 or more). Its own
+  `pyproject.toml`, so the Ear never needs PyTorch.
+* **Nothing leaves the PC** (`guard.py`): an audit hook refuses every
+  connection and name lookup that is not to this PC.
 * **`analyze` with `ear: true`** adds an `ear` section after the numbers
   (which do not change), puts the verdict on `expect.sounds_like`, and
   ends the summary with the Ear's words, marked as advice (or "stub, not

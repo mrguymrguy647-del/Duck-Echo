@@ -11,6 +11,7 @@ use std::path::Path;
 pub mod asset;
 pub mod commands;
 pub mod ear;
+pub mod ear_check;
 pub mod examples;
 pub mod expect;
 pub mod files;

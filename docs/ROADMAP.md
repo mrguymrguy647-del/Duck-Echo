@@ -1233,7 +1233,7 @@ stub `duck-ear`, with the missing-program, timeout and broken-line tests,
 come before any model. Then the `ear` section in `analyze`, and only then
 real listening models.
 
-### 14. Duck Ear bridge (`duck-echo-ear`) [started: steps 1 and 2 of docs/phase4-design.md done]
+### 14. Duck Ear bridge (`duck-echo-ear`) [started: steps 1 to 3 of docs/phase4-design.md done]
 
 * The JSON Lines protocol from `ARCHITECTURE.md`, with a stub Python
   `duck-ear` that answers `hello` and `describe` with fixed text, so the
@@ -1265,8 +1265,8 @@ Lessons from step 2:
 
 * **A cached answer must be found without starting the Ear**, or the
   cache saves nothing. The key needs the models' revisions, which only the
-  Ear knows; so the last `hello` is kept beside the answers with its
-  program's size and time, and a changed program is asked afresh.
+  Ear knows; so the last `hello` was kept beside the answers with its
+  program's size and time. (Step 3 undid this: see its lessons.)
 * **Keep the Ear's own time, not the wall clock, in an answer** (`seconds`
   is the sum of the Ear's own times): then a cached answer is identical
   to the first, apart from `cached`.
@@ -1282,7 +1282,52 @@ Lessons from step 2:
 * **The build folder fills the disk.** A full workspace test with the
   incremental cache grew `target/` past the session's space;
   `CARGO_INCREMENTAL=0` and removing `target/debug/incremental` fixed it.
-* [ ] Step 3: the real Ear, part 1: the score model.
+* [x] **Step 3: the real Ear, part 1: the score model.** `ear/duck_ear/`,
+  a Python package (numpy, ONNX Runtime, tokenizers; no PyTorch): reading
+  WAVs, resampling and the mel spectrogram in numpy, the score model, the
+  word list (about 100 words), "scores you can read", and a guard that
+  refuses the network. `ear/convert/convert_clap.py` converts CLAP2-S and
+  LAION-CLAP to ONNX and checks them against the originals (closeness
+  0.999999 and 0.999664 on 43 sounds; 1.0 on texts). `ear/testset/`
+  (41 sounds) and `duck-echo ear check`, which measures a model and
+  suggests its yes and no lines. Both measured; **LAION-CLAP chosen**
+  (pairs 98% against 88%, the rest level); lines yes from 0.662, no
+  below 0.338. Results and weak spots: `docs/ear-check.md`. The Ear's
+  Python tests run in CI on Linux and Windows, and with no network.
+
+Lessons from step 3:
+
+* **Measure, don't trust the leaderboard.** The design guessed CLAP2-S
+  from its authors' numbers; on Duck Echo's sounds LAION-CLAP told pairs
+  apart far better. Keep both in the converter, so the next model can be
+  measured the same way.
+* **Raw closeness is not a score.** A softmax over the word list gave
+  0.00 for everything, and both models put "music" close to every sound,
+  silence too. A z-score against Duck Echo's own sounds (the presets and
+  examples, saved with the model) made `match` readable; silence is
+  caught before the model (peak below -60 dBFS).
+* **Never reuse a remembered `hello`.** Step 2 kept the last hello so a
+  cached answer could be found without starting the Ear. When the same
+  program was pointed at another model folder, it gave the other model's
+  cached answers. Now Duck Echo always greets the Ear first (it starts in
+  about a second; the models load only when needed), and the Ear's
+  revision includes its word list and a hash of its calibration. A test
+  changes the stub's model under the same program and checks the cache
+  misses.
+* **Exporting to ONNX can change the model you still hold.** Checking
+  LAION-CLAP against the model that had just been traced gave closeness
+  0.28; loading a fresh original for the check gave 0.9997. Check
+  against a clean copy.
+* **The exporter drops inputs a graph does not use**, and freezes shapes
+  it traces. CLAP2's position codes (RoPE) became an input, so any length
+  works; the Ear feeds a graph only the inputs it has.
+* **Downloads**: Hugging Face's newer download service was blocked here;
+  `HF_HUB_DISABLE_XET=1` uses the plain one. PyTorch's CPU wheels and
+  torchvision must come from the same index, or torchvision fails to load.
+* **Tune the lines on one set, say so.** The lines were chosen on the
+  test set they are measured on; `docs/ear-check.md` says that, and a
+  leave-one-out check gave the same kind-of-sound score.
+* [ ] Step 4: the real Ear, part 2: the describe model.
 
 Lessons from step 1, for the next builder:
 
