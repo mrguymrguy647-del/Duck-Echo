@@ -984,6 +984,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "duck-echo-ear"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "duck-echo-live"
 version = "0.1.0"
 dependencies = [
@@ -1008,6 +1017,7 @@ dependencies = [
  "duck-echo-analyze",
  "duck-echo-audio",
  "duck-echo-core",
+ "duck-echo-ear",
  "duck-echo-synth",
  "schemars",
  "serde",
