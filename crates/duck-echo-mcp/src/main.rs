@@ -17,8 +17,16 @@ fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let mut root = PathBuf::from(".");
     let mut duck_forge: Option<PathBuf> = None;
+    let mut ear: Option<PathBuf> = None;
     while let Some(a) = args.next() {
         match a.as_str() {
+            "--ear" => match args.next() {
+                Some(program) => ear = Some(PathBuf::from(program)),
+                None => {
+                    eprintln!("duck-echo-mcp: --ear needs the Duck Ear program");
+                    return ExitCode::from(2);
+                }
+            },
             "--duck-forge" => match args.next() {
                 Some(dir) => duck_forge = Some(PathBuf::from(dir)),
                 None => {
@@ -39,7 +47,7 @@ fn main() -> ExitCode {
             }
             "--help" | "-h" => {
                 println!(
-                    "duck-echo-mcp [--root DIR] [--duck-forge DIR]\n\nDuck Echo tools as an MCP server over stdio. File paths given to tools\nare resolved against DIR (default: the current directory) and must stay\ninside it. With --duck-forge, game_send and game_list work with the games\nof that Duck Forge folder, writing only into their assets and art folders."
+                    "duck-echo-mcp [--root DIR] [--duck-forge DIR] [--ear PROGRAM]\n\nDuck Echo tools as an MCP server over stdio. File paths given to tools\nare resolved against DIR (default: the current directory) and must stay\ninside it. With --duck-forge, game_send and game_list work with the games\nof that Duck Forge folder, writing only into their assets and art folders.\nWith --ear (or DUCK_ECHO_EAR), listen and analyze with ear: true use that\nDuck Ear program; otherwise the installed Ear, if there is one. The server\nkeeps one Ear, and stops it after 10 minutes with no question."
                 );
                 return ExitCode::SUCCESS;
             }
@@ -66,6 +74,14 @@ fn main() -> ExitCode {
                 eprintln!("duck-echo-mcp: --duck-forge: {e}");
                 return ExitCode::from(2);
             }
+        }
+    }
+    // One Duck Ear for the whole session, started only when a tool asks.
+    match duck_echo_tools::ear::EarConfig::from_environment(ear) {
+        Ok(config) => root = root.with_ear(duck_echo_tools::ear::EarKeeper::new(config)),
+        Err(e) => {
+            eprintln!("duck-echo-mcp: {e}");
+            return ExitCode::from(2);
         }
     }
     eprintln!("duck-echo-mcp: serving tools for {}", root.dir().display());

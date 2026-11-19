@@ -50,8 +50,11 @@ crates/
                            checking OGG music (`ogg`), `expect`
                            lines, the variant export (`variants`), the
                            sound-set check (`sets`), the mix check from
-                           a cue list (`mix`) and sending sounds into a
-                           Duck Forge game (`forge`).
+                           a cue list (`mix`), sending sounds into a
+                           Duck Forge game (`forge`) and asking the Duck
+                           Ear (`ear`: one kept Ear, the answer cache,
+                           `listen`, `ear_status`, `analyze` with
+                           `ear: true`).
   duck-echo-live/          the realtime mixer for playing through speakers:
                            a pool of 32 voice slots, two lock-free queues,
                            fades and clipping, and the background song
@@ -476,7 +479,7 @@ a song works too: the tools tell the two apart by looking inside.
 | `create` | `path`, and `recipe` or `from`, optional `overwrite` | `{ok, path, kind, warnings}` (`kind` is `recipe` or `song`; with `from`, also `from`). Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. `from` (`preset:NAME`, `instrument:NAME` or a file) runs the `file_copy_from` command: the copy is named after its file, its description says what it was copied from, and a TOML copy keeps its comments. One Undo step either way. |
 | `edit` | recipe, `ops`, optional `write` | `{ok, recipe, warnings, written, path}`. Each op is `{path, value}` or `{path, remove: true}`, with paths as in error messages; an index equal to the length appends. Edits apply to the document as written (defaults stay implicit), and a file is rewritten only when the result is valid. Comments are not kept. |
 | `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis, asset, asset_file}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. A song adds `song` (`tempo`, `beats_per_bar`, `bars`, `loop`, `song_frames`, `seconds_per_bar`, `tracks`, `notes`), `heard_tracks` and `tracks` when asked, for a loop `loop_seam` (`seam_step`, `largest_step`, `clean`), and with `per_track` or `notes` the `note_check`. Every render also writes `<output>.json` (`asset::AssetInfo`: length, loudness, peak, leading silence, `hit_seconds`, `loops`, `recipe_hash` as the SHA-256 of the document's JSON data), and the Studio's Export does the same. |
-| `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. For a song also `song`, `loop_seam` and always `note_check` (the notes written next to the notes heard; `notes: true` lists every note). |
+| `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras, `ear` | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. For a song also `song`, `loop_seam` and always `note_check` (the notes written next to the notes heard; `notes: true` lists every note). With `expect`, its lines checked. With `ear: true`, the Duck Ear's `ear` section (see "Duck Ear bridge"). |
 | `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
 | `variations` | recipe (not a song), optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
 | the commands | see below | One tool per command (`sound_set`, `song_add_note`, `edit_undo`...), with the command's name and arguments. |
@@ -743,6 +746,44 @@ the bridge; `duck-echo-tools` decides what to ask (step 2).
 * **Determinism**: the Ear's answers are descriptions, never audio, and
   are never written into a sound or its facts, so renders stay
   byte-for-byte the same.
+
+### What agents get (`duck-echo-tools/src/ear.rs`)
+
+* **Where the Ear is**: `--ear PROGRAM` (the MCP server) or
+  `--ear-program` (the CLI), else `DUCK_ECHO_EAR`, else the installed Ear
+  in the Ear's folder (`env/bin/duck-ear`, or `env\Scripts\duck-ear.exe`).
+  The Ear's folder is `DUCK_ECHO_EAR_HOME`, else
+  `%LOCALAPPDATA%\DuckEcho\ear` on Windows and
+  `$XDG_DATA_HOME/duck-echo/ear` (usually `~/.local/share/duck-echo/ear`)
+  elsewhere. It holds `ear.log` and the answer cache.
+* **One Ear, kept** (`EarKeeper`): the MCP server's `Root` holds one
+  (`Root::with_ear`); a CLI command makes its own and stops it when done.
+  It starts the Ear on the first question and a background thread stops
+  it after 10 minutes with none. Duck Echo sends `describe_idle_seconds:
+  120` in `hello`: the Ear lets go of its describe model (`llama-server`,
+  and the graphics card's memory) after 2 minutes with no describe
+  question, and Duck Echo sends `load` before every `describe` or `ask`,
+  so starting it again has `load`'s own time limit.
+* **The answer cache**: every answer is a file in `answers/` (named by the
+  SHA-256 of its key, written whole then renamed). The key is the sound's
+  SHA-256, the method and its parameters without the sound's path, the
+  Ear's version and every model's revision. The Ear's last hello is kept
+  in `answers/hello.json` with its program's size and time, so a cached
+  answer is found without starting the Ear; a changed program, or a new
+  model revision, misses the cache. Each section says `cached: true` when
+  every answer came from it. Errors are never cached.
+* **The sound heard**: the render (or the WAV or OGG file) is written as a
+  16-bit WAV, at most its first 30 s, into the keeper's own temporary
+  folder, and deleted as soon as it was heard; the folder goes with the
+  keeper.
+* **Verdicts**: the score model's `match` says yes from 0.6, no below 0.3
+  (step 3 sets these from the test set); with the describe model's answer,
+  both must agree for a yes or a no, otherwise `unsure`.
+* **`analyze` with `ear: true`** adds an `ear` section after the numbers
+  (which do not change), puts the verdict on `expect.sounds_like`, and
+  ends the summary with the Ear's words, marked as advice (or "stub, not
+  listening"). `listen` and `ear_status` are commands
+  (`commands::TABLE`), so the MCP server and `duck-echo do` have them too.
 
 ## Diagnostics format
 

@@ -86,8 +86,62 @@ enum Command {
         /// Compact single-line JSON instead of pretty-printed.
         #[arg(long)]
         compact: bool,
+        /// Also ask the Duck Ear (an optional listening program) what it
+        /// hears: an `ear` section, and a verdict for `expect.sounds_like`.
+        /// Its answers are advice; the numbers stay as they are.
+        #[arg(long)]
+        ear: bool,
+        /// The Duck Ear program. Default: DUCK_ECHO_EAR, or the installed
+        /// Ear.
+        #[arg(long, value_name = "PROGRAM")]
+        ear_program: Option<PathBuf>,
         #[command(flatten)]
         extras: ExtrasArgs,
+    },
+    /// Ask the Duck Ear (an optional program that listens with models on
+    /// this PC) about a sound: the words that fit it best, a description,
+    /// and for each --like a match, a yes or no and a verdict. Its answers
+    /// are advice and can be wrong. The same as `duck-echo do listen`.
+    Listen {
+        /// The sound: a WAV or OGG file, a recipe or song file, or
+        /// preset:NAME.
+        path: String,
+        /// A text to match, such as "a soft coin pickup". Up to 8: repeat
+        /// --like.
+        #[arg(long)]
+        like: Vec<String>,
+        /// One free question about the sound.
+        #[arg(long)]
+        ask: Option<String>,
+        /// A second sound, scored against the same --like texts.
+        #[arg(long)]
+        compare_with: Option<String>,
+        /// The score model only: quick, no description and no answers.
+        #[arg(long)]
+        quick: bool,
+        /// Render with this seed.
+        #[arg(long)]
+        seed: Option<u64>,
+        /// Hear only these (comma-separated): layer numbers or track names.
+        #[arg(long, value_delimiter = ',')]
+        solo: Vec<String>,
+        /// Hear all but these (comma-separated).
+        #[arg(long, value_delimiter = ',')]
+        mute: Vec<String>,
+        /// The Duck Ear program. Default: DUCK_ECHO_EAR, or the installed
+        /// Ear.
+        #[arg(long, value_name = "PROGRAM")]
+        ear_program: Option<PathBuf>,
+        /// Print the whole answer as JSON.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+    /// The Duck Ear, the optional listening program.
+    Ear {
+        #[command(subcommand)]
+        action: EarAction,
     },
     /// Compare two sounds: what changed from A to B, and how similar the
     /// waveforms are.
@@ -248,6 +302,23 @@ enum Command {
         /// Which schema: `recipe` (default), `song` or `set`.
         #[arg(value_enum, default_value_t = SchemaKind::Recipe)]
         kind: SchemaKind,
+    },
+}
+
+/// What to do with the Duck Ear.
+#[derive(Subcommand)]
+enum EarAction {
+    /// Is the Duck Ear there, and what can it do: its program, its
+    /// version, its models, its device and how many answers it keeps.
+    /// The same as `duck-echo do ear_status`.
+    Status {
+        /// The Duck Ear program. Default: DUCK_ECHO_EAR, or the installed
+        /// Ear.
+        #[arg(long, value_name = "PROGRAM")]
+        ear_program: Option<PathBuf>,
+        /// Print the whole answer as JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -423,8 +494,48 @@ fn main() -> ExitCode {
         Command::Analyze {
             input,
             compact,
+            ear,
+            ear_program,
             extras,
-        } => analyze(&input, compact, &extras),
+        } => analyze(&input, compact, ear.then_some(ear_program), &extras),
+        Command::Listen {
+            path,
+            like,
+            ask,
+            compare_with,
+            quick,
+            seed,
+            solo,
+            mute,
+            ear_program,
+            json,
+            project,
+        } => {
+            let mut args = serde_json::json!({ "path": path });
+            if !like.is_empty() {
+                args["like"] = like.into();
+            }
+            for (key, value) in [("ask", ask), ("compare_with", compare_with)] {
+                if let Some(v) = value {
+                    args[key] = v.into();
+                }
+            }
+            if quick {
+                args["quick"] = true.into();
+            }
+            if let Some(seed) = seed {
+                args["seed"] = seed.into();
+            }
+            for (key, value) in [("solo", solo), ("mute", mute)] {
+                if !value.is_empty() {
+                    args[key] = value.into();
+                }
+            }
+            listen(&args, &project, ear_program, json)
+        }
+        Command::Ear {
+            action: EarAction::Status { ear_program, json },
+        } => ear_status(ear_program, json),
         Command::Compare { a, b, compact } => {
             let a = duck_echo_tools::load_audio(&a).map_err(|e| e.at("a"));
             let b = duck_echo_tools::load_audio(&b).map_err(|e| e.at("b"));
@@ -626,6 +737,75 @@ fn do_command(name: &str, arguments: &str, args: &ProjectArgs) -> ExitCode {
     }
 }
 
+/// `duck-echo listen`: the `listen` command, with the Ear program named,
+/// printing its summary (or, with `json`, its whole answer).
+fn listen(
+    arguments: &serde_json::Value,
+    args: &ProjectArgs,
+    ear_program: Option<PathBuf>,
+    json: bool,
+) -> ExitCode {
+    let result = open_root(args).and_then(|root| {
+        let root = root.with_ear(ear_keeper(ear_program)?);
+        let command = commands::parse("listen", arguments, "--")?;
+        commands::run(&Project::new(&root), command, args.by.into(), None, "--")
+    });
+    match result {
+        Ok(v) if json => print_json(&v, false),
+        Ok(v) => {
+            println!("{}", v["summary"].as_str().unwrap_or_default());
+            if let Some(text) = v["ear"]["description"].as_str() {
+                println!("description: {text}");
+            }
+            for like in v["like"].as_array().into_iter().flatten() {
+                if let Some(reason) = like["reason"].as_str() {
+                    println!(
+                        "\"{}\": {}",
+                        like["text"].as_str().unwrap_or_default(),
+                        reason
+                    );
+                }
+            }
+            if let Some(text) = v["answer"]["text"].as_str() {
+                println!("answer: {text}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => tool_error(e, json),
+    }
+}
+
+/// `duck-echo ear status`.
+fn ear_status(ear_program: Option<PathBuf>, json: bool) -> ExitCode {
+    let result = ear_keeper(ear_program).and_then(|keeper| {
+        let root = Root::new(Path::new("."))
+            .map_err(|e| {
+                ToolError::issue(duck_echo_core::Issue::error(
+                    duck_echo_core::Code::NotFound,
+                    "--root",
+                    e,
+                ))
+            })?
+            .with_ear(keeper);
+        duck_echo_tools::ear::status(&root)
+    });
+    match result {
+        Ok(v) if json => print_json(&v, false),
+        Ok(v) => {
+            println!("{}", v["summary"].as_str().unwrap_or_default());
+            println!(
+                "program: {} ({})",
+                v["program"].as_str().unwrap_or_default(),
+                v["found_by"].as_str().unwrap_or_default()
+            );
+            println!("folder: {}", v["home"].as_str().unwrap_or_default());
+            println!("answers kept: {}", v["answers_kept"]);
+            ExitCode::SUCCESS
+        }
+        Err(e) => tool_error(e, json),
+    }
+}
+
 /// `duck-echo send`: game_send with `--duck-forge` (or the environment
 /// variable), printing what it did.
 fn send(
@@ -775,19 +955,48 @@ fn validate(reference: &Path, json: bool) -> ExitCode {
     }
 }
 
-fn analyze(input: &Path, compact: bool, args: &ExtrasArgs) -> ExitCode {
+/// The Duck Ear keeper for one command: the program named, or
+/// DUCK_ECHO_EAR, or the installed Ear. It stops the Ear when dropped.
+fn ear_keeper(
+    program: Option<PathBuf>,
+) -> Result<std::sync::Arc<duck_echo_tools::ear::EarKeeper>, ToolError> {
+    duck_echo_tools::ear::keeper_from_environment(program)
+}
+
+/// `ear`: `None` when not asked; `Some(program)` when asked, with the
+/// program named by `--ear-program`, if any.
+fn analyze(
+    input: &Path,
+    compact: bool,
+    ear: Option<Option<PathBuf>>,
+    args: &ExtrasArgs,
+) -> ExitCode {
     let options = args.options(true);
     let measured = if duck_echo_tools::is_recipe_ref(input) {
         duck_echo_tools::load_document(input, &files_next_to(input))
             .map_err(|e| e.at("input"))
-            .and_then(|doc| Ok(measure::measure_document(&doc, None, &options, "--")?.measured))
+            .and_then(|doc| measure::measure_document(&doc, None, &options, "--"))
     } else {
         options.for_wav("--").and_then(|extras| {
             duck_echo_tools::load_audio(input)
                 .map_err(|e| e.at("input"))
-                .and_then(|b| measure::measure_audio(&b, &extras))
+                .and_then(|buffer| {
+                    let measured = measure::measure_audio(&buffer, &extras)?;
+                    Ok(measure::RecipeMeasurement { buffer, measured })
+                })
         })
     };
+    let measured = measured.and_then(|m| {
+        let measure::RecipeMeasurement {
+            buffer,
+            mut measured,
+        } = m;
+        if let Some(program) = ear {
+            let keeper = ear_keeper(program)?;
+            duck_echo_tools::ear::add_to_analysis(&keeper, &buffer, &mut measured)?;
+        }
+        Ok(measured)
+    });
     match measured {
         Ok(m) => {
             if let (Some(path), Some(png)) = (&args.picture, &m.png) {

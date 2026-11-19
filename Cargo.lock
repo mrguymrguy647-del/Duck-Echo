@@ -221,6 +221,7 @@ dependencies = [
  "duck-echo-analyze",
  "duck-echo-audio",
  "duck-echo-core",
+ "duck-echo-ear",
  "duck-echo-synth",
  "schemars",
  "serde",

@@ -42,6 +42,7 @@ duck-echo-synth = { path = "crates/duck-echo-synth" }
 duck-echo-analyze = { path = "crates/duck-echo-analyze" }
 duck-echo-tools = { path = "crates/duck-echo-tools" }
 duck-echo-live = { path = "crates/duck-echo-live" }
+duck-echo-ear = { path = "crates/duck-echo-ear" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

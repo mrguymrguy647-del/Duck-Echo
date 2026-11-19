@@ -1233,7 +1233,7 @@ stub `duck-ear`, with the missing-program, timeout and broken-line tests,
 come before any model. Then the `ear` section in `analyze`, and only then
 real listening models.
 
-### 14. Duck Ear bridge (`duck-echo-ear`) [started: step 1 of docs/phase4-design.md done]
+### 14. Duck Ear bridge (`duck-echo-ear`) [started: steps 1 and 2 of docs/phase4-design.md done]
 
 * The JSON Lines protocol from `ARCHITECTURE.md`, with a stub Python
   `duck-ear` that answers `hello` and `describe` with fixed text, so the
@@ -1250,8 +1250,37 @@ real listening models.
   `ear/stub/duck_ear_stub.py`, and `fake-ear`, a test program that breaks
   the protocol in 15 ways. 30 tests; CI runs them on Linux and Windows,
   with Python required, and again on Linux with no network.
-* [ ] Step 2: what agents get, with the stub (`ear: true`, `listen`,
-  `ear_status`, `expect.sounds_like`, the answer cache).
+* [x] **Step 2: what agents get, with the stub.** `analyze` with `ear: true`
+  (`--ear` on the command line) adds an `ear` section and checks
+  `expect.sounds_like`; `listen` and `ear_status` (commands, so the MCP
+  server and `duck-echo do` have them; `duck-echo listen` and `duck-echo
+  ear status` too); songs have `expect`; the MCP server keeps one Ear
+  (`--ear`), stopped after 10 minutes with no question, and the Ear lets
+  go of its describe model after 2 (Duck Echo sends `load` before every
+  describe question); the sounds heard are deleted at once; the answer
+  cache gives the same question the identical answer without starting
+  the Ear. The chime example has a `sounds_like` line.
+
+Lessons from step 2:
+
+* **A cached answer must be found without starting the Ear**, or the
+  cache saves nothing. The key needs the models' revisions, which only the
+  Ear knows; so the last `hello` is kept beside the answers with its
+  program's size and time, and a changed program is asked afresh.
+* **Keep the Ear's own time, not the wall clock, in an answer** (`seconds`
+  is the sum of the Ear's own times): then a cached answer is identical
+  to the first, apart from `cached`.
+* **A line that was not checked is `pass: null`, never `false`.**
+  `ExpectLine::pass` became `Option<bool>`; the summary names the line
+  instead ("expect: sounds_like not checked", or "expect: all 2 met
+  (sounds_like not checked)").
+* **One flag, two meanings, is a trap**: `analyze --ear` asks the Ear, so
+  the CLI names the program `--ear-program`; only the MCP server has
+  `--ear PROGRAM`.
+* **The build folder fills the disk.** A full workspace test with the
+  incremental cache grew `target/` past the session's space;
+  `CARGO_INCREMENTAL=0` and removing `target/debug/incremental` fixed it.
+* [ ] Step 3: the real Ear, part 1: the score model.
 
 Lessons from step 1, for the next builder:
 

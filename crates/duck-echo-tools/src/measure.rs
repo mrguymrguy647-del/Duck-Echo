@@ -158,10 +158,14 @@ pub struct Measured {
     /// The picture as PNG bytes; not serialized.
     #[serde(skip)]
     pub png: Option<Vec<u8>>,
-    /// For a recipe with `expect`: each line, checked against this
+    /// For a recipe or song with `expect`: each line, checked against this
     /// analysis.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expect: Option<crate::expect::Expected>,
+    /// With `ear: true`: what the Duck Ear heard (advice, see
+    /// [`crate::ear`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ear: Option<crate::ear::EarSection>,
 }
 
 /// A measured recipe and the audio that was measured.
@@ -192,6 +196,7 @@ pub fn measure_audio(buffer: &AudioBuffer, extras: &Extras) -> Result<Measured, 
         picture,
         png,
         expect: None,
+        ear: None,
     })
 }
 
@@ -252,6 +257,7 @@ pub fn measure_recipe(
         buffer,
         measured: Measured {
             expect,
+            ear: None,
             analysis,
             warnings,
             heard_layers: extras.isolates().then_some(heard),
@@ -607,6 +613,17 @@ pub fn measure_song(
         note_check.as_ref(),
         &track_levels,
     );
+    // What the song says it should be, checked, as for a recipe (not with
+    // a solo or mute, which hear only part of it).
+    let expect = song
+        .expect
+        .as_ref()
+        .filter(|_| !extras.isolates)
+        .map(|e| crate::expect::check(e, &analysis));
+    if let Some(e) = &expect {
+        analysis.summary.push_str("; ");
+        analysis.summary.push_str(&crate::expect::summary_words(e));
+    }
 
     // The picture of a song has a line at the start of each bar.
     let (picture, png) = if extras.picture {
@@ -645,7 +662,8 @@ pub fn measure_song(
             note_check,
             picture,
             png,
-            expect: None,
+            expect,
+            ear: None,
         },
     })
 }

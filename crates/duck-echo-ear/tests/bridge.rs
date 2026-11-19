@@ -428,7 +428,14 @@ fn the_stub_answers_every_request_the_design_names() {
         json!({"wav": wav, "question": "Is this calm?"}),
     )
     .unwrap();
-    assert_eq!(answered["answer"], "unsure");
+    assert_eq!(answered["answer"], "no");
+    let answered = ask(
+        &mut ear,
+        "ask",
+        json!({"wav": wav, "question": "Is this a coin?"}),
+    )
+    .unwrap();
+    assert_eq!(answered["answer"], "yes");
 
     // Its errors leave it running.
     let not_wav = dir.join("notes.wav");

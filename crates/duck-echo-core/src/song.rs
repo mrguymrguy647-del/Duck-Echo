@@ -64,6 +64,13 @@ pub struct Song {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 
+    /// What the song should measure and sound like, the same table as in a
+    /// recipe: `analyze` reports pass or fail for each line. Not used by
+    /// the renderer. For example `expect = { sounds_like = "a calm, warm
+    /// tune", loudness_lufs = [-19, -17] }`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<crate::recipe::Expect>,
+
     /// Random seed. Same song + same seed = byte-identical audio. Each
     /// track and each note gets its own stream from it. Default `0`.
     #[serde(default)]
@@ -479,6 +486,11 @@ impl Arranger<'_> {
                 .got(song.version)
                 .one_of([CURRENT_VERSION.to_string()]),
             );
+        }
+        if let Some(expect) = &song.expect {
+            for issue in expect.issues() {
+                self.error(issue);
+            }
         }
         use crate::ranges;
         let tempo_ok = self.check("tempo", song.tempo, ranges::SONG_TEMPO);

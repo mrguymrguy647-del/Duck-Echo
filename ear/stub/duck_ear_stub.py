@@ -9,11 +9,21 @@ it, and so can anyone trying the Ear's tools before the real Ear exists.
 
 It needs only Python's standard library (Python 3.8 or newer).
 
-  score     a text containing "coin" matches 0.9, anything else 0.1
+  score     a text containing "coin" matches 0.9, anything else 0.1;
+            the closest words are always the same three
   describe  "A stub Ear: no model listened to this."
-  ask       "unsure", with the same reason
+  ask       a yes or no question: "yes" when it names a coin, else "no";
+            a free question: the same words as describe
   load      done at once
   bye       answers, then exits
+
+Like the real Ear, it lets go of its describe model when no describe or
+ask question came for describe_idle_seconds (the real one stops
+llama-server then), and answers describe and ask only after "load" with
+the role "describe". So Duck Echo must send load before every describe
+question, as the design says. The stub checks the time when a request
+comes, rather than with a clock of its own; Duck Echo cannot tell the
+difference.
 
 Like every Ear, it exits as soon as its stdin closes: that happens
 whenever Duck Echo stops, however it stops. Its log goes to stderr.
@@ -23,6 +33,7 @@ The protocol is in docs/phase4-design.md, section 3.
 
 import json
 import sys
+import time
 
 PROTOCOL = 1
 VERSION = "0.1.0-stub"
@@ -30,6 +41,41 @@ NOT_LISTENING = "A stub Ear: no model listened to this."
 
 # A few words to rank texts among, like the real Ear's list of about 120.
 VOCABULARY = ["coin pickup", "explosion", "footsteps", "laser", "calm music"]
+
+# The models' versions. A different revision means different answers, so
+# Duck Echo's answer cache keys on them.
+SCORE_REVISION = "0"
+DESCRIBE_REVISION = "0"
+
+
+class State:
+    """What the stub remembers between requests."""
+
+    describe_idle_seconds = 120.0
+    loaded = set()  # the roles loaded: "score", "describe"
+    last_describe = 0.0  # when the last describe or ask question came
+
+
+def let_go_of_an_idle_describe_model():
+    """Unload the describe model if no describe question came for a while."""
+    if "describe" not in State.loaded:
+        return
+    idle = time.monotonic() - State.last_describe
+    if idle >= State.describe_idle_seconds:
+        State.loaded.discard("describe")
+        log(
+            "stopped the describe model after %.0f s with no describe question"
+            % State.describe_idle_seconds
+        )
+
+
+def need_describe_model():
+    if "describe" not in State.loaded:
+        raise EarError(
+            "model_not_loaded",
+            'the describe model is not loaded: send load with roles ["describe"] first',
+        )
+    State.last_describe = time.monotonic()
 
 
 def log(*words):
@@ -73,7 +119,10 @@ def hello(params):
             "protocol",
             "this Ear speaks protocol %d, not %r" % (PROTOCOL, params.get("protocol")),
         )
-    log("hello; describe_idle_seconds =", params.get("describe_idle_seconds"))
+    idle = params.get("describe_idle_seconds")
+    if isinstance(idle, (int, float)) and idle > 0:
+        State.describe_idle_seconds = float(idle)
+    log("hello; describe_idle_seconds =", idle)
     return {
         "protocol": PROTOCOL,
         "ear_version": VERSION,
@@ -81,8 +130,10 @@ def hello(params):
         "device": "none",
         "device_name": "no device: the stub does not listen",
         "models": [
-            {"role": "score", "name": "stub", "revision": "0", "loaded": True},
-            {"role": "describe", "name": "stub", "revision": "0", "loaded": True},
+            {"role": "score", "name": "stub", "revision": SCORE_REVISION,
+             "loaded": "score" in State.loaded},
+            {"role": "describe", "name": "stub", "revision": DESCRIBE_REVISION,
+             "loaded": "describe" in State.loaded},
         ],
         "stub": True,
     }
@@ -92,6 +143,14 @@ def load(params):
     roles = params.get("roles", [])
     if not isinstance(roles, list):
         raise EarError("bad_params", '"roles" must be a list, such as ["score"]')
+    for role in roles:
+        if role not in ("score", "describe"):
+            raise EarError("bad_params", "there is no model for the role %r" % role)
+        if role not in State.loaded:
+            State.loaded.add(role)
+            log("loaded the %s model" % role)
+        if role == "describe":
+            State.last_describe = time.monotonic()
     return {"loaded": roles, "seconds": 0.0, "stub": True}
 
 
@@ -109,25 +168,53 @@ def score(params):
                 "match": match,
                 "rank": 1 if match > 0.5 else len(VOCABULARY),
                 "of": len(VOCABULARY) + 1,
-                "closest": VOCABULARY[:3],
             }
         )
-    return {"model": "stub@0", "scores": scores, "stub": True}
+    closest = [
+        {"text": VOCABULARY[0], "match": 0.5},
+        {"text": VOCABULARY[1], "match": 0.2},
+        {"text": VOCABULARY[2], "match": 0.1},
+    ]
+    return {
+        "model": "stub@" + SCORE_REVISION,
+        "scores": scores,
+        "closest": closest,
+        "seconds": 0.0,
+        "stub": True,
+    }
 
 
 def describe(params):
     read_wav(params)
-    return {"model": "stub@0", "text": NOT_LISTENING, "seconds": 0.0, "stub": True}
+    need_describe_model()
+    return {
+        "model": "stub@" + DESCRIBE_REVISION,
+        "text": NOT_LISTENING,
+        "seconds": 0.0,
+        "stub": True,
+    }
 
 
 def ask(params):
     read_wav(params)
-    if not isinstance(params.get("question"), str):
+    question = params.get("question")
+    if not isinstance(question, str):
         raise EarError("bad_params", '"question" must be text')
+    kind = params.get("answer", "yes_no")
+    if kind not in ("yes_no", "free"):
+        raise EarError("bad_params", '"answer" is "yes_no" or "free"')
+    need_describe_model()
+    if kind == "free":
+        return {
+            "model": "stub@" + DESCRIBE_REVISION,
+            "text": NOT_LISTENING,
+            "seconds": 0.0,
+            "stub": True,
+        }
     return {
-        "model": "stub@0",
-        "answer": "unsure",
-        "reason": NOT_LISTENING,
+        "model": "stub@" + DESCRIBE_REVISION,
+        "answer": "yes" if "coin" in question.lower() else "no",
+        "reason": NOT_LISTENING + " It says yes to any question about a coin.",
         "seconds": 0.0,
         "stub": True,
     }
@@ -163,6 +250,7 @@ def main():
             log("bye")
             return
         handler = METHODS.get(method)
+        let_go_of_an_idle_describe_model()
         try:
             if handler is None:
                 raise EarError("unknown_method", "the Ear cannot do %r" % method)

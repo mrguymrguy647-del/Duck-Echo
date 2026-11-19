@@ -9,6 +9,7 @@
 //! each comment short, concrete and agent-readable.
 
 use crate::note::Frequency;
+use crate::{Code, Issue};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -218,6 +219,71 @@ pub struct Expect {
     /// Length in seconds, `[shortest, longest]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_seconds: Option<Vec<f32>>,
+    /// What it should sound like, in words, such as `"a soft coin
+    /// pickup"` (1 to 200 characters). Only the Duck Ear can check this
+    /// line (`analyze` with `ear: true`); without it, the line is listed as
+    /// not checked, never as failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounds_like: Option<String>,
+}
+
+/// The longest `expect.sounds_like`, in characters.
+pub const MAX_SOUNDS_LIKE: usize = 200;
+
+impl Expect {
+    /// Every problem in this `expect` table, at `expect.<field>`. Shared by
+    /// recipes and songs, which both have one.
+    pub fn issues(&self) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        for (field, pair) in [
+            ("loudness_lufs", &self.loudness_lufs),
+            ("peak_dbfs", &self.peak_dbfs),
+            ("duration_seconds", &self.duration_seconds),
+        ] {
+            let Some(pair) = pair else { continue };
+            let path = format!("expect.{field}");
+            let ok = pair.len() == 2 && pair[0].is_finite() && pair[1].is_finite();
+            if !ok {
+                issues.push(
+                    Issue::error(
+                        Code::Invalid,
+                        &path,
+                        format!("`{field}` is two numbers, the lowest and the highest: [-20, -16]"),
+                    )
+                    .suggest("[-20, -16]"),
+                );
+            } else if pair[0] > pair[1] {
+                issues.push(
+                    Issue::error(
+                        Code::Invalid,
+                        &path,
+                        format!(
+                            "the lowest ({}) is above the highest ({}); write them the other way round",
+                            pair[0], pair[1]
+                        ),
+                    )
+                    .suggest(format!("[{}, {}]", pair[1], pair[0])),
+                );
+            }
+        }
+        if let Some(text) = &self.sounds_like {
+            let length = text.trim().chars().count();
+            if length == 0 || length > MAX_SOUNDS_LIKE {
+                issues.push(
+                    Issue::error(
+                        Code::Invalid,
+                        "expect.sounds_like",
+                        format!(
+                            "`sounds_like` is a few words, 1 to {MAX_SOUNDS_LIKE} characters; this is {length}"
+                        ),
+                    )
+                    .got(text.clone())
+                    .suggest("\"a soft coin pickup\""),
+                );
+            }
+        }
+        issues
+    }
 }
 
 /// Master output stage.

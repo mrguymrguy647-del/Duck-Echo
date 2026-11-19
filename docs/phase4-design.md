@@ -4,7 +4,7 @@ Status: **approved**, with questions 1 to 8 as recommended and three
 changes, written in below: the same question gets the same answer (a
 cache), `llama-server` stops after 2 minutes with no describe question,
 and the Ear ships with scores only if no describe model passes its test.
-Done so far: step 1 (the bridge and the stub).
+Done so far: steps 1 (the bridge and the stub) and 2 (what agents get, with the stub).
 
 ## 1. What we want, and why
 
@@ -137,21 +137,25 @@ goes to stderr. Audio is passed **by path**, never as bytes.
 ← {"id":1,"result":{"loaded":["score"],"seconds":3.1}}
 
 → {"id":2,"method":"score","params":{"wav":"C:\\...\\tmp\\a1.wav",
-     "texts":["a soft coin pickup"],"vocabulary":"game"}}
-← {"id":2,"result":{"model":"...","scores":[
-     {"text":"a soft coin pickup","match":0.81,"rank":2,"of":120,
-      "closest":["coin pickup","bell ding","ui confirm"]}]}}
+     "texts":["a soft coin pickup"]}}
+← {"id":2,"result":{"model":"...","seconds":0.4,
+     "scores":[{"text":"a soft coin pickup","match":0.81,"rank":2,"of":120}],
+     "closest":[{"text":"coin pickup","match":0.86},{"text":"bell ding","match":0.71}]}}
 
 → {"id":3,"method":"ask","params":{"wav":"...","question":
-     "Does this sound like a soft coin pickup?","answer":"yes_no"}}
+     "Does this sound like a soft coin pickup? ...","answer":"yes_no"}}
 ← {"id":3,"result":{"model":"...","answer":"yes",
      "reason":"A short, bright two-note chime with a quick fade.","seconds":4.2}}
 
-→ {"id":4,"method":"describe","params":{"wav":"..."}}
-← {"id":4,"result":{"model":"...","text":"A short bright chime ...","seconds":3.9}}
+→ {"id":4,"method":"ask","params":{"wav":"...","question":
+     "Is this tune calm?","answer":"free"}}
+← {"id":4,"result":{"model":"...","text":"Mostly: slow and soft, but the drums ...","seconds":5.0}}
 
-→ {"id":5,"method":"bye"}
-← {"id":5,"result":{}}            (then the Ear exits)
+→ {"id":5,"method":"describe","params":{"wav":"..."}}
+← {"id":5,"result":{"model":"...","text":"A short bright chime ...","seconds":3.9}}
+
+→ {"id":6,"method":"bye"}
+← {"id":6,"result":{}}            (then the Ear exits)
 ```
 
 * **Errors:** `{"id":2,"error":{"code":"unreadable_audio","message":"..."}}`.
@@ -246,9 +250,10 @@ always was.
 
 ### Where Duck Echo looks for the Ear
 
-In order: the CLI's and the MCP server's `--ear PROGRAM`; the environment
-variable `DUCK_ECHO_EAR`; the installed Ear (section 5). `--ear` and
-`DUCK_ECHO_EAR` are how tests point at the stub, and how a developer
+In order: the MCP server's `--ear PROGRAM` (on the command line,
+`--ear-program PROGRAM`, because `analyze --ear` already means "ask the
+Ear"); the environment variable `DUCK_ECHO_EAR`; the installed Ear
+(section 5). These are how tests point at the stub, and how a developer
 points at a `duck-ear` they are working on.
 
 ### The stub `duck-ear`
@@ -899,7 +904,7 @@ What you test on Linux:
 - [ ] `ps aux | grep duck_ear` shows nothing left after the tests.
 - [ ] The tests pass inside `unshare --net` (no network).
 
-### Step 2: what agents get, with the stub
+### Step 2: what agents get, with the stub [done]
 
 * `analyze` with `ear: true` and `--ear`; the `listen` tool and `duck-echo
   listen`; `ear_status`; the summary's advice part.
@@ -917,7 +922,7 @@ What you test on Linux:
   again**; a new model revision in `hello` misses the cache.
 
 What you test on Windows:
-- [ ] `duck-echo listen preset:coin --like "a coin" --ear ear\stub\duck_ear_stub.py` answers, marked `stub`.
+- [ ] `duck-echo listen preset:coin --like "a coin" --ear-program ear\stub\duck_ear_stub.py` answers, marked `stub`.
 - [ ] `duck-echo analyze preset:coin --ear` with no Ear says `not_installed` and still gives the numbers.
 - [ ] In Claude Code with the project's MCP server, ask it to listen to a sound: it gets the stub's answer.
 

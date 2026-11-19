@@ -317,7 +317,8 @@ fn original_definitions() -> Vec<Value> {
             "Analyze a sound",
             &format!("Measure a sound without listening: a one-line `summary`, duration, peak, loudness, clipping, silence, attack, decay, crest factor, spectral centroid (brightness), tonality, a pitch track, `energy_over_time` (RMS in 20 slices) and note `onsets` (time and pitch of each new note or burst). {LOUDNESS_NOTE} Give `path` (a WAV file, recipe or song file, or preset:NAME) or an inline `recipe`, which is rendered in memory. {EXTRAS_NOTE} {SONG_NOTE} {NOTE_CHECK_NOTE}"),
             with(with(recipe_props(), json!({
-                "path": { "type": "string", "description": "A WAV file, recipe or song file, or preset:NAME, relative to the server root. list_files shows the files." }
+                "path": { "type": "string", "description": "A WAV file, recipe or song file, or preset:NAME, relative to the server root. list_files shows the files." },
+                "ear": { "type": "boolean", "description": "Also ask the Duck Ear (an optional listening program on this PC) what it hears: an `ear` section with the words that fit the sound best, a description and, for `expect.sounds_like`, a verdict (yes, no or unsure) that the expect line then uses. The Ear's answers are advice and can be wrong; the numbers stay as they are. Without the Ear, `ear.available` is false with the reason. Default false: analyze never waits for the Ear unless asked." }
             })), extras_props()),
             &[],
             true,
@@ -973,15 +974,13 @@ fn run(
         }
         "analyze" => {
             let options = options_of(args, true)?;
-            let measure_doc = |src: Source| -> Result<measure::Measured, ToolError> {
+            let ear = opt_bool(args, "ear")?.unwrap_or(false);
+            let measure_doc = |src: Source| -> Result<measure::RecipeMeasurement, ToolError> {
                 let doc = load_doc(root, &src)?;
-                Ok(
-                    measure::measure_document(&doc, None, &options, "arguments.")
-                        .map_err(|e| e.at(src.arg()))?
-                        .measured,
-                )
+                measure::measure_document(&doc, None, &options, "arguments.")
+                    .map_err(|e| e.at(src.arg()))
             };
-            let measured = match (args.get("recipe"), opt_str(args, "path")?) {
+            let measurement = match (args.get("recipe"), opt_str(args, "path")?) {
                 (Some(_), Some(_)) => {
                     return Err(arg_error(
                         "recipe",
@@ -1005,7 +1004,8 @@ fn run(
                         let extras = options.for_wav("arguments.")?;
                         let buffer = duck_echo_tools::load_audio(&path)
                             .map_err(|e| e.at("arguments.path"))?;
-                        measure::measure_audio(&buffer, &extras)?
+                        let measured = measure::measure_audio(&buffer, &extras)?;
+                        measure::RecipeMeasurement { buffer, measured }
                     }
                 }
                 (None, None) => {
@@ -1016,6 +1016,14 @@ fn run(
                     ))
                 }
             };
+            let measure::RecipeMeasurement {
+                buffer,
+                mut measured,
+            } = measurement;
+            if ear {
+                let keeper = duck_echo_tools::ear::keeper_of(root)?;
+                duck_echo_tools::ear::add_to_analysis(&keeper, &buffer, &mut measured)?;
+            }
             let images = measured.png.clone().into_iter().collect();
             Ok((to_value(&measured), images))
         }

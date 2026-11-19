@@ -160,7 +160,11 @@ The answer's `expect` lists each line with what was wanted and what was
 measured, and the summary ends with "expect: all 2 met" or "EXPECT: 1 of
 2 met (roughness is low, wanted high)". Lines: `roughness`, `sharpness`,
 `boom`, `movement` (`low`, `medium` or `high`), and `loudness_lufs`,
-`peak_dbfs`, `duration_seconds` as `[lowest, highest]`.
+`peak_dbfs`, `duration_seconds` as `[lowest, highest]`. A song takes the
+same table. `sounds_like` (words, such as `"a soft coin pickup"`) is
+checked only by the Duck Ear, an optional listening program
+(`analyze` with `ear: true`); without it the line says "not checked" and
+never fails. The Ear's answers are advice, not truth.
 
 That growl uses an **audio-rate LFO**: `volume` and `pitch` may move up to
 2000 times a second (cutoff and duty up to 50). At 20 to 150 a second a
