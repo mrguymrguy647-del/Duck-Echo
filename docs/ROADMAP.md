@@ -1233,7 +1233,7 @@ stub `duck-ear`, with the missing-program, timeout and broken-line tests,
 come before any model. Then the `ear` section in `analyze`, and only then
 real listening models.
 
-### 14. Duck Ear bridge (`duck-echo-ear`)
+### 14. Duck Ear bridge (`duck-echo-ear`) [designed: docs/phase4-design.md, waiting for approval]
 
 * The JSON Lines protocol from `ARCHITECTURE.md`, with a stub Python
   `duck-ear` that answers `hello` and `describe` with fixed text, so the
