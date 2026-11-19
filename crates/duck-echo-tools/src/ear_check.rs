@@ -83,6 +83,108 @@ pub struct SoundResult {
     pub beaten_by: Vec<String>,
 }
 
+/// Which models `ear check` measures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    /// The score model only.
+    Score,
+    /// The describe model too: an error when the Ear has none.
+    Describe,
+    /// The score model, and the describe model when the Ear has one.
+    All,
+}
+
+/// The describe model's answer about one text, and the verdict of both
+/// models together.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TextAnswer {
+    /// `yes`, `no` or `partly`.
+    pub answer: String,
+    /// Its reason.
+    pub reason: String,
+    /// The score model's word and this answer together: `yes`, `no` or
+    /// `unsure`.
+    pub verdict: String,
+}
+
+/// What the describe model said about one sound.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Described {
+    /// The sound, as the test set names it.
+    pub file: String,
+    /// What it heard, asked before any question.
+    pub description: String,
+    /// Each true text, answered.
+    pub true_answers: BTreeMap<String, TextAnswer>,
+    /// Each wrong text, answered.
+    pub wrong_answers: BTreeMap<String, TextAnswer>,
+}
+
+/// A count of mistakes: the fewer the better.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Mistakes {
+    /// Its name.
+    pub name: String,
+    /// How many.
+    pub count: usize,
+    /// Out of how many.
+    pub of: usize,
+    /// count / of.
+    pub share: f64,
+}
+
+/// A question asked a second time, of an Ear started afresh.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AskedTwice {
+    /// The sound.
+    pub file: String,
+    /// `describe`, or the text asked about.
+    pub question: String,
+    /// The first answer.
+    pub first: String,
+    /// The second answer.
+    pub second: String,
+    /// True when both are the same words.
+    pub same: bool,
+}
+
+/// The describe model's times, in seconds (the Ear's own).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DescribeTimes {
+    /// Starting `llama-server` and loading the model, the first time.
+    pub load: f64,
+    /// Hearing a sound for the first time (`describe`): the mean.
+    pub describe_mean: f64,
+    /// The longest.
+    pub describe_longest: f64,
+    /// A yes or no question about a sound already heard: the mean.
+    pub ask_mean: f64,
+    /// The longest.
+    pub ask_longest: f64,
+}
+
+/// The describe model's part of the check.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DescribeReport {
+    /// The describe model, `name@revision`.
+    pub model: String,
+    /// Where it ran: `cpu`, `vulkan` ...
+    pub device: String,
+    /// Its measures, with their bars.
+    pub measures: Vec<Measure>,
+    /// The verdict's mistakes: a true text given a no, a wrong one a yes.
+    pub mistakes: Vec<Mistakes>,
+    /// Its times.
+    pub times: DescribeTimes,
+    /// The same questions asked again of an Ear started afresh, with no
+    /// answer cache: the words must be the same.
+    pub asked_twice: Vec<AskedTwice>,
+    /// Every sound's answers.
+    pub results: Vec<Described>,
+    /// The same, as Markdown.
+    pub table: String,
+}
+
 /// What `ear check` answers (and writes as `ear-check.json`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CheckReport {
@@ -107,6 +209,9 @@ pub struct CheckReport {
     pub measures: Vec<Measure>,
     /// The Ear's own time per sound, in seconds.
     pub seconds_per_sound: f64,
+    /// The describe model's part, when it was measured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub describe: Option<DescribeReport>,
     /// Every sound's answers.
     pub results: Vec<SoundResult>,
     /// The same, as a Markdown table, for `docs/ear-check.md`.
@@ -167,8 +272,9 @@ fn measure(name: &str, what: &str, right: usize, of: usize, bar: f64) -> Measure
     }
 }
 
-/// Run the test set at `testset` with the Ear `keeper` keeps.
-pub fn check(keeper: &EarKeeper, testset: &Path) -> Result<CheckReport, ToolError> {
+/// Run the test set at `testset` with the Ear `keeper` keeps: the score
+/// model, and with `part` the describe model too.
+pub fn check(keeper: &EarKeeper, testset: &Path, part: Part) -> Result<CheckReport, ToolError> {
     let text = std::fs::read_to_string(testset).map_err(|e| {
         ToolError::failed(
             Code::NotFound,
@@ -194,18 +300,30 @@ pub fn check(keeper: &EarKeeper, testset: &Path) -> Result<CheckReport, ToolErro
 
     let mut listening =
         Listening::begin(keeper).map_err(|u| failed(crate::ear::unavailable_words(&u)))?;
+    let with_describe = match part {
+        Part::Score => false,
+        Part::All => listening.hello.can("ask") && listening.hello.can("describe"),
+        Part::Describe => {
+            if !(listening.hello.can("ask") && listening.hello.can("describe")) {
+                return Err(failed(format!(
+                    "this Ear has no describe model to check: {}",
+                    crate::ear::not_there(&listening.hello, "describe")
+                )));
+            }
+            true
+        }
+    };
     let mut matches: Vec<BTreeMap<String, f64>> = Vec::new();
     let mut results = Vec::new();
     let mut seconds = 0.0;
+    let mut heard_sounds = Vec::new();
     for sound in &set.sound {
         let buffer = render(folder, &sound.file)?;
         let heard = keeper.sound(&buffer)?;
         let answer = listening
             .ask(&heard, "score", json!({ "texts": texts }))
-            .map_err(|missed| match missed {
-                Missed::Unavailable(u) => failed(crate::ear::unavailable_words(&u)),
-                Missed::Failed(f) => failed(format!("the Ear failed on {}: {f}", sound.file)),
-            })?;
+            .map_err(|missed| missed_error(missed, &sound.file))?;
+        heard_sounds.push(heard);
         seconds += answer["seconds"].as_f64().unwrap_or(0.0);
         let by_text: BTreeMap<String, f64> = answer["scores"]
             .as_array()
@@ -376,6 +494,29 @@ pub fn check(keeper: &EarKeeper, testset: &Path) -> Result<CheckReport, ToolErro
         seconds_per_sound
     );
     let table = table_of(&measures, &results);
+    let describe = if with_describe {
+        Some(check_describe(
+            keeper,
+            &mut listening,
+            &set,
+            &heard_sounds,
+            &matches,
+            lines,
+        )?)
+    } else {
+        None
+    };
+    let summary = match &describe {
+        None => summary,
+        Some(d) => format!(
+            "{summary}. {}: {} of {} measures reach their bar; {:.1} s to hear a sound, {:.1} s a question",
+            d.model,
+            d.measures.iter().filter(|m| m.passed).count(),
+            d.measures.len(),
+            d.times.describe_mean,
+            d.times.ask_mean
+        ),
+    };
     Ok(CheckReport {
         ok: true,
         ear_version: listening.hello.ear_version.clone(),
@@ -387,10 +528,337 @@ pub fn check(keeper: &EarKeeper, testset: &Path) -> Result<CheckReport, ToolErro
         texts: texts.len(),
         measures,
         seconds_per_sound,
+        describe,
         results,
         table,
         summary,
     })
+}
+
+fn missed_error(missed: Missed, file: &str) -> ToolError {
+    match missed {
+        Missed::Unavailable(u) => failed(crate::ear::unavailable_words(&u)),
+        Missed::Failed(f) => failed(format!("the Ear failed on {file}: {f}")),
+    }
+}
+
+/// How many sounds are asked about a second time.
+const ASKED_TWICE: usize = 4;
+
+/// The describe model's part: what it hears in each sound, its yes or no
+/// to every true and wrong text, the verdict of both models, and its
+/// times. The Ear's silence guard is off (`guard: false`), so silence and
+/// noise go to the model like any sound: a model that says "yes, a coin"
+/// to silence is not listening.
+fn check_describe(
+    keeper: &EarKeeper,
+    listening: &mut Listening,
+    set: &TestSet,
+    sounds: &[crate::ear::Sound],
+    matches: &[BTreeMap<String, f64>],
+    lines: Lines,
+) -> Result<DescribeReport, ToolError> {
+    let ask_params = |text: &str| json!({"question": crate::ear::question_for(text), "answer": "yes_no", "guard": false});
+    let mut results = Vec::new();
+    let mut describe_times = Vec::new();
+    let mut ask_times = Vec::new();
+    let mut load = 0.0;
+    for (i, sound) in set.sound.iter().enumerate() {
+        let started = std::time::Instant::now();
+        let described = listening
+            .ask(&sounds[i], "describe", json!({"guard": false}))
+            .map_err(|missed| missed_error(missed, &sound.file))?;
+        let took = described["seconds"].as_f64().unwrap_or(0.0);
+        if i == 0 {
+            // The first question also starts llama-server.
+            load = (started.elapsed().as_secs_f64() - took).max(0.0);
+        }
+        describe_times.push(took);
+        let mut answers = |texts: &[String]| -> Result<BTreeMap<String, TextAnswer>, ToolError> {
+            let mut out = BTreeMap::new();
+            for text in texts {
+                let asked = listening
+                    .ask(&sounds[i], "ask", ask_params(text))
+                    .map_err(|missed| missed_error(missed, &sound.file))?;
+                ask_times.push(asked["seconds"].as_f64().unwrap_or(0.0));
+                let answer = asked["answer"].as_str().unwrap_or_default().to_string();
+                let matched = matches[i].get(text).copied().unwrap_or(0.0);
+                let (verdict, _) = crate::ear::verdict(matched, Some(&answer), lines);
+                out.insert(
+                    text.clone(),
+                    TextAnswer {
+                        answer,
+                        reason: asked["reason"].as_str().unwrap_or_default().to_string(),
+                        verdict,
+                    },
+                );
+            }
+            Ok(out)
+        };
+        let true_answers = answers(&sound.truths)?;
+        let wrong_answers = answers(&sound.wrong)?;
+        results.push(Described {
+            file: sound.file.clone(),
+            description: described["text"].as_str().unwrap_or_default().to_string(),
+            true_answers,
+            wrong_answers,
+        });
+    }
+
+    let count = |pick: fn(&Described) -> &BTreeMap<String, TextAnswer>,
+                 word: fn(&TextAnswer) -> &String,
+                 wanted: &str| {
+        let all = results.iter().flat_map(|r| pick(r).values());
+        (
+            all.clone().filter(|a| word(a) == wanted).count(),
+            all.count(),
+        )
+    };
+    fn truths(r: &Described) -> &BTreeMap<String, TextAnswer> {
+        &r.true_answers
+    }
+    fn wrongs(r: &Described) -> &BTreeMap<String, TextAnswer> {
+        &r.wrong_answers
+    }
+    fn answer(a: &TextAnswer) -> &String {
+        &a.answer
+    }
+    fn verdict(a: &TextAnswer) -> &String {
+        &a.verdict
+    }
+    let (true_yes, true_all) = count(truths, answer, "yes");
+    let (wrong_no, wrong_all) = count(wrongs, answer, "no");
+    let mut measures = vec![
+        measure(
+            "Describe: yes on true texts",
+            "the describe model says yes to a true text",
+            true_yes,
+            true_all,
+            0.8,
+        ),
+        measure(
+            "Describe: no on wrong texts",
+            "the describe model says no to a wrong text",
+            wrong_no,
+            wrong_all,
+            0.8,
+        ),
+    ];
+    // Silence and noise: no yes to a wrong text (a coin, music ...).
+    let not_listening = |file: &str| {
+        results.iter().find(|r| r.file == file).map(|r| {
+            let yes = r
+                .wrong_answers
+                .values()
+                .filter(|a| a.answer == "yes")
+                .count();
+            (r.wrong_answers.len() - yes, r.wrong_answers.len())
+        })
+    };
+    for (name, file, what) in [
+        (
+            "Describe: silence",
+            "silence",
+            "no yes for a sound when there is only silence",
+        ),
+        (
+            "Describe: noise",
+            "noise.toml",
+            "no yes for a sound when there is only noise",
+        ),
+    ] {
+        if let Some((right, of)) = not_listening(file) {
+            measures.push(measure(name, what, right, of, 1.0));
+        }
+    }
+    let (verdict_yes, _) = count(truths, verdict, "yes");
+    let (verdict_no, _) = count(wrongs, verdict, "no");
+    measures.push(measure(
+        "Verdict: yes on true texts",
+        "both models say yes to a true text",
+        verdict_yes,
+        true_all,
+        0.8,
+    ));
+    measures.push(measure(
+        "Verdict: no on wrong texts",
+        "both models say no to a wrong text",
+        verdict_no,
+        wrong_all,
+        0.8,
+    ));
+    let mistakes = |name: &str, count: usize, of: usize| Mistakes {
+        name: name.into(),
+        count,
+        of,
+        share: round(count as f64 / of.max(1) as f64, 3),
+    };
+    let mistakes = vec![
+        mistakes(
+            "Describe: a true text said no",
+            count(truths, answer, "no").0,
+            true_all,
+        ),
+        mistakes(
+            "Describe: a wrong text said yes",
+            count(wrongs, answer, "yes").0,
+            wrong_all,
+        ),
+        mistakes(
+            "Verdict: a true text said no",
+            count(truths, verdict, "no").0,
+            true_all,
+        ),
+        mistakes(
+            "Verdict: a wrong text said yes",
+            count(wrongs, verdict, "yes").0,
+            wrong_all,
+        ),
+    ];
+
+    // The same questions again, of an Ear started afresh and with no
+    // answer cache: the words must be the same.
+    keeper.stop();
+    let mut asked_twice = Vec::new();
+    for (i, sound) in set.sound.iter().enumerate().take(ASKED_TWICE) {
+        let again = listening
+            .ask_again(&sounds[i], "describe", json!({"guard": false}))
+            .map_err(|missed| missed_error(missed, &sound.file))?;
+        let second = again["text"].as_str().unwrap_or_default().to_string();
+        asked_twice.push(AskedTwice {
+            file: sound.file.clone(),
+            question: "describe".into(),
+            same: second == results[i].description,
+            first: results[i].description.clone(),
+            second,
+        });
+        if let Some(text) = sound.truths.first() {
+            let again = listening
+                .ask_again(&sounds[i], "ask", ask_params(text))
+                .map_err(|missed| missed_error(missed, &sound.file))?;
+            let words = |answer: &str, reason: &str| format!("{answer}: {reason}");
+            let first = &results[i].true_answers[text];
+            let first = words(&first.answer, &first.reason);
+            let second = words(
+                again["answer"].as_str().unwrap_or_default(),
+                again["reason"].as_str().unwrap_or_default(),
+            );
+            asked_twice.push(AskedTwice {
+                file: sound.file.clone(),
+                question: text.clone(),
+                same: first == second,
+                first,
+                second,
+            });
+        }
+    }
+    let same = asked_twice.iter().filter(|a| a.same).count();
+    measures.push(measure(
+        "Same words twice",
+        "a question asked again of an Ear started afresh gets the same words",
+        same,
+        asked_twice.len(),
+        1.0,
+    ));
+
+    let mean = |times: &[f64]| times.iter().sum::<f64>() / times.len().max(1) as f64;
+    let longest = |times: &[f64]| times.iter().copied().fold(0.0, f64::max);
+    let times = DescribeTimes {
+        load: round(load, 1),
+        describe_mean: round(mean(&describe_times), 2),
+        describe_longest: round(longest(&describe_times), 2),
+        ask_mean: round(mean(&ask_times), 2),
+        ask_longest: round(longest(&ask_times), 2),
+    };
+    let model = listening
+        .hello
+        .models
+        .iter()
+        .find(|m| m.role == "describe")
+        .map(|m| format!("{}@{}", m.name, m.revision))
+        .unwrap_or_default();
+    let table = describe_table(&measures, &mistakes, &times, &asked_twice, &results);
+    Ok(DescribeReport {
+        model,
+        device: listening.hello.device.clone(),
+        measures,
+        mistakes,
+        times,
+        asked_twice,
+        results,
+        table,
+    })
+}
+
+/// The describe model's measures, times and wrong answers, as Markdown.
+fn describe_table(
+    measures: &[Measure],
+    mistakes: &[Mistakes],
+    times: &DescribeTimes,
+    asked_twice: &[AskedTwice],
+    results: &[Described],
+) -> String {
+    let mut out = measures_table(measures);
+    out.push_str("\n| Mistakes (fewer is better) | Count | Share |\n|---|---|---|\n");
+    for m in mistakes {
+        out.push_str(&format!(
+            "| {} | {} of {} | {:.0}% |\n",
+            m.name,
+            m.count,
+            m.of,
+            m.share * 100.0
+        ));
+    }
+    out.push_str(&format!(
+        "\n| Time | Seconds |\n|---|---|\n| Starting llama-server and loading the model | {:.1} |\n\
+         | Hearing a sound the first time (mean, longest) | {:.1}, {:.1} |\n\
+         | A yes or no question about a sound already heard (mean, longest) | {:.1}, {:.1} |\n",
+        times.load, times.describe_mean, times.describe_longest, times.ask_mean, times.ask_longest
+    ));
+    for a in asked_twice.iter().filter(|a| !a.same) {
+        out.push_str(&format!(
+            "\nNot the same twice: `{}`, {}: first \"{}\", then \"{}\".\n",
+            a.file, a.question, a.first, a.second
+        ));
+    }
+    out.push_str(
+        "\n| Sound | What the describe model heard | True texts not given a yes | Wrong texts given a yes |\n|---|---|---|---|\n",
+    );
+    for r in results {
+        let list = |answers: &BTreeMap<String, TextAnswer>, bad: fn(&str) -> bool| {
+            answers
+                .iter()
+                .filter(|(_, a)| bad(&a.answer))
+                .map(|(t, a)| format!("{t} ({})", a.answer))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        out.push_str(&format!(
+            "| `{}` | {} | {} | {} |\n",
+            r.file,
+            r.description.replace('|', "/"),
+            list(&r.true_answers, |a| a != "yes"),
+            list(&r.wrong_answers, |a| a == "yes"),
+        ));
+    }
+    out
+}
+
+fn measures_table(measures: &[Measure]) -> String {
+    let mut out =
+        String::from("| Measure | Right | Share | Bar | Reached |\n|---|---|---|---|---|\n");
+    for m in measures {
+        out.push_str(&format!(
+            "| {} | {} of {} | {:.0}% | {:.0}% | {} |\n",
+            m.name,
+            m.right,
+            m.of,
+            m.share * 100.0,
+            m.bar * 100.0,
+            if m.passed { "yes" } else { "no" }
+        ));
+    }
+    out
 }
 
 /// The lines that serve both bars best on `said` (each text's match, and
@@ -434,19 +902,7 @@ fn best_lines(said: &[(f64, bool)]) -> Lines {
 
 /// The measures, and the sounds the Ear got wrong, as Markdown.
 fn table_of(measures: &[Measure], results: &[SoundResult]) -> String {
-    let mut out =
-        String::from("| Measure | Right | Share | Bar | Reached |\n|---|---|---|---|---|\n");
-    for m in measures {
-        out.push_str(&format!(
-            "| {} | {} of {} | {:.0}% | {:.0}% | {} |\n",
-            m.name,
-            m.right,
-            m.of,
-            m.share * 100.0,
-            m.bar * 100.0,
-            if m.passed { "yes" } else { "no" }
-        ));
-    }
+    let mut out = measures_table(measures);
     let missed: Vec<&SoundResult> = results.iter().filter(|r| !r.beaten_by.is_empty()).collect();
     if !missed.is_empty() {
         out.push_str("\n| Sound | True text (match) | Wrong text at least as high (match) |\n|---|---|---|\n");
@@ -500,6 +956,13 @@ pub fn write(report: &CheckReport, out: &Path) -> Result<(), ToolError> {
         report.suggested_lines.no_below,
         report.table
     );
+    let md = match &report.describe {
+        None => md,
+        Some(d) => format!(
+            "{md}\n## The describe model\n\nModel: `{}` on `{}`.\n\n{}",
+            d.model, d.device, d.table
+        ),
+    };
     std::fs::write(out.join("ear-check.md"), md).map_err(io)?;
     Ok(())
 }

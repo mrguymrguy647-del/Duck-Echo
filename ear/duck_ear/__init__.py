@@ -2,4 +2,4 @@
 what it hears. Duck Echo starts it and talks to it in JSON Lines (see
 docs/phase4-design.md, section 3). Step 3 of the design: the score model."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

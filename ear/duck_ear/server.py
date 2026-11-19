@@ -1,15 +1,17 @@
 """The Duck Ear's main loop: JSON Lines in on stdin, out on stdout.
 
 The protocol is in docs/phase4-design.md, section 3 (and the stub,
-ear/stub/duck_ear_stub.py, answers the same way without models). This
-Ear has the score model only (step 3 of the design); `describe` and `ask`
-come with step 4, and until then they answer that they are not available
-yet. Like every Ear, it exits as soon as its stdin closes, and it writes
-its log to stderr, never to stdout.
+ear/stub/duck_ear_stub.py, answers the same way without models). The
+score model answers `score`; the describe model, when one is installed
+with `llama-server`, answers `describe` and `ask` (see describe.py).
+Without one they answer `not_available`, and `hello` says why. Like every
+Ear, it exits as soon as its stdin closes (and stops `llama-server`
+first), and it writes its log to stderr, never to stdout.
 
 Where the score model is: the folder `DUCK_EAR_SCORE_MODEL` names, else
 `<the Ear's folder>/models/score`, where the Ear's folder is
 `DUCK_ECHO_EAR_HOME`, else the usual place (the same rule as Duck Echo's).
+Where the describe model and `llama-server` are: see describe.py.
 """
 
 import hashlib
@@ -21,11 +23,16 @@ from pathlib import Path
 
 from . import __version__
 from . import audio as ear_audio
+from . import describe as ear_describe
 from . import guard
 from .words import WORDS_VERSION
 
 PROTOCOL = 1
-NOT_YET = "the describe model comes with step 4 of the Duck Ear (docs/phase4-design.md): not available yet"
+# Why there may be no describe model: the Small Ear has none.
+SCORES_ONLY = (
+    "no describe model is installed. The Small Ear gives scores only: no small describe model "
+    "has passed Duck Echo's listening test yet (docs/ear-check.md)"
+)
 
 
 def log(*words):
@@ -60,6 +67,26 @@ class Ear:
         self.folder = score_model_folder()
         self.info = self._read_info()
         self.model = None
+        self.describer, self.no_describer = self._find_describer()
+
+    def _find_describer(self):
+        """The describe model's keeper, or why there is none."""
+        home = ear_home()
+        folder = ear_describe.model_folder(home)
+        info = ear_describe.read_info(folder)
+        if info is None:
+            return None, "%s (looked in %s; ear/tools/get_describe_model.py gets one)" % (SCORES_ONLY, folder)
+        program = ear_describe.server_program(home)
+        if program is None:
+            return None, (
+                "there is a describe model, but no llama-server to run it "
+                "(set DUCK_EAR_LLAMA_SERVER to the program, or put it in %s)" % (home / "llama")
+            )
+        return ear_describe.Describer(program, folder, info, home, log=log), None
+
+    def close(self):
+        if self.describer is not None:
+            self.describer.close()
 
     def _read_info(self):
         try:
@@ -93,15 +120,40 @@ class Ear:
                 model["no_below"] = lines["no_below"]
             models.append(model)
         log("hello; score model:", self.folder if self.info else "none at %s" % self.folder)
-        return {
+        answer = {
             "protocol": PROTOCOL,
             "ear_version": __version__,
             "capabilities": ["score"] if self.info is not None else [],
+            # The score model always runs on the CPU. `device` is where
+            # the describe model runs: it is the slow one.
             "device": "cpu",
             "device_name": "CPU (ONNX Runtime %s)" % onnxruntime.__version__,
             "models": models,
-            "not_available": {"describe": NOT_YET, "ask": NOT_YET},
         }
+        if self.describer is None:
+            answer["not_available"] = {"describe": self.no_describer, "ask": self.no_describer}
+            return answer
+        idle = params.get("describe_idle_seconds")
+        if isinstance(idle, (int, float)) and idle > 0:
+            self.describer.idle_seconds = float(idle)
+        device, name, memory = self.describer.device()
+        answer["capabilities"] += ["describe", "ask"]
+        answer["device"] = device
+        answer["device_name"] = "%s for the describe model; the score model on the CPU" % name
+        if memory is not None:
+            answer["device_memory_mb"] = memory
+        info = self.describer.info
+        models.append(
+            {
+                "role": "describe",
+                "name": info.get("name", "describe"),
+                "revision": self.describer.revision(),
+                "loaded": self.describer.loaded(),
+                "size": info.get("size"),
+            }
+        )
+        log("hello; describe model: %s on %s" % (info.get("name"), name))
+        return answer
 
     def load(self, params):
         roles = params.get("roles", [])
@@ -112,7 +164,7 @@ class Ear:
             if role == "score":
                 self._score_model()
             elif role == "describe":
-                raise EarError("model_missing", NOT_YET)
+                self._describer().load()
             else:
                 raise EarError("bad_params", "there is no model for the role %r" % role)
         return {"loaded": roles, "seconds": round(time.monotonic() - started, 3)}
@@ -150,8 +202,41 @@ class Ear:
         answer["seconds"] = round(time.monotonic() - started, 3)
         return answer
 
-    def not_yet(self, params):
-        raise EarError("not_available", NOT_YET)
+    def _describer(self):
+        if self.describer is None:
+            raise EarError("not_available", self.no_describer)
+        return self.describer
+
+    def _wav_of(self, params):
+        path = params.get("wav")
+        if not isinstance(path, str):
+            raise EarError("bad_params", '"wav" must be the path of a WAV file')
+        return path
+
+    def _described(self, answer, started):
+        describer = self.describer
+        answer["model"] = "%s@%s" % (describer.info.get("name", "describe"), describer.revision())
+        answer["seconds"] = round(time.monotonic() - started, 3)
+        return answer
+
+    def describe(self, params):
+        describer = self._describer()
+        path = self._wav_of(params)
+        started = time.monotonic()
+        return self._described(describer.describe(path, guard=params.get("guard", True) is not False), started)
+
+    def ask(self, params):
+        describer = self._describer()
+        path = self._wav_of(params)
+        question = params.get("question")
+        if not isinstance(question, str) or not question.strip():
+            raise EarError("bad_params", '"question" must be text')
+        kind = params.get("answer", "yes_no")
+        if kind not in ("yes_no", "free"):
+            raise EarError("bad_params", '"answer" is "yes_no" or "free"')
+        started = time.monotonic()
+        said = describer.ask(path, question.strip(), kind, guard=params.get("guard", True) is not False)
+        return self._described(said, started)
 
 
 def send(message):
@@ -168,9 +253,16 @@ def main():
         "hello": ear.hello,
         "load": ear.load,
         "score": ear.score,
-        "describe": ear.not_yet,
-        "ask": ear.not_yet,
+        "describe": ear.describe,
+        "ask": ear.ask,
     }
+    try:
+        serve(ear, methods)
+    finally:
+        ear.close()  # llama-server never outlives the Ear
+
+
+def serve(ear, methods):
     for line in sys.stdin:  # ends when stdin closes
         line = line.strip()
         if not line:
@@ -192,8 +284,9 @@ def main():
             if handler is None:
                 raise EarError("unknown_method", "the Ear cannot do %r" % method)
             send({"id": request_id, "result": handler(params)})
-        except EarError as error:
-            send({"id": request_id, "error": {"code": error.code, "message": error.message}})
+        except (EarError, ear_describe.DescribeError, ear_audio.AudioError) as error:
+            code = getattr(error, "code", "unreadable_audio")
+            send({"id": request_id, "error": {"code": code, "message": str(error)}})
         except Exception as error:  # a bug: say so, and carry on
             log("internal error in %s: %r" % (method, error))
             send({"id": request_id, "error": {"code": "internal", "message": repr(error)[:500]}})

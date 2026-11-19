@@ -119,6 +119,10 @@ enum Command {
         /// The score model only: quick, no description and no answers.
         #[arg(long)]
         quick: bool,
+        /// Also list the Ear's own words that fit best (often wrong for
+        /// short sounds, so off unless asked for).
+        #[arg(long)]
+        closest: bool,
         /// Render with this seed.
         #[arg(long)]
         seed: Option<u64>,
@@ -337,6 +341,11 @@ enum EarAction {
         /// Where to write ear-check.json and ear-check.md.
         #[arg(long, default_value = "ear-check")]
         out: PathBuf,
+        /// Which models to measure: `score`, `describe` (the describe
+        /// model too; an error when the Ear has none), or `all` (the
+        /// describe model too when the Ear has one).
+        #[arg(long, default_value = "all", value_parser = ["score", "describe", "all"])]
+        part: String,
         /// The Duck Ear program. Default: DUCK_ECHO_EAR, or the installed
         /// Ear.
         #[arg(long, value_name = "PROGRAM")]
@@ -540,6 +549,7 @@ fn main() -> ExitCode {
             ask,
             compare_with,
             quick,
+            closest,
             seed,
             solo,
             mute,
@@ -560,6 +570,9 @@ fn main() -> ExitCode {
             }
             if quick {
                 args["quick"] = true.into();
+            }
+            if closest {
+                args["closest"] = true.into();
             }
             if let Some(seed) = seed {
                 args["seed"] = seed.into();
@@ -584,10 +597,11 @@ fn main() -> ExitCode {
                 EarAction::Check {
                     testset,
                     out,
+                    part,
                     ear_program,
                     json,
                 },
-        } => ear_check(&testset, &out, ear_program, json),
+        } => ear_check(&testset, &out, &part, ear_program, json),
         Command::Compare { a, b, compact } => {
             let a = duck_echo_tools::load_audio(&a).map_err(|e| e.at("a"));
             let b = duck_echo_tools::load_audio(&b).map_err(|e| e.at("b"));
@@ -809,6 +823,21 @@ fn listen(
             if let Some(text) = v["ear"]["description"].as_str() {
                 println!("description: {text}");
             }
+            let closest: Vec<String> = v["ear"]["closest"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|c| {
+                    Some(format!(
+                        "{} ({:.2})",
+                        c["text"].as_str()?,
+                        c["match"].as_f64()?
+                    ))
+                })
+                .collect();
+            if !closest.is_empty() {
+                println!("closest words: {}", closest.join(", "));
+            }
             for like in v["like"].as_array().into_iter().flatten() {
                 if let Some(reason) = like["reason"].as_str() {
                     println!(
@@ -859,9 +888,21 @@ fn ear_status(ear_program: Option<PathBuf>, json: bool) -> ExitCode {
 }
 
 /// `duck-echo ear check`.
-fn ear_check(testset: &Path, out: &Path, ear_program: Option<PathBuf>, json: bool) -> ExitCode {
+fn ear_check(
+    testset: &Path,
+    out: &Path,
+    part: &str,
+    ear_program: Option<PathBuf>,
+    json: bool,
+) -> ExitCode {
+    use duck_echo_tools::ear_check::Part;
+    let part = match part {
+        "score" => Part::Score,
+        "describe" => Part::Describe,
+        _ => Part::All,
+    };
     let result = ear_keeper(ear_program).and_then(|keeper| {
-        let report = duck_echo_tools::ear_check::check(&keeper, testset)?;
+        let report = duck_echo_tools::ear_check::check(&keeper, testset, part)?;
         duck_echo_tools::ear_check::write(&report, out)?;
         Ok(report)
     });
@@ -879,6 +920,12 @@ fn ear_check(testset: &Path, out: &Path, ear_program: Option<PathBuf>, json: boo
             println!();
             print!("{}", report.table);
             println!();
+            if let Some(describe) = &report.describe {
+                println!("The describe model, {}:", describe.model);
+                println!();
+                print!("{}", describe.table);
+                println!();
+            }
             println!("wrote {}", out.join("ear-check.json").display());
             println!("wrote {}", out.join("ear-check.md").display());
             ExitCode::SUCCESS

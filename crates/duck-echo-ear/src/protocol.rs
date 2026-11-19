@@ -48,6 +48,10 @@ pub struct Hello {
     /// The device in words, such as "NVIDIA GeForce RTX 4060 (8 GB)".
     #[serde(default)]
     pub device_name: Option<String>,
+    /// The graphics card's memory in MB, when the describe model runs on
+    /// one.
+    #[serde(default)]
+    pub device_memory_mb: Option<u64>,
     /// Its models, one per role.
     pub models: Vec<Model>,
     /// True for the stub Ear, which never really listens.
@@ -85,6 +89,10 @@ pub struct Model {
     /// For a score model: below this `match`, the score says no.
     #[serde(default)]
     pub no_below: Option<f64>,
+    /// For a describe model: the Ear's size it belongs to (`full`,
+    /// `large` ...).
+    #[serde(default)]
+    pub size: Option<String>,
 }
 
 /// A progress line: the Ear is still working on a request. It never gives

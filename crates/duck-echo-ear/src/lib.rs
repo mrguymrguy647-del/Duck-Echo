@@ -282,6 +282,7 @@ impl Ear {
                 capabilities: Vec::new(),
                 device: String::new(),
                 device_name: None,
+                device_memory_mb: None,
                 models: Vec::new(),
                 stub: false,
                 not_available: Default::default(),

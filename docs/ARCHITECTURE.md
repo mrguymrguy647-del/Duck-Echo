@@ -97,6 +97,8 @@ ear/stub/                  the stub Duck Ear (Python, standard library only):
                            the protocol with no models, for tests
 ear/duck_ear/              the real Duck Ear (Python: numpy, ONNX Runtime,
                            tokenizers), with its tests in ear/tests/
+ear/tools/                 get_describe_model.py: a person downloads a
+                           describe model with it, checked by SHA-256
 ear/convert/               converts the score models to ONNX and checks
                            them (PyTorch; run once, by builders)
 ear/testset/               sounds with known answers, for `ear check`
@@ -791,13 +793,24 @@ the bridge; `duck-echo-tools` decides what to ask (step 2).
 * **`duck-echo ear check`** (`ear_check.rs`): renders every sound of a
   test set, asks the Ear to score every text, and measures the parts in
   `docs/phase4-design.md` section 8 against their bars. It suggests yes
-  and no lines, and writes `ear-check.json` and `ear-check.md`.
+  and no lines, and writes `ear-check.json` and `ear-check.md`. When the
+  Ear has a describe model (`--part all`, the default, or `--part
+  describe`), it also asks what the model hears in every sound and a yes
+  or no for every true and wrong text, and measures: yes on true texts,
+  no on wrong texts, silence and noise, the verdict of both models with
+  its mistakes, the same words when asked again of an Ear started
+  afresh, and the times.
+* **`closest`** (the Ear's own words that fit a sound best) is left out
+  of `listen`'s answer and summary unless asked for with `closest: true`
+  (`--closest`), and `analyze` never gives it: for short sounds it is
+  often wrong (`docs/ear-check.md`).
 
 ### The real Ear (`ear/duck_ear/`)
 
-A Python package, run as `duck-ear` (`duck_ear.server:main`). Step 3 has
-the score model; `describe` and `ask` answer `not_available`, and `hello`
-says why in `not_available`.
+A Python package, run as `duck-ear` (`duck_ear.server:main`). The score
+model answers `score`. The describe model, when one is installed with
+`llama-server`, answers `describe` and `ask`; without one they answer
+`not_available`, and `hello` says why in `not_available`.
 
 * **No PyTorch.** The models run in ONNX Runtime. The audio is prepared
   in numpy (`audio.py`: the WAV reader, a sinc resampler and the mel
@@ -819,6 +832,44 @@ says why in `not_available`.
   `pyproject.toml`, so the Ear never needs PyTorch.
 * **Nothing leaves the PC** (`guard.py`): an audit hook refuses every
   connection and name lookup that is not to this PC.
+* **The describe model** (`describe.py`): the Ear starts `llama-server`
+  (llama.cpp) on `127.0.0.1` with `--offline`, a free port and its own
+  log file (`llama-server.log`; never the Ear's pipes), and talks to its
+  `/v1/chat/completions`. No new Python library: the standard library's
+  `http.client`. The sound goes as data in the request (one channel, 16
+  kHz, 16-bit, padded with silence to at least 1 second).
+  * **Evidence first, in two turns.** First "What do you hear?", with no
+    hint; `describe` returns those words. A question (`ask`) is a second
+    turn after the model's own words. Asked in one turn, these models
+    hear whatever the question names. `llama-server` keeps what it worked
+    out for a sound (`cache_prompt`), so a second question about the same
+    sound does not listen to it all again.
+  * **The same words each time**: temperature 0, `top_k` 1, seed 42, and
+    a yes or no answer forced into the shape `{"answer": "yes" | "no" |
+    "partly", "reason": "..."}` (a JSON schema, which `llama-server` turns
+    into a grammar).
+  * **The graphics card is let go**: a thread stops `llama-server` after
+    `describe_idle_seconds` (120) with no describe question; `describe`
+    and `ask` then answer `model_not_loaded` until the next `load`, which
+    Duck Echo sends before each of them. The Ear stops it too when its
+    stdin closes.
+  * **Device**: `llama-server --list-devices` names the graphics cards
+    and their memory; the biggest is used, and `hello` reports it
+    (`device`, `device_name`, `device_memory_mb`). If `llama-server` will
+    not start on the card, it is started on the CPU (`--device none`) and
+    `hello` says why. `DUCK_EAR_DEVICE=cpu` asks for the CPU.
+  * **Silence** (peak below -60 dBFS) is answered without the model,
+    unless a request says `guard: false` (`ear check` does, to see what
+    the model itself says to silence).
+* **Three sizes** (`catalog.py`): Small has no describe model (scores
+  only), Full is Qwen2.5-Omni-7B, Large is Qwen3-Omni-30B-A3B, offered
+  only when a graphics card with 16 GB or more is found. Each model is
+  two GGUF files at a pinned Hugging Face revision with their sizes and
+  SHA-256. `ear/tools/get_describe_model.py` (run by a person) downloads
+  one, checks it, writes its `model.json`, and names it in
+  `models/describe.txt`, which is the model the Ear uses
+  (`DUCK_EAR_DESCRIBE_MODEL` names another folder). The installer of step
+  5 takes this over.
 * **`analyze` with `ear: true`** adds an `ear` section after the numbers
   (which do not change), puts the verdict on `expect.sounds_like`, and
   ends the summary with the Ear's words, marked as advice (or "stub, not

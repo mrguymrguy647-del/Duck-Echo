@@ -166,6 +166,17 @@ checked only by the Duck Ear, an optional listening program
 (`analyze` with `ear: true`); without it the line says "not checked" and
 never fails. The Ear's answers are advice, not truth.
 
+Ask the Ear about the words *you* mean: `listen` with `like` (one or
+more texts), or `expect.sounds_like`. Comparing two sounds on one text
+(`compare_with`) is what it does best. Do not ask it to name a sound:
+its own list of the words that fit best (`closest`) is left out unless
+you ask for it with `closest: true`, because for short sounds it is
+often wrong. For the coin preset its first three words were "speech",
+"footsteps on gravel" and "birds", with "coin pickup" fourth. A sound
+of a third of a second gives the model little to go on, and it has
+probably heard far more recordings of speech and birds than game sounds. The
+measured results are in `docs/ear-check.md`.
+
 That growl uses an **audio-rate LFO**: `volume` and `pitch` may move up to
 2000 times a second (cutoff and duty up to 50). At 20 to 150 a second a
 volume LFO is a growl or a rasp (it reads as `roughness`); faster, it

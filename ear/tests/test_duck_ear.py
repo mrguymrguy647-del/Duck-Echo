@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -145,8 +146,13 @@ class ScoresYouCanRead(unittest.TestCase):
         self.assertGreaterEqual(len(WORDS), 80)
 
 
-def start_ear(model_folder):
-    env = dict(os.environ, DUCK_EAR_SCORE_MODEL=str(model_folder))
+def start_ear(model_folder, **more):
+    """Start the Ear with its score model in `model_folder` (and its own
+    folder there too, so no installed model is found by accident)."""
+    env = dict(os.environ, DUCK_EAR_SCORE_MODEL=str(model_folder), DUCK_ECHO_EAR_HOME=str(model_folder))
+    for name in ("DUCK_EAR_DESCRIBE_MODEL", "DUCK_EAR_LLAMA_SERVER", "DUCK_EAR_DEVICE"):
+        env.pop(name, None)
+    env.update(more)
     return subprocess.Popen(
         [sys.executable, "-m", "duck_ear.server"],
         cwd=str(EAR),
@@ -202,10 +208,13 @@ class TheEarWithNoModel(unittest.TestCase):
         self.assertEqual(error["code"], "model_missing")
         self.assertIn("DUCK_EAR_SCORE_MODEL", error["message"])
 
-    def test_describe_and_ask_are_not_available_yet(self):
-        for i, method in enumerate(["describe", "ask"]):
-            self.assertEqual(ask(self.ear, i, method, {"wav": "x.wav"})["error"]["code"], "not_available")
-        self.assertEqual(ask(self.ear, 2, "load", {"roles": ["describe"]})["error"]["code"], "model_missing")
+    def test_describe_and_ask_are_not_available_without_a_describe_model(self):
+        for i, (method, params) in enumerate(
+            [("describe", {"wav": "x.wav"}), ("ask", {"wav": "x.wav"}), ("load", {"roles": ["describe"]})]
+        ):
+            error = ask(self.ear, i, method, params)["error"]
+            self.assertEqual(error["code"], "not_available")
+            self.assertIn("scores only", error["message"])
 
     def test_bad_requests(self):
         self.assertEqual(ask(self.ear, 0, "sing")["error"]["code"], "unknown_method")
@@ -218,6 +227,236 @@ class TheEarWithNoModel(unittest.TestCase):
     def test_it_ends_when_stdin_closes(self):
         self.ear.stdin.close()
         self.assertEqual(self.ear.wait(timeout=30), 0)
+
+
+FAKE_LLAMA = Path(__file__).resolve().parent / "fake_llama_server.py"
+
+
+def alive(pid):
+    """Is the process `pid` still running?"""
+    if os.name == "nt":
+        out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"], capture_output=True, text=True).stdout
+        return str(pid) in out
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    # A stopped child the Ear has not collected yet still has a pid.
+    try:
+        with open("/proc/%d/stat" % pid) as file:
+            return file.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return True
+
+
+def gone(pid, within=10.0):
+    deadline = time.monotonic() + within
+    while time.monotonic() < deadline:
+        if not alive(pid):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+class TheDescribeModel(unittest.TestCase):
+    """The Ear driving llama-server: here a pretend one, with no model."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        home = Path(self.folder.name)
+        model = home / "models" / "describe"
+        model.mkdir(parents=True)
+        (model / "pretend.gguf").write_bytes(b"GGUF")
+        (model / "mmproj-pretend.gguf").write_bytes(b"GGUF")
+        (model / "model.json").write_text(
+            json.dumps(
+                {
+                    "name": "pretend-model",
+                    "size": "full",
+                    "revision": "0123456789abcdef",
+                    "files": {"model": "pretend.gguf", "mmproj": "mmproj-pretend.gguf"},
+                }
+            )
+        )
+        self.log = home / "fake-llama.log"
+        self.coin = str(home / "coin.wav")
+        t = np.arange(4410) / 44100  # a tenth of a second
+        write_wav(self.coin, (0.5 * np.sin(2 * math.pi * 1000 * t))[:, None], 44100, 1, 16)
+        self.ear = None
+
+    def start(self, **more):
+        self.ear = start_ear(
+            self.folder.name, DUCK_EAR_LLAMA_SERVER=str(FAKE_LLAMA), FAKE_LLAMA_LOG=str(self.log), **more
+        )
+        self.addCleanup(self.stop)
+        return self.ear
+
+    def stop(self):
+        # Politely (closing stdin), so the Ear stops its llama-server too.
+        # Killed outright, only Duck Echo's process group or job object
+        # would stop that one.
+        if not self.ear.stdin.closed:
+            self.ear.stdin.close()
+        try:
+            self.ear.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            self.ear.kill()
+            self.ear.wait(timeout=30)
+        for pipe in (self.ear.stdout, self.ear.stderr):
+            pipe.close()
+
+    def events(self, kind):
+        if not self.log.exists():
+            return []
+        lines = [json.loads(line) for line in self.log.read_text().splitlines()]
+        return [e for e in lines if e["event"] == kind]
+
+    def test_hello_names_the_describe_model_and_its_size(self):
+        hello = ask(self.start(), 0, "hello", {"protocol": 1})["result"]
+        self.assertEqual(hello["capabilities"], ["describe", "ask"])
+        self.assertNotIn("not_available", hello)
+        self.assertEqual(hello["device"], "cpu")
+        (model,) = hello["models"]
+        self.assertEqual((model["role"], model["name"], model["size"]), ("describe", "pretend-model", "full"))
+        self.assertEqual(model["revision"], "0123456789ab+pretend+prompts1")
+        self.assertFalse(model["loaded"])
+        self.assertEqual(self.events("start"), [], "hello starts no llama-server")
+
+    def test_describe_needs_load_first(self):
+        error = ask(self.start(), 0, "describe", {"wav": self.coin})["error"]
+        self.assertEqual(error["code"], "model_not_loaded")
+
+    def test_llama_server_is_started_for_this_pc_only_with_a_fixed_seed(self):
+        ear = self.start()
+        self.assertEqual(ask(ear, 0, "load", {"roles": ["describe"]})["result"]["loaded"], ["describe"])
+        (start,) = self.events("start")
+        arguments = start["arguments"]
+        for option, value in [("--host", "127.0.0.1"), ("--seed", "42"), ("-np", "1"), ("--device", "none")]:
+            self.assertEqual(arguments[arguments.index(option) + 1], value, option)
+        self.assertIn("--offline", arguments)
+        self.assertTrue(arguments[arguments.index("-m") + 1].endswith("pretend.gguf"))
+        self.assertTrue(arguments[arguments.index("--mmproj") + 1].endswith("mmproj-pretend.gguf"))
+        self.assertTrue(ask(ear, 1, "hello", {"protocol": 1})["result"]["models"][0]["loaded"])
+        # A second load starts nothing new.
+        ask(ear, 2, "load", {"roles": ["describe"]})
+        self.assertEqual(len(self.events("start")), 1)
+
+    def test_describe_asks_what_is_heard_with_no_hint(self):
+        ear = self.start()
+        ask(ear, 0, "load", {"roles": ["describe"]})
+        said = ask(ear, 1, "describe", {"wav": self.coin})["result"]
+        self.assertEqual(said["text"], "A pretend description.")
+        self.assertEqual(said["model"], "pretend-model@0123456789ab+pretend+prompts1")
+        (chat,) = self.events("chat")
+        self.assertEqual((chat["temperature"], chat["top_k"], chat["seed"]), (0, 1, 42))
+        (turn,) = chat["messages"]
+        sound, words = turn["content"]
+        # A tenth of a second is padded to one second, at 16 kHz, mono.
+        self.assertEqual(sound["audio"], {"seconds": 1.0, "rate": 16000, "channels": 1})
+        self.assertIn("What do you hear?", words)
+        self.assertIn("0.1 seconds long", words)
+
+    def test_a_question_comes_only_after_the_evidence(self):
+        ear = self.start()
+        ask(ear, 0, "load", {"roles": ["describe"]})
+        question = "Does this sound like a coin pickup? Answer yes, no or partly, then say why in one sentence."
+        said = ask(ear, 1, "ask", {"wav": self.coin, "question": question})["result"]
+        self.assertEqual((said["answer"], said["reason"]), ("yes", "A pretend reason."))
+        self.assertEqual(said["heard"], "A pretend description.")
+        first, second = self.events("chat")
+        # First the model says what it hears, and the question is not there.
+        self.assertEqual(len(first["messages"]), 1)
+        self.assertNotIn("coin", json.dumps(first["messages"]))
+        # Then the question, after its own words.
+        roles = [m["role"] for m in second["messages"]]
+        self.assertEqual(roles, ["user", "assistant", "user"])
+        self.assertEqual(second["messages"][0], first["messages"][0])
+        self.assertEqual(second["messages"][1]["content"], "A pretend description.")
+        self.assertIn(question, second["messages"][2]["content"])
+        self.assertIn("response_format", second)
+        # Another question about the same sound does not ask what is heard again.
+        said = ask(ear, 2, "ask", {"wav": self.coin, "question": "Does this sound like an explosion?"})["result"]
+        self.assertEqual(said["answer"], "no")
+        self.assertEqual(len(self.events("chat")), 3)
+        said = ask(ear, 3, "ask", {"wav": self.coin, "question": "Is it soft?", "answer": "free"})["result"]
+        self.assertEqual(said["text"], "A pretend answer.")
+
+    def test_silence_is_not_given_to_the_model_unless_asked(self):
+        silent = str(Path(self.folder.name) / "silent.wav")
+        write_wav(silent, np.zeros((22050, 1)), 44100, 1, 16)
+        ear = self.start()
+        ask(ear, 0, "load", {"roles": ["describe"]})
+        said = ask(ear, 1, "describe", {"wav": silent})["result"]
+        self.assertEqual((said["text"], said["silent"]), ("Silence: nothing can be heard.", True))
+        said = ask(ear, 2, "ask", {"wav": silent, "question": "Does this sound like a coin pickup?"})["result"]
+        self.assertEqual(said["answer"], "no")
+        said = ask(ear, 3, "ask", {"wav": silent, "question": "Does this sound like silence?"})["result"]
+        self.assertEqual(said["answer"], "yes")
+        self.assertEqual(self.events("chat"), [])
+        # The check turns the guard off, to see what the model itself says.
+        said = ask(ear, 4, "describe", {"wav": silent, "guard": False})["result"]
+        self.assertEqual(said["text"], "A pretend description.")
+        self.assertEqual(len(self.events("chat")), 1)
+
+    def test_the_model_is_let_go_after_a_while_and_comes_back(self):
+        ear = self.start()
+        ask(ear, 0, "hello", {"protocol": 1, "describe_idle_seconds": 0.4})
+        ask(ear, 1, "load", {"roles": ["describe"]})
+        ask(ear, 2, "describe", {"wav": self.coin})
+        pid = self.events("start")[0]["pid"]
+        self.assertTrue(alive(pid))
+        self.assertTrue(gone(pid), "llama-server still runs after the idle time")
+        self.assertFalse(ask(ear, 3, "hello", {"protocol": 1})["result"]["models"][0]["loaded"])
+        self.assertEqual(ask(ear, 4, "describe", {"wav": self.coin})["error"]["code"], "model_not_loaded")
+        ask(ear, 5, "load", {"roles": ["describe"]})
+        self.assertEqual(ask(ear, 6, "describe", {"wav": self.coin})["result"]["text"], "A pretend description.")
+        self.assertEqual(len(self.events("start")), 2)
+
+    def test_llama_server_stops_when_the_ear_stops(self):
+        ear = self.start()
+        ask(ear, 0, "load", {"roles": ["describe"]})
+        pid = self.events("start")[0]["pid"]
+        ear.stdin.close()
+        self.assertEqual(ear.wait(timeout=30), 0)
+        self.assertTrue(gone(pid), "llama-server outlived the Ear")
+
+    def test_a_graphics_card_is_used_when_there_is_one(self):
+        card = "Vulkan0: Pretend Card (24564 MiB, 24000 MiB free)"
+        ear = self.start(FAKE_LLAMA_DEVICES=card)
+        hello = ask(ear, 0, "hello", {"protocol": 1})["result"]
+        self.assertEqual((hello["device"], hello["device_memory_mb"]), ("vulkan", 24564))
+        self.assertIn("Pretend Card", hello["device_name"])
+        ask(ear, 1, "load", {"roles": ["describe"]})
+        self.assertNotIn("--device", self.events("start")[0]["arguments"])
+
+    def test_cpu_only_can_be_asked_for(self):
+        card = "Vulkan0: Pretend Card (24564 MiB, 24000 MiB free)"
+        ear = self.start(FAKE_LLAMA_DEVICES=card, DUCK_EAR_DEVICE="cpu")
+        self.assertEqual(ask(ear, 0, "hello", {"protocol": 1})["result"]["device"], "cpu")
+        ask(ear, 1, "load", {"roles": ["describe"]})
+        arguments = self.events("start")[0]["arguments"]
+        self.assertEqual(arguments[arguments.index("--device") + 1], "none")
+
+    def test_a_card_that_fails_falls_back_to_the_cpu(self):
+        card = "Vulkan0: Small Card (2048 MiB, 100 MiB free)"
+        ear = self.start(FAKE_LLAMA_DEVICES=card, FAKE_LLAMA_FAIL_ON_CARD="1")
+        self.assertEqual(ask(ear, 0, "hello", {"protocol": 1})["result"]["device"], "vulkan")
+        self.assertEqual(ask(ear, 1, "load", {"roles": ["describe"]})["result"]["loaded"], ["describe"])
+        first, second = self.events("start")
+        self.assertNotIn("--device", first["arguments"])
+        self.assertIn("--device", second["arguments"])
+        hello = ask(ear, 2, "hello", {"protocol": 1})["result"]
+        self.assertEqual(hello["device"], "cpu")
+        self.assertIn("could not be used", hello["device_name"])
+        self.assertEqual(ask(ear, 3, "describe", {"wav": self.coin})["result"]["text"], "A pretend description.")
+
+    def test_a_model_with_no_llama_server_says_so(self):
+        self.ear = start_ear(self.folder.name)
+        self.addCleanup(self.stop)
+        hello = ask(self.ear, 0, "hello", {"protocol": 1})["result"]
+        self.assertEqual(hello["capabilities"], [])
+        self.assertIn("no llama-server", hello["not_available"]["describe"])
 
 
 GUARDED = """

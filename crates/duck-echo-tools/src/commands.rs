@@ -452,6 +452,12 @@ pub struct ListenArgs {
     /// answers. Default false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quick: Option<bool>,
+    /// Also list the Ear's own words that fit the sound best
+    /// (`ear.closest`). Default false: for short sounds they are often
+    /// wrong (a coin's first words were "speech" and "birds"), so ask
+    /// about the texts you mean with `like` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closest: Option<bool>,
 }
 
 /// A layer (by number) or a track (by name).
@@ -653,7 +659,7 @@ pub const TABLE: &[Entry] = &[
     Entry { name: "set_check", changes_files: false, schema: schema_of::<SetCheckArgs>,
         description: "Render a set of sounds (a folder, or a set file naming sounds, folders and presets with a loudness target per tag) and check them side by side. Writes into `out`: every WAV with its facts file; `<name>.table.csv` (name, length, LUFS, peak, clipping, how it ends or how its loop joins, summary); `<name>.sheet.png`, a contact sheet of every sound's picture with its name, problems in red; and `<name>.check.json`, all of it plus the loudness report per tag (each sound against its target, with the change that fixes it). A sound that does not render is a row with its error. Writes reports, not recipes, so it is not an Undo step." },
     Entry { name: "listen", changes_files: false, schema: schema_of::<ListenArgs>,
-        description: "Ask the Duck Ear, an optional program that listens with models on this PC, about a sound: the words that fit it best (`closest`), a description, and for each text of `like` a `match` (0 to 1: how much more it fits than the Ear's other words), the describe model's yes or no with a reason, and a `verdict` (yes, no or unsure: the two models must agree). `ask` asks one free question; `compare_with` scores a second sound against the same texts (the most reliable use: did the change help?); `quick` uses the score model only. The Ear is advice and can be wrong: the numbers of analyze win for what they measure. The same question about the same sound gets the identical answer from the Ear's answer cache (`cached: true`). Without the Ear, `ear.available` is false with the reason and what to do. Changes no file." },
+        description: "Ask the Duck Ear, an optional program that listens with models on this PC, about a sound: a description, and for each text of `like` a `match` (0 to 1: how much more it fits than the Ear's other words), the describe model's yes or no with a reason, and a `verdict` (yes, no or unsure: the two models must agree). `ask` asks one free question; `compare_with` scores a second sound against the same texts (the most reliable use: did the change help?); `quick` uses the score model only; `closest: true` adds the Ear's own words that fit best (off by default: often wrong for short sounds). The Ear is advice and can be wrong: the numbers of analyze win for what they measure. The same question about the same sound gets the identical answer from the Ear's answer cache (`cached: true`). Without the Ear, `ear.available` is false with the reason and what to do. Changes no file." },
     Entry { name: "ear_status", changes_files: false, schema: schema_of::<NoArgs>,
         description: "Is the Duck Ear there, and what can it do: its program and folder, its version, its models, the device it uses (cpu or a graphics card), whether it is a stub that does not listen, how many answers it keeps, and the last error. Says hello to the Ear but loads no model. Call it once to know whether to plan with the Ear." },
     Entry { name: "mix_check", changes_files: false, schema: schema_of::<MixCheckArgs>,
@@ -1089,6 +1095,7 @@ pub fn run(
                 ask: a.ask.as_deref(),
                 compare_with: a.compare_with.as_deref(),
                 quick: a.quick.unwrap_or(false),
+                closest: a.closest.unwrap_or(false),
             };
             let listened = crate::ear::listen(project.root(), &request, prefix)?;
             return Ok(serde_json::to_value(listened).expect("serializes"));

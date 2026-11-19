@@ -392,20 +392,6 @@ impl Drop for Sound {
 // The answer cache.
 // ---------------------------------------------------------------------
 
-fn hello_value(hello: &Hello) -> Value {
-    json!({
-        "protocol": hello.protocol,
-        "ear_version": hello.ear_version,
-        "capabilities": hello.capabilities,
-        "device": hello.device,
-        "device_name": hello.device_name,
-        "models": hello.models.iter().map(|m| json!({
-            "role": m.role, "name": m.name, "revision": m.revision,
-        })).collect::<Vec<_>>(),
-        "stub": hello.stub,
-    })
-}
-
 /// The cache key of a question: the sound, the question without the
 /// sound's path, and the Ear's and its models' versions. `serde_json`
 /// keeps an object's keys in order, so the same question always gives the
@@ -526,6 +512,21 @@ impl<'k> Listening<'k> {
         self.seconds += answer["seconds"].as_f64().unwrap_or(0.0);
         Ok(answer)
     }
+
+    /// Ask the Ear itself, whatever the cache holds, and keep nothing:
+    /// for `ear check`, which asks twice to see the same words come back.
+    pub(crate) fn ask_again(
+        &mut self,
+        sound: &Sound,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, Missed> {
+        let mut full = params;
+        full["wav"] = json!(sound.path.to_string_lossy());
+        let (answer, hello) = self.keeper.call(method, full)?;
+        self.hello = hello;
+        Ok(answer)
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -644,7 +645,9 @@ pub struct EarSection {
     /// The describe model's words about the sound.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<Said>,
-    /// The Ear's own words that fit the sound best.
+    /// The Ear's own words that fit the sound best. Only when asked for
+    /// (`closest: true` on `listen`): they are often wrong for short
+    /// sounds (docs/ear-check.md), so they are not shown by default.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub closest: Vec<Closest>,
     /// For `analyze`: the answer about `expect.sounds_like`.
@@ -731,16 +734,12 @@ impl EarSection {
         } else {
             "Ear (advice)"
         };
-        match (&self.sounds_like, self.closest.first()) {
-            (Some(like), _) => format!(
+        match &self.sounds_like {
+            Some(like) => format!(
                 "{who}: sounds like \"{}\": {} ({:.2})",
                 like.text, like.verdict, like.matched
             ),
-            (None, Some(closest)) => format!(
-                "{who}: closest \"{}\" ({:.2})",
-                closest.text, closest.matched
-            ),
-            (None, None) => format!("{who}: heard"),
+            None => format!("{who}: heard"),
         }
     }
 }
@@ -782,7 +781,7 @@ pub(crate) fn lines_of(hello: &Hello) -> Lines {
 
 /// Why this Ear cannot do `method` (`describe`, `ask`): its own words from
 /// `hello`, or a plain reason.
-fn not_there(hello: &Hello, method: &str) -> String {
+pub(crate) fn not_there(hello: &Hello, method: &str) -> String {
     hello
         .not_available
         .get(method)
@@ -803,7 +802,7 @@ pub(crate) fn word_for_match(matched: f64, lines: Lines) -> &'static str {
 
 /// The verdict on one text: the score model's word and the describe
 /// model's answer must agree for a yes or a no.
-fn verdict(matched: f64, answer: Option<&str>, lines: Lines) -> (String, Vec<String>) {
+pub(crate) fn verdict(matched: f64, answer: Option<&str>, lines: Lines) -> (String, Vec<String>) {
     let by_match = word_for_match(matched, lines);
     match answer {
         None => (by_match.to_string(), vec!["score".to_string()]),
@@ -819,7 +818,7 @@ fn verdict(matched: f64, answer: Option<&str>, lines: Lines) -> (String, Vec<Str
 }
 
 /// The question asked about one text.
-fn question_for(text: &str) -> String {
+pub(crate) fn question_for(text: &str) -> String {
     format!("Does this sound like {text}? Answer yes, no or partly, then say why in one sentence.")
 }
 
@@ -830,16 +829,17 @@ struct Found {
     free: Option<Said>,
 }
 
-/// Listen to `buffer`: the closest words, a description (unless `quick`),
-/// and each of `texts` scored and (unless `quick`) asked about; then the
-/// free `question`, if any. A failure stops the listening and is reported
-/// in the section.
+/// Listen to `buffer`: a description (unless `quick`), each of `texts`
+/// scored and (unless `quick`) asked about, then the free `question`, if
+/// any; and with `closest`, the Ear's own words that fit best. A failure
+/// stops the listening and is reported in the section.
 fn listen_to(
     keeper: &EarKeeper,
     buffer: &AudioBuffer,
     texts: &[String],
     question: Option<&str>,
     quick: bool,
+    closest: bool,
 ) -> Result<Found, ToolError> {
     let sound = keeper.sound(buffer)?;
     let mut listening = match Listening::begin(keeper) {
@@ -857,17 +857,19 @@ fn listen_to(
     let mut free = None;
     let outcome = (|| -> Result<(), Missed> {
         let scored = listening.ask(&sound, "score", json!({"texts": texts}))?;
-        section.closest = scored["closest"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|c| {
-                Some(Closest {
-                    text: c["text"].as_str()?.to_string(),
-                    matched: round(c["match"].as_f64()?, 3),
+        if closest {
+            section.closest = scored["closest"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|c| {
+                    Some(Closest {
+                        text: c["text"].as_str()?.to_string(),
+                        matched: round(c["match"].as_f64()?, 3),
+                    })
                 })
-            })
-            .collect();
+                .collect();
+        }
         let can_answer = !quick && listening.hello.can("ask");
         let can_describe = !quick && listening.hello.can("describe");
         if quick {
@@ -975,7 +977,7 @@ pub fn keeper_from_environment(program: Option<PathBuf>) -> Result<Arc<EarKeeper
 // ---------------------------------------------------------------------
 
 /// Add the Ear's `ear` section to an analysis of `buffer` (what `analyze`
-/// with `ear: true` does): the closest words, a description, and the
+/// with `ear: true` does): a description, and the
 /// answer about `expect.sounds_like`, which then passes, fails or stays
 /// unsure. The numbers stay as they were. The summary gets the Ear's
 /// words at its end, marked as advice.
@@ -991,7 +993,7 @@ pub fn add_to_analysis(
             .map(|l| l.wanted.clone())
     });
     let texts: Vec<String> = sounds_like.iter().cloned().collect();
-    let found = listen_to(keeper, buffer, &texts, None, false)?;
+    let found = listen_to(keeper, buffer, &texts, None, false, false)?;
     let mut section = found.section;
     section.sounds_like = found.likes.into_iter().next();
 
@@ -1046,6 +1048,8 @@ pub struct ListenRequest<'a> {
     pub compare_with: Option<&'a str>,
     /// The score model only.
     pub quick: bool,
+    /// Also give the Ear's own words that fit best (`ear.closest`).
+    pub closest: bool,
 }
 
 /// One text, scored for two sounds.
@@ -1070,8 +1074,8 @@ pub struct Listened {
     pub ok: bool,
     /// What was listened to.
     pub file: String,
-    /// The Ear: available or not, its models, what it heard, the closest
-    /// words, the description.
+    /// The Ear: available or not, its models, what it heard, the
+    /// description, and the closest words when asked for.
     pub ear: EarSection,
     /// Each text of `like`, answered.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -1222,12 +1226,19 @@ pub fn listen(
     };
 
     let keeper = keeper_of(root)?;
-    let found = listen_to(&keeper, &buffer, request.like, request.ask, request.quick)?;
+    let found = listen_to(
+        &keeper,
+        &buffer,
+        request.like,
+        request.ask,
+        request.quick,
+        request.closest,
+    )?;
     let mut section = found.section;
     let mut compared = None;
     if let (Some((other_buffer, other_file)), true) = (other, section.error.is_none()) {
         if section.available {
-            let other_found = listen_to(&keeper, &other_buffer, request.like, None, true)?;
+            let other_found = listen_to(&keeper, &other_buffer, request.like, None, true, false)?;
             match other_found.section.error {
                 Some(error) => section.error = Some(error),
                 None => {
@@ -1314,13 +1325,12 @@ fn listen_summary(
         .iter()
         .map(|l| format!("\"{}\": {} ({:.2})", l.text, l.verdict, l.matched))
         .collect();
-    if parts.is_empty() {
-        if let Some(closest) = section.closest.first() {
-            parts.push(format!(
-                "closest \"{}\" ({:.2})",
-                closest.text, closest.matched
-            ));
-        }
+    // Only when asked for with `closest: true`.
+    if let Some(closest) = section.closest.first() {
+        parts.push(format!(
+            "closest \"{}\" ({:.2})",
+            closest.text, closest.matched
+        ));
     }
     for c in compared.into_iter().flatten() {
         parts.push(if c.by == 0.0 {
@@ -1331,6 +1341,9 @@ fn listen_summary(
                 c.more_like, c.text, c.by
             )
         });
+    }
+    if parts.is_empty() {
+        parts.push("heard".to_string());
     }
     format!("{who}: {}", parts.join(", "))
 }
@@ -1365,7 +1378,25 @@ pub fn status(root: &Root) -> Result<Value, ToolError> {
             answer["capabilities"] = json!(hello.capabilities);
             answer["device"] = json!(hello.device);
             answer["device_name"] = json!(hello.device_name);
-            answer["models"] = hello_value(hello)["models"].clone();
+            if let Some(memory) = hello.device_memory_mb {
+                answer["device_memory_mb"] = json!(memory);
+            }
+            answer["models"] = hello
+                .models
+                .iter()
+                .map(|m| {
+                    let mut model = json!({
+                        "role": m.role, "name": m.name, "revision": m.revision, "loaded": m.loaded,
+                    });
+                    if let Some(size) = &m.size {
+                        model["size"] = json!(size);
+                    }
+                    model
+                })
+                .collect();
+            if !hello.not_available.is_empty() {
+                answer["not_available"] = json!(hello.not_available);
+            }
             answer["stub"] = json!(hello.stub);
             format!(
                 "The Duck Ear {} is ready{}, on {}: it can {}.",

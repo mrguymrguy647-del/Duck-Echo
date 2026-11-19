@@ -1,6 +1,6 @@
 [project]
 name = "duck-ear"
-version = "0.3.0"
+version = "0.4.0"
 description = "The Duck Ear: listens to a sound with models on this PC, for Duck Echo"
 readme = "README.md"
 license = "MIT OR Apache-2.0"

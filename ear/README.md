@@ -8,9 +8,12 @@ and never waits for it longer than a set time. Nothing in Duck Echo needs
 it. The plan is `docs/phase4-design.md`; how well it hears is
 `docs/ear-check.md`.
 
-* `duck_ear/`: the real Ear, a Python package. It has the score model so
-  far (step 3 of the design): it scores how well texts fit a sound.
-  Describing a sound comes with step 4.
+* `duck_ear/`: the real Ear, a Python package. Its score model scores how
+  well texts fit a sound. Its describe model, when one is installed, says
+  what a sound is and answers questions about it; it runs in
+  `llama-server` (llama.cpp), which the Ear starts and stops.
+* `tools/get_describe_model.py`: downloads a describe model and checks
+  it. A person runs it; the Ear itself never uses the network.
 * `convert/`: run once, by Duck Echo's builders: converts the score
   models to ONNX and checks them against the originals (see
   `convert/README.md`). It needs PyTorch; the Ear does not.
@@ -46,6 +49,52 @@ names, else in `models/score` inside the Ear's folder
 (`DUCK_ECHO_EAR_HOME`, else `%LOCALAPPDATA%\DuckEcho\ear` on Windows and
 `~/.local/share/duck-echo/ear` on Linux). It never uses the network: a
 guard refuses every connection that is not to this PC.
+
+## The describe model (Full and Large)
+
+The Ear comes in three sizes:
+
+| Size | Describe model | Download | For |
+|---|---|---|---|
+| Small | none: scores only | | every PC |
+| Full | Qwen2.5-Omni-7B | 6.2 GB | a graphics card of 8 GB or more (works on the CPU, slowly) |
+| Large | Qwen3-Omni-30B-A3B | 19.9 GB | offered only when a graphics card of 16 GB or more is found |
+
+No small describe model has passed Duck Echo's listening test yet, so
+Small has none. The measured results are in `docs/ear-check.md`.
+
+The describe model needs two things:
+
+1. **`llama-server`**, from llama.cpp's releases
+   (https://github.com/ggml-org/llama.cpp/releases): take the newest
+   build for your PC (on Windows with a graphics card, the Vulkan or the
+   CUDA zip; with none, the CPU zip) and unpack it. Tell the Ear where it
+   is: set `DUCK_EAR_LLAMA_SERVER` to the `llama-server` program, or put
+   the unpacked files in `llama/` inside the Ear's folder.
+2. **A model**:
+
+   ```bash
+   python ear/tools/get_describe_model.py --list
+   python ear/tools/get_describe_model.py full
+   ```
+
+   `--list` shows the sizes, the graphics card that was found, and
+   whether Large is offered. The download is checked (SHA-256), goes into
+   `models/` in the Ear's folder, and becomes the model the Ear uses.
+   To try another model without changing that, set
+   `DUCK_EAR_DESCRIBE_MODEL` to its folder.
+
+Then `duck-echo ear status` names the describe model and where it runs,
+and `listen` gives a description and a yes or no for each `--like`:
+
+```bash
+duck-echo listen examples/songs/duck_craft_night.toml --like "calm music" --ask "Is this tune calm?" --ear-program ear/.venv/bin/duck-ear
+```
+
+`DUCK_EAR_DEVICE=cpu` keeps the describe model off the graphics card.
+`llama-server` runs on this PC only (127.0.0.1, `--offline`), its log is
+`llama-server.log` in the Ear's folder, and the Ear stops it after 2
+minutes with no describe question, so the card's memory is free again.
 
 ## Trying the stub by hand
 

@@ -170,7 +170,8 @@ fn analyze_with_the_ear_checks_sounds_like_and_marks_the_answer_as_advice() {
     assert_eq!(section["stub"], true);
     assert_eq!(section["advice"], ear::ADVICE);
     assert_eq!(section["models"]["score"], "stub@0");
-    assert_eq!(section["closest"][0]["text"], "coin pickup");
+    // The closest words are left out: often wrong for short sounds.
+    assert!(section.get("closest").is_none(), "{section}");
     assert_eq!(
         section["description"],
         "A stub Ear: no model listened to this."
@@ -208,7 +209,7 @@ fn analyze_with_the_ear_checks_sounds_like_and_marks_the_answer_as_advice() {
         m.measured.analysis.summary
     );
 
-    // With no sounds_like, the section still has the closest words.
+    // With no sounds_like, the summary only says the Ear heard it.
     let mut m = measured(
         duck_echo_tools::presets::get("coin").unwrap().source,
         &dir,
@@ -219,7 +220,7 @@ fn analyze_with_the_ear_checks_sounds_like_and_marks_the_answer_as_advice() {
         m.measured
             .analysis
             .summary
-            .ends_with("Ear (stub, not listening): closest \"coin pickup\" (0.50)"),
+            .ends_with("Ear (stub, not listening): heard"),
         "{}",
         m.measured.analysis.summary
     );
@@ -672,7 +673,9 @@ wrong = ["a coin pickup"]
     )
     .unwrap();
 
-    let report = duck_echo_tools::ear_check::check(&keeper, &testset).unwrap();
+    let report =
+        duck_echo_tools::ear_check::check(&keeper, &testset, duck_echo_tools::ear_check::Part::All)
+            .unwrap();
     assert_eq!((report.sounds, report.texts), (3, 3));
     let measure = |name: &str| {
         let m = report.measures.iter().find(|m| m.name == name).unwrap();
@@ -693,15 +696,51 @@ wrong = ["a coin pickup"]
     assert_eq!(report.lines.yes_from, ear::YES_FROM);
     assert!(report.table.contains("| Kind of sound | 1 of 3 |"));
 
+    // The describe part: the stub says yes to any question about a coin,
+    // whatever the sound, so it fails on wrong texts and on silence.
+    let describe = report.describe.as_ref().unwrap();
+    let measure = |name: &str| {
+        let m = describe.measures.iter().find(|m| m.name == name).unwrap();
+        (m.right, m.of)
+    };
+    assert_eq!(measure("Describe: yes on true texts"), (1, 3));
+    assert_eq!(measure("Describe: no on wrong texts"), (1, 3));
+    assert_eq!(measure("Describe: silence"), (0, 1));
+    // Both models agree on the coin's two texts only.
+    assert_eq!(measure("Verdict: yes on true texts"), (1, 3));
+    assert_eq!(measure("Verdict: no on wrong texts"), (1, 3));
+    // Asked again of a fresh Ear, the stub says the same words.
+    assert_eq!(measure("Same words twice"), (6, 6));
+    let wrong_yes = &describe.mistakes[3];
+    assert_eq!(wrong_yes.name, "Verdict: a wrong text said yes");
+    assert_eq!((wrong_yes.count, wrong_yes.of), (2, 3));
+    assert_eq!(
+        describe.results[0].description,
+        "A stub Ear: no model listened to this."
+    );
+    assert_eq!(
+        describe.results[0].true_answers["a coin pickup"].verdict,
+        "yes"
+    );
+
     let out = dir.join("out");
     duck_echo_tools::ear_check::write(&report, &out).unwrap();
     let written: Value =
         serde_json::from_str(&std::fs::read_to_string(out.join("ear-check.json")).unwrap())
             .unwrap();
     assert_eq!(written["sounds"], 3);
-    assert!(std::fs::read_to_string(out.join("ear-check.md"))
-        .unwrap()
-        .contains("`preset:explosion`"));
+    let md = std::fs::read_to_string(out.join("ear-check.md")).unwrap();
+    assert!(md.contains("`preset:explosion`"));
+    assert!(md.contains("## The describe model"));
+
+    // The score part alone leaves the describe model out.
+    let report = duck_echo_tools::ear_check::check(
+        &keeper,
+        &testset,
+        duck_echo_tools::ear_check::Part::Score,
+    )
+    .unwrap();
+    assert!(report.describe.is_none());
 }
 
 #[test]
@@ -714,9 +753,63 @@ fn ear_check_refuses_a_test_set_with_an_unknown_field() {
         "version = 1\n[[sound]]\nfile = \"preset:coin\"\ntrue = []\nwrong = []\nloud = true\n",
     )
     .unwrap();
-    let error = duck_echo_tools::ear_check::check(&keeper, &testset)
-        .unwrap_err()
-        .into_report();
+    let error = duck_echo_tools::ear_check::check(
+        &keeper,
+        &testset,
+        duck_echo_tools::ear_check::Part::Score,
+    )
+    .unwrap_err()
+    .into_report();
     let text = serde_json::to_string(&error).unwrap();
     assert!(text.contains("loud"), "{text}");
+}
+
+/// The Ear's own closest words are often wrong for short sounds, so
+/// `listen` gives them only with `closest: true`.
+#[test]
+fn listen_gives_the_closest_words_only_when_asked() {
+    if !python_found() {
+        return;
+    }
+    let dir = folder("closest");
+    let keeper = EarKeeper::new(config(&stub_file(), &dir.join("ear-home")));
+    let (_dir, root) = project("closest-project", &keeper);
+
+    let plain = run(
+        &root,
+        "listen",
+        json!({"path": "sfx/coin.toml", "like": ["a coin pickup"], "quick": true}),
+    )
+    .unwrap();
+    assert!(plain["ear"].get("closest").is_none(), "{plain}");
+    assert!(!plain["summary"].as_str().unwrap().contains("closest"));
+
+    let asked = run(
+        &root,
+        "listen",
+        json!({"path": "sfx/coin.toml", "like": ["a coin pickup"], "quick": true, "closest": true}),
+    )
+    .unwrap();
+    assert_eq!(asked["ear"]["closest"][0]["text"], "coin pickup");
+    assert!(
+        asked["summary"]
+            .as_str()
+            .unwrap()
+            .ends_with("\"a coin pickup\": yes (0.90), closest \"coin pickup\" (0.50)"),
+        "{asked}"
+    );
+    // The same question to the Ear: the second answer came from the cache.
+    assert_eq!(asked["ear"]["cached"], true);
+
+    // With nothing to ask, the summary says so in one word.
+    let nothing = run(
+        &root,
+        "listen",
+        json!({"path": "sfx/coin.toml", "quick": true}),
+    )
+    .unwrap();
+    assert!(
+        nothing["summary"].as_str().unwrap().ends_with(": heard"),
+        "{nothing}"
+    );
 }
