@@ -60,7 +60,11 @@ crates/
   duck-echo-cli/           the `duck-echo` binary and the end-to-end tests.
   duck-echo-mcp/           the `duck-echo-mcp` binary: the agent tools as an MCP
                            server over stdio.
-  duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
+  duck-echo-ear/           the bridge to the Duck Ear (Phase 4): starts it,
+                           speaks its JSON Lines protocol, keeps time,
+                           stops it with everything it started. Knows
+                           nothing about recipes. `fake-ear`, a test
+                           program that breaks the protocol on purpose.
 studio/                    Duck Echo Studio, a workspace of its own (Rust
                            1.95 for egui; the libraries above need 1.87):
   crates/app/              DuckEchoStudio: the window, Home (home.rs, with
@@ -86,6 +90,8 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
                            READ ME FIRST.txt, linux/ (AppRun, the menu entry,
                            make-appimage.sh).
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
+ear/stub/                  the stub Duck Ear (Python, standard library only):
+                           the protocol with no models, for tests
 examples/recipes/          the example recipes (TOML, plus coin.json)
 examples/songs/            the example songs
 examples/film/             a sound set and a cue list to check (set-check, mix)
@@ -109,7 +115,7 @@ cli ──> tools ──> synth ──> core
  └────> core, synth, analyze, audio (directly, for render and validate)
 mcp ──> tools (and core, audio)
 live ──> synth, core, audio (and rtrb; tools only in its tests)
-ear (planned) ──> core, audio, analyze
+ear ──> nothing of Duck Echo's (serde_json; windows-sys on Windows)
 ```
 
 `core` never depends on anything audio-related; `synth` and `analyze` never
@@ -688,27 +694,55 @@ first text exactly (`crates/duck-echo-mcp/tests/shared_undo.rs`). The
 MCP `create` and `edit` tools save through the same path, so they are
 steps too.
 
-## Duck Ear bridge (design)
+## Duck Ear bridge
 
-The Duck Ear is a Python process running audio-understanding models. It is
-optional: every feature of Duck Echo works without it, and tools that can use
-it say so in their output rather than failing.
+The Duck Ear is a separate program that listens with machine-learning
+models (Phase 4; the plan is `docs/phase4-design.md`). It is optional:
+every feature of Duck Echo works without it, a render never waits for it,
+and nothing in core, synth or analyze knows it exists. `duck-echo-ear` is
+the bridge; `duck-echo-tools` decides what to ask (step 2).
 
-* **Transport**: the Rust side spawns `duck-ear` (a Python entry point) as a
-  child process and speaks JSON Lines over stdin/stdout. One request per
-  line, one response per line, matched by `id`. stderr is logging.
-* **Handshake**: the first message is `{"id":0,"method":"hello"}`; the reply
-  lists `capabilities` (for example `describe`, `tag`, `similarity`,
-  `transcribe`) and model versions. Unknown capabilities are ignored.
-* **Requests**: `{"id":1,"method":"describe","params":{"wav":"/abs/path.wav"}}`
-  with files passed by path, never inline bytes, so large audio never crosses
-  the pipe. Responses are `{"id":1,"result":{...}}` or
-  `{"id":1,"error":{"code":"...","message":"..."}}`.
-* **Absence**: if the binary is missing, fails the handshake or times out,
-  the bridge reports `ear: {"available": false, "reason": "..."}` and the
-  app carries on. Nothing in core, synth or analyze knows the Ear exists.
-* **Determinism**: Ear outputs are descriptions, never audio, so they do not
-  affect renders.
+* **Transport**: the bridge starts the Ear as a child process and speaks
+  JSON Lines over its stdin and stdout: one request per line, one answer
+  per line, matched by `id`. stderr is the Ear's log; the bridge keeps its
+  last 64 KB and can write it to `ear.log` (started again past 1 MB). A
+  `.py` Ear is run by Python (`DUCK_ECHO_EAR_PYTHON`, else `python3`, or
+  `python` on Windows).
+* **Three threads** (writer, reader, log reader), so the Ear can never
+  stop Duck Echo by filling a pipe, and every wait has a deadline. The
+  reader keeps at most 1 MB of a line: a longer line is a broken answer.
+* **Messages**: `{"id":1,"method":"score","params":{...}}` in;
+  `{"id":1,"result":{...}}`, `{"id":1,"error":{"code","message"}}` or
+  `{"id":1,"progress":{"message","done"}}` out. Progress never gives a
+  request more time. Sounds go by path, never as bytes. Inside protocol
+  version 1 an answer's unknown fields are skipped (a newer Ear may add
+  some); recipes and tool calls stay strict.
+* **Handshake**: `hello` with `{"protocol": 1, "describe_idle_seconds":
+  120}`; the answer (`protocol::Hello`) names the Ear's version, its
+  capabilities (`score`, `describe`, `ask`), its device and its models
+  with their revisions, and `stub: true` for the stub.
+* **Timeouts**: one table (`times::Times`): 20 s for `hello`, 60 s and
+  180 s for `load` (score, describe), 15 s for `score`, 60 s for `describe`
+  and `ask` on a graphics card and 240 s on the CPU, 3 s for `bye`.
+  `DUCK_ECHO_EAR_TIMEOUT_SCALE` multiplies them all, from 0.25 to 10: no
+  value makes a wait endless. When time runs out the Ear is stopped and
+  the failure says it starts again on the next question.
+* **Failures**: the Ear cannot be asked at all (`Unavailable`:
+  `not_installed`, `will_not_start`, `no_hello`, `broken_hello`,
+  `protocol`), or one question failed (`Failure`: `timeout`,
+  `broken_answer`, `ear_stopped` with its exit code and last log lines,
+  the Ear's own error code, `not_running`). Every failure but the Ear's
+  own error stops the Ear.
+* **Stopping everything it started**: the Ear will start `llama-server`
+  (step 4). On Linux the Ear heads its own process group and the bridge
+  stops the whole group (`kill -KILL -- -<group>`); on Windows it is put
+  in a job object that kills everything in it when stopped or when Duck
+  Echo ends. And every Ear exits as soon as its stdin closes. A test
+  starts a pretend Ear with a child of its own and checks the child stops
+  after `stop`, after a drop and after a timeout.
+* **Determinism**: the Ear's answers are descriptions, never audio, and
+  are never written into a sound or its facts, so renders stay
+  byte-for-byte the same.
 
 ## Diagnostics format
 
@@ -805,6 +839,7 @@ output is one line per issue in the same order.
 | rfd 0.18 | studio | The system's own Save As window for Export WAV: Windows' standard one, and on Linux the desktop's own through the XDG portal (spoken to over D-Bus in Rust, no system library; the AppImage still links only ALSA). Without a portal, "Export WAV to my Duck Echo folder" needs no window. |
 | toml_edit 0.25 | tools | Changes values inside a TOML file's text, so a person's comments and layout survive every command and the `edit` tool. It shares its parser and writer crates (`toml_parser`, `toml_writer`, `toml_datetime`) with `toml`, so it adds one crate. |
 | winresource 0.1 | studio (build only) | Puts the icon and the version into `DuckEchoStudio.exe`, as both siblings do. |
+| windows-sys 0.61 | ear (Windows only) | Four Windows calls that make a job object, so stopping the Ear also stops every program it started (`llama-server`, holding the graphics card's memory), even after a crash. It was already in `Cargo.lock` through other crates. These calls need `unsafe` code, the only `unsafe` code in Duck Echo: `duck-echo-ear` denies `unsafe` (the workspace forbids it), and its one module `windows_job.rs` allows it, with a comment on why each call is safe. On Linux the same is done with the system's `kill` program and a process group, with no `unsafe` code. |
 | assert_no_alloc | live (tests only) | Replaces the test program's allocator and counts every allocation and free inside a marked section, so a test fails if the audio block touches the allocator. Its default features switch the check off in release builds; here they are off and the counting ones are on, so it always runs. |
 
 The Studio's crates live only in `studio/`, a workspace of its own (its own

@@ -63,6 +63,7 @@ A Rust workspace (edition 2021; its locked libraries need Rust 1.85+):
 | `crates/duck-echo-live` | Playing through the speakers, live |
 | `crates/duck-echo-cli` | The `duck-echo` program, and end-to-end tests |
 | `crates/duck-echo-mcp` | The `duck-echo-mcp` program: the MCP server over stdio |
+| `crates/duck-echo-ear` | The bridge to the Duck Ear, the optional listening program (Phase 4) |
 
 ```bash
 cargo build --workspace
@@ -71,6 +72,10 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build --release -p duck-echo-cli && scripts/render-fingerprints.sh   # hash every render
 ```
+
+The Duck Ear's stub (`ear/stub/duck_ear_stub.py`) needs Python 3.8 or
+newer; its tests skip without one, unless `DUCK_ECHO_REQUIRE_PYTHON=1`
+(as in CI).
 
 **Before a commit:** the tests, `cargo fmt --all` and clippy with
 `-D warnings`, all clean. CI runs them on Linux and Windows, and checks

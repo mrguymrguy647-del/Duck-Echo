@@ -32,6 +32,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The Duck Ear's tests run its stub, a Python program.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Formatting
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
@@ -41,6 +46,19 @@ jobs:
 
       - name: All tests
         run: cargo test --workspace
+        env:
+          # The Ear's stub tests fail, rather than skip, without Python.
+          DUCK_ECHO_REQUIRE_PYTHON: "1"
+
+      # The Ear must work with no network at all (docs/phase4-design.md,
+      # section 5): its tests run again in a network namespace that has
+      # none, not even the loopback's way out.
+      - name: The Ear's tests with no network (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo test -p duck-echo-ear --no-run
+          sudo unshare --net -- sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" \
+            DUCK_ECHO_REQUIRE_PYTHON=1 cargo test --offline -p duck-echo-ear
 
       - name: Render every example and preset, and hash each WAV
         run: |

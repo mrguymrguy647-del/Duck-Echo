@@ -1,0 +1,36 @@
+[package]
+name = "duck-echo-ear"
+description = "The bridge to the Duck Ear: starts it, speaks its JSON Lines protocol, keeps time, stops it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Windows only: a "job object", so that stopping the Ear also stops every
+# program the Ear started (later, llama-server), even if the Ear crashed.
+# Already in Cargo.lock through other crates. See docs/ARCHITECTURE.md.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+# `fake-ear` is a test program that misbehaves on purpose, for the tests.
+[[bin]]
+name = "fake-ear"
+path = "src/bin/fake_ear.rs"
+test = false
+doc = false
+
+# The workspace forbids `unsafe` code. This crate denies it instead, so
+# that one small module (`windows_job.rs`, four calls into Windows) can
+# allow it, with a comment on why each call is safe.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"

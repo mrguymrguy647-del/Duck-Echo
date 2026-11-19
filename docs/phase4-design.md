@@ -4,7 +4,7 @@ Status: **approved**, with questions 1 to 8 as recommended and three
 changes, written in below: the same question gets the same answer (a
 cache), `llama-server` stops after 2 minutes with no describe question,
 and the Ear ships with scores only if no describe model passes its test.
-Done so far: nothing yet.
+Done so far: step 1 (the bridge and the stub).
 
 ## 1. What we want, and why
 
@@ -875,7 +875,7 @@ protocol and the stub come first; real models come only after the Rust
 side is proven with the stub. Steps marked **(stronger model)** have
 traps that are easy to miss (processes on two systems, model numbers).
 
-### Step 1: the bridge crate and the stub (stronger model)
+### Step 1: the bridge crate and the stub (stronger model) [done]
 
 * `crates/duck-echo-ear`: the protocol types, starting the program (in a
   job object on Windows, a process group on Linux), the three threads, the

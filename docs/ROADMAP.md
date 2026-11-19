@@ -1233,7 +1233,7 @@ stub `duck-ear`, with the missing-program, timeout and broken-line tests,
 come before any model. Then the `ear` section in `analyze`, and only then
 real listening models.
 
-### 14. Duck Ear bridge (`duck-echo-ear`) [approved: docs/phase4-design.md]
+### 14. Duck Ear bridge (`duck-echo-ear`) [started: step 1 of docs/phase4-design.md done]
 
 * The JSON Lines protocol from `ARCHITECTURE.md`, with a stub Python
   `duck-ear` that answers `hello` and `describe` with fixed text, so the
@@ -1243,6 +1243,31 @@ real listening models.
   Ear is available, and `ear: {available: false}` otherwise.
 * Accept: tests for handshake, timeout, missing program and a broken line;
   the app never waits on the Ear longer than a set timeout.
+* The plan, in eight steps: `docs/phase4-design.md` section 9.
+* [x] **Step 1: the bridge and the stub.** `crates/duck-echo-ear` (the
+  protocol, the timeout table, three threads, stopping the Ear with every
+  program it started: a process group on Linux, a job object on Windows),
+  `ear/stub/duck_ear_stub.py`, and `fake-ear`, a test program that breaks
+  the protocol in 15 ways. 30 tests; CI runs them on Linux and Windows,
+  with Python required, and again on Linux with no network.
+* [ ] Step 2: what agents get, with the stub (`ear: true`, `listen`,
+  `ear_status`, `expect.sounds_like`, the answer cache).
+
+Lessons from step 1, for the next builder:
+
+* **Test that a test can fail.** The "stops what it started" test was run
+  once with the group kill switched off: it failed ("the child outlived
+  stop()"), so it really checks it.
+* **Everything the Ear starts must not hold its pipes.** If a program the
+  Ear starts (later, `llama-server`) inherits the Ear's stdout or stderr,
+  the bridge's readers would not see the pipes close when the Ear dies.
+  The real Ear must start `llama-server` with its own stdout and stderr
+  (a file or nothing), as `fake-ear child` does.
+* **The workspace forbids `unsafe`**, so `duck-echo-ear` sets its own lints
+  (`deny`, the same otherwise) and only `windows_job.rs` allows it. Check
+  Windows code here with `rustup target add x86_64-pc-windows-gnu` and
+  `cargo clippy -p duck-echo-ear --all-targets --target
+  x86_64-pc-windows-gnu`: it needs no Windows linker to check.
 
 ## Phase 5: voices from math only
 

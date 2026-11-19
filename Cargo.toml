@@ -9,6 +9,7 @@ members = [
     "crates/duck-echo-live",
     "crates/duck-echo-cli",
     "crates/duck-echo-mcp",
+    "crates/duck-echo-ear",
 ]
 
 [workspace.package]
