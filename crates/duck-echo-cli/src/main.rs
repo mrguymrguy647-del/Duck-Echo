@@ -132,6 +132,9 @@ enum Command {
         /// Ear.
         #[arg(long, value_name = "PROGRAM")]
         ear_program: Option<PathBuf>,
+        /// The old spelling of --ear-program, still accepted.
+        #[arg(long = "ear", value_name = "PROGRAM", hide = true)]
+        old_ear: Option<PathBuf>,
         /// Print the whole answer as JSON.
         #[arg(long)]
         json: bool,
@@ -316,10 +319,24 @@ enum EarAction {
         /// Ear.
         #[arg(long, value_name = "PROGRAM")]
         ear_program: Option<PathBuf>,
+        /// The old spelling of --ear-program, still accepted.
+        #[arg(long = "ear", value_name = "PROGRAM", hide = true)]
+        old_ear: Option<PathBuf>,
         /// Print the whole answer as JSON.
         #[arg(long)]
         json: bool,
     },
+}
+
+/// The Ear program: `--ear-program`, or the old spelling `--ear PROGRAM`
+/// (with a note saying the new one).
+fn ear_program_of(ear_program: Option<PathBuf>, old_ear: Option<PathBuf>) -> Option<PathBuf> {
+    if old_ear.is_some() {
+        eprintln!(
+            "duck-echo: note: --ear PROGRAM is now spelled --ear-program PROGRAM; the old spelling still works"
+        );
+    }
+    ear_program.or(old_ear)
 }
 
 /// The project a command works in, shared by `do` and `run`.
@@ -508,9 +525,11 @@ fn main() -> ExitCode {
             solo,
             mute,
             ear_program,
+            old_ear,
             json,
             project,
         } => {
+            let ear_program = ear_program_of(ear_program, old_ear);
             let mut args = serde_json::json!({ "path": path });
             if !like.is_empty() {
                 args["like"] = like.into();
@@ -534,8 +553,13 @@ fn main() -> ExitCode {
             listen(&args, &project, ear_program, json)
         }
         Command::Ear {
-            action: EarAction::Status { ear_program, json },
-        } => ear_status(ear_program, json),
+            action:
+                EarAction::Status {
+                    ear_program,
+                    old_ear,
+                    json,
+                },
+        } => ear_status(ear_program_of(ear_program, old_ear), json),
         Command::Compare { a, b, compact } => {
             let a = duck_echo_tools::load_audio(&a).map_err(|e| e.at("a"));
             let b = duck_echo_tools::load_audio(&b).map_err(|e| e.at("b"));

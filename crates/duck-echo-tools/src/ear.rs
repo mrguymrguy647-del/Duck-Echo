@@ -6,9 +6,9 @@
 //! `duck-echo-ear` starts it and speaks its protocol; this module decides
 //! what to ask, and turns the answers into what agents read:
 //!
-//! * **Where the Ear is** ([`EarConfig`]): `--ear PROGRAM` (the MCP server)
-//!   or `--ear-program` (the CLI), else `DUCK_ECHO_EAR`, else the installed
-//!   Ear in the Ear's folder.
+//! * **Where the Ear is** ([`EarConfig`]): `--ear-program PROGRAM` (the
+//!   MCP server and the CLI), else `DUCK_ECHO_EAR`, else the installed Ear
+//!   in the Ear's folder.
 //! * **One Ear, kept** ([`EarKeeper`]): started on the first question,
 //!   stopped after 10 minutes with none. The Ear itself lets go of its
 //!   describe model after 2 minutes with no describe question (Duck Echo
@@ -69,7 +69,7 @@ pub const EAR_IDLE: Duration = Duration::from_secs(10 * 60);
 /// How to find and run the Ear.
 #[derive(Debug, Clone)]
 pub struct EarConfig {
-    /// The Ear program named on the command line (`--ear`), if any.
+    /// The Ear program named on the command line (`--ear-program`), if any.
     pub program: Option<PathBuf>,
     /// The Ear's folder: the installed Ear, its log, the answer cache.
     pub home: PathBuf,

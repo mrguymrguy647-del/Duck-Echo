@@ -1,5 +1,5 @@
 //! Phase 4, step 2: the MCP server's Duck Ear (docs/phase4-design.md,
-//! section 6): `--ear`, `analyze` with `ear: true`, `listen` and
+//! section 6): `--ear-program`, `analyze` with `ear: true`, `listen` and
 //! `ear_status`, through the real `duck-echo-mcp` binary over stdio.
 
 use serde_json::{json, Value};
@@ -17,10 +17,15 @@ struct Server {
 impl Server {
     /// Start the server on `root` with the Ear `ear`, its folder in `home`.
     fn start(root: &Path, ear: &Path, home: &Path) -> Server {
+        Server::start_spelled(root, "--ear-program", ear, home)
+    }
+
+    /// The same, with the Ear program given by `option`.
+    fn start_spelled(root: &Path, option: &str, ear: &Path, home: &Path) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_duck-echo-mcp"))
             .arg("--root")
             .arg(root)
-            .arg("--ear")
+            .arg(option)
             .arg(ear)
             .env("DUCK_ECHO_EAR_HOME", home)
             .stdin(Stdio::piped())
@@ -197,4 +202,16 @@ fn the_server_keeps_one_ear_for_every_question() {
             .count()
             == 1
     );
+}
+
+#[test]
+fn the_old_spelling_ear_program_still_works() {
+    if !python_found() {
+        return;
+    }
+    let dir = fresh("ear-old-spelling");
+    let mut server = Server::start_spelled(&dir, "--ear", &stub_file(), &dir.join("ear-home"));
+    let (status, _) = server.call("ear_status", json!({}));
+    assert_eq!(status["available"], true, "{status}");
+    assert_eq!(status["stub"], true);
 }

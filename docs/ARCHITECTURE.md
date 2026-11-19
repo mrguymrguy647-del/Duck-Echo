@@ -749,8 +749,9 @@ the bridge; `duck-echo-tools` decides what to ask (step 2).
 
 ### What agents get (`duck-echo-tools/src/ear.rs`)
 
-* **Where the Ear is**: `--ear PROGRAM` (the MCP server) or
-  `--ear-program` (the CLI), else `DUCK_ECHO_EAR`, else the installed Ear
+* **Where the Ear is**: `--ear-program PROGRAM` (the MCP server, `listen`
+  and `ear status`; the old spelling `--ear PROGRAM` still works, with a
+  note), else `DUCK_ECHO_EAR`, else the installed Ear
   in the Ear's folder (`env/bin/duck-ear`, or `env\Scripts\duck-ear.exe`).
   The Ear's folder is `DUCK_ECHO_EAR_HOME`, else
   `%LOCALAPPDATA%\DuckEcho\ear` on Windows and

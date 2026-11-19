@@ -215,10 +215,12 @@ Asking the Ear the same thing twice gives the identical answer:
 | `ask`, `describe` | 60 s on a graphics card, 240 s on CPU | measured in step 4 |
 | `bye` | 3 s | then the process is killed |
 
-* The times are in one table in `duck-echo-ear`, and one option changes
-  them all (`--ear-timeout-scale 2` on the CLI and the MCP server,
-  `DUCK_ECHO_EAR_TIMEOUT_SCALE`), for a slow PC. No option makes them
-  endless.
+* The times are in one table in `duck-echo-ear`, and one setting changes
+  them all, for a slow PC: the environment variable
+  `DUCK_ECHO_EAR_TIMEOUT_SCALE` (2 doubles them; 0.25 to 10). No value
+  makes them endless. (A command-line option for it was planned here and
+  left out in step 1: the variable reaches the CLI, the MCP server and
+  the Studio alike.)
 * **When time runs out:** Duck Echo kills the Ear (it may be stuck),
   answers with `ear: {"available": true, "ok": false, "error":
   {"code": "timeout", "message": "the Ear took longer than 60 s to
@@ -250,9 +252,10 @@ always was.
 
 ### Where Duck Echo looks for the Ear
 
-In order: the MCP server's `--ear PROGRAM` (on the command line,
-`--ear-program PROGRAM`, because `analyze --ear` already means "ask the
-Ear"); the environment variable `DUCK_ECHO_EAR`; the installed Ear
+In order: `--ear-program PROGRAM`, the one spelling for "which Ear
+program" on the MCP server and the command line (`analyze --ear` is a
+switch meaning "ask the Ear too"; the old `--ear PROGRAM` still works,
+with a note); the environment variable `DUCK_ECHO_EAR`; the installed Ear
 (section 5). These are how tests point at the stub, and how a developer
 points at a `duck-ear` they are working on.
 

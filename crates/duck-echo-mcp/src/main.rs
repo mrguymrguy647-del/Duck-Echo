@@ -20,10 +20,18 @@ fn main() -> ExitCode {
     let mut ear: Option<PathBuf> = None;
     while let Some(a) = args.next() {
         match a.as_str() {
-            "--ear" => match args.next() {
-                Some(program) => ear = Some(PathBuf::from(program)),
+            // `--ear PROGRAM` is the old spelling, still accepted.
+            "--ear-program" | "--ear" => match args.next() {
+                Some(program) => {
+                    if a == "--ear" {
+                        eprintln!(
+                            "duck-echo-mcp: note: --ear PROGRAM is now spelled --ear-program PROGRAM; the old spelling still works"
+                        );
+                    }
+                    ear = Some(PathBuf::from(program))
+                }
                 None => {
-                    eprintln!("duck-echo-mcp: --ear needs the Duck Ear program");
+                    eprintln!("duck-echo-mcp: {a} needs the Duck Ear program");
                     return ExitCode::from(2);
                 }
             },
@@ -47,7 +55,7 @@ fn main() -> ExitCode {
             }
             "--help" | "-h" => {
                 println!(
-                    "duck-echo-mcp [--root DIR] [--duck-forge DIR] [--ear PROGRAM]\n\nDuck Echo tools as an MCP server over stdio. File paths given to tools\nare resolved against DIR (default: the current directory) and must stay\ninside it. With --duck-forge, game_send and game_list work with the games\nof that Duck Forge folder, writing only into their assets and art folders.\nWith --ear (or DUCK_ECHO_EAR), listen and analyze with ear: true use that\nDuck Ear program; otherwise the installed Ear, if there is one. The server\nkeeps one Ear, and stops it after 10 minutes with no question."
+                    "duck-echo-mcp [--root DIR] [--duck-forge DIR] [--ear-program PROGRAM]\n\nDuck Echo tools as an MCP server over stdio. File paths given to tools\nare resolved against DIR (default: the current directory) and must stay\ninside it. With --duck-forge, game_send and game_list work with the games\nof that Duck Forge folder, writing only into their assets and art folders.\nWith --ear-program (or DUCK_ECHO_EAR), listen and analyze with ear: true use that\nDuck Ear program; otherwise the installed Ear, if there is one. The server\nkeeps one Ear, and stops it after 10 minutes with no question."
                 );
                 return ExitCode::SUCCESS;
             }

@@ -152,3 +152,40 @@ fn listen_and_ear_status_with_the_stub() {
     assert!(text.contains("is ready (a stub"), "{text}");
     assert!(text.contains("answers kept:"), "{text}");
 }
+
+#[test]
+fn the_old_spelling_ear_program_is_accepted_with_a_note() {
+    let dir = fresh("cli-ear-old-spelling");
+    let missing = dir.join("no-ear").to_string_lossy().into_owned();
+    for args in [
+        vec![
+            "listen",
+            "preset:coin",
+            "--quick",
+            "--ear",
+            missing.as_str(),
+        ],
+        vec!["ear", "status", "--ear", missing.as_str()],
+    ] {
+        let out = duck_echo(&dir, &args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let note = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            note.contains("now spelled --ear-program"),
+            "{args:?}: {note}"
+        );
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            said.contains("not_installed") || said.contains("not available"),
+            "{said}"
+        );
+        assert!(
+            said.contains("no-ear"),
+            "the old spelling named the program: {said}"
+        );
+    }
+}

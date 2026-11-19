@@ -1255,7 +1255,7 @@ real listening models.
   `expect.sounds_like`; `listen` and `ear_status` (commands, so the MCP
   server and `duck-echo do` have them; `duck-echo listen` and `duck-echo
   ear status` too); songs have `expect`; the MCP server keeps one Ear
-  (`--ear`), stopped after 10 minutes with no question, and the Ear lets
+  (`--ear-program`), stopped after 10 minutes with no question, and the Ear lets
   go of its describe model after 2 (Duck Echo sends `load` before every
   describe question); the sounds heard are deleted at once; the answer
   cache gives the same question the identical answer without starting
@@ -1275,8 +1275,10 @@ Lessons from step 2:
   instead ("expect: sounds_like not checked", or "expect: all 2 met
   (sounds_like not checked)").
 * **One flag, two meanings, is a trap**: `analyze --ear` asks the Ear, so
-  the CLI names the program `--ear-program`; only the MCP server has
-  `--ear PROGRAM`.
+  the program is named `--ear-program` everywhere (the MCP server,
+  `listen`, `ear status`). Step 2 first spelled it three ways; the
+  server's old `--ear PROGRAM` (and `--ear PROGRAM` on `listen` and `ear
+  status`) still work, with a note on stderr naming the new spelling.
 * **The build folder fills the disk.** A full workspace test with the
   incremental cache grew `target/` past the session's space;
   `CARGO_INCREMENTAL=0` and removing `target/debug/incremental` fixed it.

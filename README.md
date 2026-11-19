@@ -272,7 +272,7 @@ Claude Desktop, in `claude_desktop_config.json` (absolute paths):
 To let the agent send sounds into your Duck Forge games (`game_list`,
 `game_send`), add `"--duck-forge", "/path/to/Duck Forge"` to `args`: the
 folder whose `Cargo.toml` names `duckforge`. The agent can then write
-only into each game's `assets` and `art` folders. `"--ear",
+only into each game's `assets` and `art` folders. `"--ear-program",
 "/path/to/duck-ear"` names the Duck Ear for `listen` and `analyze` with
 `ear: true` (without it, `DUCK_ECHO_EAR` or the installed Ear); the server
 keeps one Ear and stops it after 10 minutes with no question.
