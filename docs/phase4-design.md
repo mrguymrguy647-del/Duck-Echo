@@ -441,18 +441,22 @@ and stops it when it stops. Duck Echo starts `duck-ear` inside a
 Duck Echo stops the Ear, or the Ear crashes, `llama-server` goes too and
 never sits on the graphics card's memory.
 
-### Two sizes, chosen by the person
+### Three sizes, chosen by the person
 
-| | Small | Full |
-|---|---|---|
-| For | every PC | a PC with a graphics card of 8 GB or more (works on CPU, slowly) |
-| Gives | `score`, `closest`, `verdict` from the score; `describe` and `ask` from the small model (if it passes step 4) | the same, with Qwen2.5-Omni-7B answering |
-| Programs: uv, Python, packages, llama.cpp | ~150–200 MB (est.) | same |
-| Models | ~0.4 GB score + ~0.6–1 GB small describe (est.) | + ~5–6 GB (est.) |
-| **Total on disk** | **about 1.5 GB** (est.) | **about 7.5 GB** (est.) |
+(Two were planned. Step 4 added Large, for PCs with a big graphics card,
+and no small describe model has passed its test yet: `docs/ear-check.md`
+gets the results.)
 
-The exact sizes are known after steps 3 and 4 and are shown before
-anything is downloaded.
+| | Small | Full | Large |
+|---|---|---|---|
+| For | every PC | a PC with a graphics card of 8 GB or more (works on CPU, slowly) | offered only when a graphics card with 16 GB or more is found |
+| Gives | `score` and the `verdict` from the score. No describe model: none has passed step 4's test yet | the same, and `describe` and `ask` from Qwen2.5-Omni-7B | the same, from Qwen3-Omni-30B-A3B |
+| Programs: uv, Python, packages, llama.cpp | ~150–200 MB (est.) | same | same |
+| Models | 0.8 GB score (LAION-CLAP) | + 6.2 GB | + 19.9 GB |
+| **Total on disk** | **about 1 GB** | **about 7.2 GB** | **about 21 GB** |
+
+The model sizes are measured (steps 3 and 4); the programs' size is
+known after step 5. Sizes are shown before anything is downloaded.
 
 **If no describe model passes step 4's test set**, the Ear ships with
 scores only: one size, without `llama-server` or a describe model.
