@@ -8,7 +8,7 @@ know it is finished ("Accept").
 Task numbers are names, not the order. Old numbers are kept so that
 commits and notes that mention them still make sense.
 
-Before starting any task: run `cargo test --workspace`, read `CLAUDE.md`,
+Before starting any task: run `cargo test --workspace`, read `AGENTS.md`,
 `docs/ARCHITECTURE.md` and `docs/RECIPE_SPEC.md`, and keep their rules.
 After any change to the recipe types, regenerate the schema:
 
@@ -473,7 +473,7 @@ Order: 25 first (the command layer every button will use, so Undo and the
 MCP tools come for free instead of being added to each button later), then
 22, 23, 11, 12, 24. This phase brings the first big dependencies (a window
 and widget toolkit, audio output to the speakers, an installer builder);
-justify each one in `ARCHITECTURE.md`, as `CLAUDE.md` asks.
+justify each one in `ARCHITECTURE.md`, as `AGENTS.md` asks.
 
 ### 22. Launcher and installer [done: Phase 2 step 4]
 
