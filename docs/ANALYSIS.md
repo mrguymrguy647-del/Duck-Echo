@@ -131,7 +131,7 @@ loop joins cleanly, 155 of 155 notes heard; loudest track lead (-22.1
 LUFS), quietest drums (-27.4 LUFS)`
 
 When the tracks were not heard alone (`render` without `per_track` or
-`notes`), it ends "per_track describes each" instead.
+`notes`), it ends "pass per_track to describe each" instead.
 
 **Stems.** A track heard alone (`solo`, `mute`, `per_track`) is rendered
 with the other tracks silenced and finished with the full song's master
@@ -274,7 +274,7 @@ piercing; `laser`, `missile` and the explosions move.
 | CLIPPING (N samples) | Any clipped sample. |
 | ends cleanly, ENDS WITH A CLICK | `ending.clean` (see Ending). Not in a song's summary when it loops; "loop joins cleanly" or "LOOP CLICKS AT THE JOIN" is there instead. |
 | silent tail | Trailing silence above 20% of the length. |
-| N layers; per_layer describes each | Only for a recipe with two or more layers (a WAV file has no layers). The rest of the summary describes the whole mix, so this says how many layers made it and that `per_layer` gives each one's own analysis. With `per_layer` on, only "N layers"; with `solo` or `mute`, "K of N layers heard". |
+| N layers; pass per_layer to describe each | Only for a recipe with two or more layers (a WAV file has no layers). The rest of the summary describes the whole mix, so this says how many layers made it and that `per_layer` gives each one's own analysis. With `per_layer` on, only "N layers"; with `solo` or `mute`, "K of N layers heard". |
 
 The thresholds live in `duck_echo_analyze::features::words`.
 

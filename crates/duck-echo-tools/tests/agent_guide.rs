@@ -158,3 +158,100 @@ fn the_tables_in_the_guide_match_the_built_ins() {
         }
     }
 }
+
+/// Run a named command in `project` with the Duck Forge folder `forge`
+/// set, as the MCP server started with --duck-forge does.
+fn run_with_forge(
+    project: &Path,
+    forge: &Path,
+    name: &str,
+    args: &serde_json::Value,
+) -> serde_json::Value {
+    let root = duck_echo_tools::root::Root::new(project)
+        .unwrap()
+        .with_duck_forge(duck_echo_tools::forge::DuckForge::open(forge).unwrap());
+    let project = duck_echo_tools::project::Project::new(&root);
+    duck_echo_tools::commands::parse(name, args, "arguments.")
+        .and_then(|c| {
+            duck_echo_tools::commands::run(
+                &project,
+                c,
+                duck_echo_tools::history::Who::Agent,
+                None,
+                "arguments.",
+            )
+        })
+        .unwrap_or_else(|e| panic!("{name} {args}: {}", e.into_report()))
+}
+
+#[test]
+fn the_send_to_a_game_chapter_works_as_it_says() {
+    // A Duck Forge folder with the guide's game, and a project with the
+    // files its examples send.
+    let dir = std::env::temp_dir().join(format!("duck-echo-guide-send-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (project, forge) = (dir.join("project"), dir.join("Duck Forge"));
+    std::fs::create_dir_all(forge.join("examples/mygame")).unwrap();
+    std::fs::write(
+        forge.join("Cargo.toml"),
+        "[package]\nname = \"duckforge\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(forge.join("examples/mygame/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::create_dir_all(project.join("sfx")).unwrap();
+    std::fs::create_dir_all(project.join("music")).unwrap();
+    for (file, preset) in [("sfx/thud.toml", "thud"), ("sfx/step.toml", "footstep")] {
+        std::fs::write(project.join(file), presets::get(preset).unwrap().source).unwrap();
+    }
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/songs/four_bars.toml"),
+        project.join("music/theme.toml"),
+    )
+    .unwrap();
+
+    // Each game_send line of the chapter writes its files...
+    let sends: Vec<serde_json::Value> = blocks("json")[1]
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(sends.len(), 3, "a sound, a song and variants");
+    let game = forge.join("examples/mygame");
+    for args in &sends {
+        let sent = run_with_forge(&project, &forge, "game_send", args);
+        assert_eq!(sent["unchanged"], false, "{sent}");
+        assert!(
+            game.join(sent["facts"].as_str().unwrap()).is_file(),
+            "{sent}"
+        );
+        assert!(
+            game.join(sent["recipe"].as_str().unwrap()).is_file(),
+            "{sent}"
+        );
+    }
+    // ...the song as OGG...
+    assert!(game.join("assets/theme_day.ogg").is_file());
+    // ...and every file the chapter's Rust loads is there.
+    let rust = &blocks("rust")[0];
+    let loaded: Vec<&str> = rust
+        .split('"')
+        .filter(|part| part.starts_with("examples/mygame/"))
+        .collect();
+    assert_eq!(loaded.len(), 3, "{rust}");
+    for file in loaded {
+        assert!(forge.join(file).is_file(), "{file} was not written");
+    }
+    // Sending again with no change writes nothing.
+    for args in &sends {
+        let again = run_with_forge(&project, &forge, "game_send", args);
+        assert_eq!(again["unchanged"], true, "{again}");
+        assert_eq!(again["written"], serde_json::json!([]), "{again}");
+    }
+    // game_list names what the game has now.
+    let games = run_with_forge(&project, &forge, "game_list", &serde_json::json!({}));
+    let text = games.to_string();
+    for name in ["thud", "theme_day", "step"] {
+        assert!(text.contains(&format!("\"{name}\"")), "{name}: {text}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

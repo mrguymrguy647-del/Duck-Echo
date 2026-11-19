@@ -278,7 +278,7 @@ fn original_definitions() -> Vec<Value> {
         tool(
             "edit",
             "Edit a recipe",
-            &format!("Change a recipe by path and validate the result. Each op is {{\"path\": \"layers[0].pitch.start\", \"value\": \"C5\"}} to set (an index equal to the array length appends; missing tables are created) or {{\"path\": \"effects[1]\", \"remove\": true}} to remove. Returns the edited recipe. A file is rewritten only if the result is valid (comments are not kept); an invalid result returns the report and changes nothing. Songs are edited the same way, with paths such as tracks[1].notes[3].note. {RECIPE_SOURCE}"),
+            &format!("Change a recipe by path and validate the result. Each op is {{\"path\": \"layers[0].pitch.start\", \"value\": \"C5\"}} to set (an index equal to the array length appends; missing tables are created) or {{\"path\": \"effects[1]\", \"remove\": true}} to remove. Returns the edited recipe. A file is rewritten only if the result is valid (its comments and layout stay); an invalid result returns the report and changes nothing. Songs are edited the same way, with paths such as tracks[1].notes[3].note. {RECIPE_SOURCE}"),
             with(recipe_props(), json!({
                 "ops": {
                     "type": "array",
@@ -495,7 +495,7 @@ fn source(root: &Root, args: &Map<String, Value>) -> Result<Source, ToolError> {
         (Some(_), _) => Err(arg_error(
             "recipe",
             Code::TypeMismatch,
-            "`recipe` must be a JSON object",
+            "`recipe` must be a JSON object (the recipe itself); for a file, give its path as `path`",
         )),
         (None, Some(p)) => Ok(Source::Path(root.read("arguments.path", p)?)),
         (None, None) => Err(arg_error("recipe", Code::MissingField, RECIPE_SOURCE)),
@@ -762,7 +762,7 @@ fn run(
                 return Err(arg_error(
                     "recipe",
                     Code::TypeMismatch,
-                    "`recipe` must be a JSON object",
+                    "`recipe` must be a JSON object (the document itself); to copy a file, give its path as `from`",
                 ));
             };
             let overwrite = opt_bool(args, "overwrite")?.unwrap_or(false);
@@ -994,7 +994,7 @@ fn run(
                     return Err(arg_error(
                         "recipe",
                         Code::TypeMismatch,
-                        "`recipe` must be a JSON object",
+                        "`recipe` must be a JSON object (the recipe itself); for a file, give its path as `path`",
                     ))
                 }
                 (None, Some(p)) => {

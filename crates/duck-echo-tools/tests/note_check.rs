@@ -309,7 +309,7 @@ fn the_check_runs_when_asked_and_the_picture_has_bar_lines() {
     assert!(plain
         .analysis
         .summary
-        .ends_with("; per_track describes each"));
+        .ends_with("; pass per_track to describe each"));
     let options = Options {
         check_notes: true,
         picture: true,

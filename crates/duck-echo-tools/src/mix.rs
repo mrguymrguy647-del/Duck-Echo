@@ -797,6 +797,42 @@ fn load_audio(root: &Root, folder: &str, cue: &Cue) -> Result<Audio, ToolError> 
     Ok(to_mix_rate(&buffer))
 }
 
+/// A game's sound file (`.wav` or `.ogg`), named in its log from the Duck
+/// Forge folder `forge` (outside the project): read only, a plain path
+/// that stays inside it.
+fn load_game_audio(forge: &Path, cue: &Cue) -> Result<Audio, ToolError> {
+    let plain = Path::new(&cue.file)
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)));
+    let path = forge.join(&cue.file);
+    let refuse = |why: &str| {
+        ToolError::issue(Issue::error(
+            Code::InvalidArgument,
+            "",
+            format!("`{}` {why}", cue.file),
+        ))
+    };
+    if !plain {
+        return Err(refuse("is not a plain path inside the Duck Forge folder"));
+    }
+    let buffer = if crate::ogg::is_ogg_path(&path) {
+        crate::ogg::read_ogg_file(&path)?
+    } else if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+    {
+        duck_echo_audio::read_wav(&path).map_err(|e| {
+            ToolError::failed(
+                Code::Io,
+                format!("cannot read {} in the Duck Forge folder: {e}", cue.file),
+            )
+        })?
+    } else {
+        return Err(refuse("is not a .wav or .ogg file"));
+    };
+    Ok(to_mix_rate(&buffer))
+}
+
 /// Stereo at [`MIX_RATE`]: mono is copied to both sides, and another rate
 /// is read with straight lines between its samples.
 fn to_mix_rate(buffer: &AudioBuffer) -> Audio {
@@ -909,15 +945,23 @@ pub fn check(root: &Root, request: &Request, prefix: &str) -> Result<MixChecked,
     let list = parse_cues(&text)?;
     let (form, cues, not_mixed, ran, pan_law) =
         (list.form, list.cues, list.not_mixed, list.ran, list.pan);
-    // The folder the cues' files are named from.
+    // The folder the cues' files are named from. A Duck Forge log written
+    // into the project (a headless run's `--out`) names the game's files
+    // from the Duck Forge folder: the one around it, or else the one the
+    // server was given (`--duck-forge`), which is outside the project.
+    let mut game_folder = None;
     let folder = match base {
         Some(b) => {
             let dir = root.folder(&format!("{prefix}base"), Some(b))?;
             root.show(&dir)
         }
-        None if form == "duck_forge_log" => {
-            duck_forge_folder_of(root, &path).map_or_else(String::new, |d| root.show(&d))
-        }
+        None if form == "duck_forge_log" => match duck_forge_folder_of(root, &path) {
+            Some(d) => root.show(&d),
+            None => {
+                game_folder = root.duck_forge().map(|f| f.dir().to_path_buf());
+                String::new()
+            }
+        },
         None => root.folder_of(&path),
     };
     let name = file_safe(
@@ -939,7 +983,13 @@ pub fn check(root: &Root, request: &Request, prefix: &str) -> Result<MixChecked,
         if audio.contains_key(&cue.file) {
             continue;
         }
-        match load_audio(root, &folder, cue) {
+        let loaded = match &game_folder {
+            Some(forge) if !cue.file.starts_with(crate::PRESET_PREFIX) => {
+                load_game_audio(forge, cue)
+            }
+            _ => load_audio(root, &folder, cue),
+        };
+        match loaded {
             Ok(a) => {
                 audio.insert(cue.file.clone(), a);
             }

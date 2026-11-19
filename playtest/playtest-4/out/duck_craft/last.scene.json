@@ -1,0 +1,31 @@
+{
+  "frame": 797,
+  "camera": null,
+  "labels": [
+    {"name": "player", "world": [142.29, 114.81, 35.42, 61.98], "screen": [142.29, 114.81, 35.42, 61.98], "on_screen": true},
+    {"name": "duckling", "world": [150.54, 130.96, 12.58, 15.1], "screen": [150.54, 130.96, 12.58, 15.1], "on_screen": true},
+    {"name": "duckling", "world": [397.21, 118.6, 10.67, 12.8], "screen": [397.21, 118.6, 10.67, 12.8], "on_screen": false},
+    {"name": "duckling", "world": [1031.85, 389.44, 14.42, 17.3], "screen": [1031.85, 389.44, 14.42, 17.3], "on_screen": false},
+    {"name": "duckling", "world": [176, 157.68, 16.27, 19.52], "screen": [176, 157.68, 16.27, 19.52], "on_screen": true},
+    {"name": "target", "world": [172.41, 102.63, 4, 4], "screen": [172.41, 102.63, 4, 4], "on_screen": true},
+    {"name": "hotbar", "world": [70, 217, 180, 20], "screen": [70, 217, 180, 20], "on_screen": true},
+    {"name": "health", "world": [70, 205, 80, 9], "screen": [70, 205, 80, 9], "on_screen": true},
+    {"name": "hunger", "world": [170, 205, 80, 9], "screen": [170, 205, 80, 9], "on_screen": true}
+  ],
+  "texts": [
+    {"text": "26", "screen": [84, 232, 7, 5]},
+    {"text": "26", "screen": [83, 231, 7, 5]},
+    {"text": "16", "screen": [104, 232, 7, 5]},
+    {"text": "16", "screen": [103, 231, 7, 5]},
+    {"text": "32", "screen": [124, 232, 7, 5]},
+    {"text": "32", "screen": [123, 231, 7, 5]},
+    {"text": "7", "screen": [148, 232, 3, 5]},
+    {"text": "7", "screen": [147, 231, 3, 5]},
+    {"text": "3", "screen": [168, 232, 3, 5]},
+    {"text": "3", "screen": [167, 231, 3, 5]},
+    {"text": "2", "screen": [188, 232, 3, 5]},
+    {"text": "2", "screen": [187, 231, 3, 5]},
+    {"text": "Day 1  07:50", "screen": [5, 5, 47, 5]},
+    {"text": "Day 1  07:50", "screen": [4, 4, 47, 5]}
+  ]
+}

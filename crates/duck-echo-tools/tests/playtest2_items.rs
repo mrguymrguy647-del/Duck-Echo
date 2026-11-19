@@ -100,9 +100,28 @@ fn a_song_summary_uses_words_for_a_mix() {
         .analysis
         .summary;
     assert!(
-        plain.ends_with("loop joins cleanly; per_track describes each"),
+        plain.ends_with("loop joins cleanly; pass per_track to describe each"),
         "{plain}"
     );
+    // Each track of a loop is judged by its join too, never by its last
+    // sample alone (playtest 4 read "ENDS WITH A CLICK" on tracks of a
+    // loop that joins cleanly).
+    let options = Options {
+        per_track: true,
+        ..Options::default()
+    };
+    let tracks = measure_document(&doc, None, &options, "")
+        .unwrap()
+        .measured
+        .tracks
+        .unwrap();
+    assert_eq!(tracks.len(), 4);
+    for track in &tracks {
+        let s = &track.analysis.summary;
+        assert!(!s.contains("ENDS WITH A CLICK"), "{}: {s}", track.name);
+        assert!(!s.contains("ends cleanly"), "{}: {s}", track.name);
+        assert!(s.contains("loop joins cleanly"), "{}: {s}", track.name);
+    }
 }
 
 #[test]

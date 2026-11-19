@@ -1,0 +1,33 @@
+# Land: a soft noise thump with a short low drop.
+version = 0
+name = "land"
+description = "A duck landing from a jump: a deep soft thump with a webbed-foot slap."
+tags = ["movement", "land", "low", "short"]
+
+seed = 6
+
+[master]
+trim_silence = true
+normalize_lufs = -20
+
+[[layers]]
+source = "noise"
+envelope = { attack = 0.001, decay = 0.12 }
+filter = { kind = "lowpass", cutoff = 800 }
+volume = 1.5
+
+[[layers]]
+source = "sine"
+volume = 0.9
+envelope = { attack = 0.001, decay = 0.16 }
+pitch = { start = 110, end = 45, curve = "exponential" }
+
+[[layers]]
+envelope = { attack = 0.001, decay = 0.03 }
+filter = { cutoff = 1800, kind = "bandpass", resonance = 1.5 }
+source = "noise"
+volume = 0.5
+
+[expect]
+boom = "high"
+loudness_lufs = [-20.5, -19.5]

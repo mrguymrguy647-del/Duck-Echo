@@ -25,7 +25,8 @@ Never write a sound from nothing, and never change many things at once.
    A person may have the same file open in Duck Echo Studio: they see
    your change within a second, with your step's title, and can undo it.
    `edit_history` shows their steps as "You".
-4. **Render.** `render` with an `output` such as `sfx/coin.wav`. The
+4. **Render.** `render` with the file as `path` and an `output` such as
+   `sfx/coin.wav` (`recipe` is only for a recipe written inline). The
    result already holds the analysis. Next to the WAV it writes
    `sfx/coin.wav.json` with the facts a game or film engine needs (the
    same object is `asset` in the result): `duration_seconds`,
@@ -170,10 +171,11 @@ adds side tones at the note plus and minus the rate (they show in
 
 ### When the summary is not enough
 
-* **Several layers.** When the summary ends with "N layers; per_layer
-  describes each", the summary describes the mix, which is often just its
-  loudest layer. Add `per_layer: true` to get each layer alone, at its
-  level in the mix. Use `solo: [1]` or `mute: [0]` to hear only some.
+* **Several layers.** When the summary ends with "N layers; pass
+  per_layer to describe each", the summary describes the mix, which is
+  often just its loudest layer. Add `per_layer: true` to get each layer
+  alone, at its level in the mix, in `layers` at the top of the result
+  (each `{index, analysis}`; a song's are in `tracks`). Use `solo: [1]` or `mute: [0]` to hear only some.
 * **Texture.** `picture: true` returns an image: level over time on top,
   a spectrogram below. It shows grit, a noisy tail or a click the
   numbers hide. Check what you see against the numbers.
@@ -233,10 +235,13 @@ with every moment over full volume (`overs`, with the volumes that fix
 it), the loudness each second and per section, and every cue `buried`
 more than 15 dB under what plays with it (`lift_to` is its fix). Change
 the volumes in the cue list, or `master.normalize_lufs` in a recipe, and
-check again until `overs` is empty and nothing is buried. Duck Forge's
-own synthesizer sounds are not in the mix (`not_mixed` names them); if
-the log is not inside the Duck Forge folder, give `base`, the folder the
-game ran in. Read
+check again until `overs` is empty and nothing is buried. A sound made
+in mono reads about 3 LU louder in the mix than alone, because it plays
+in both ears. Duck Forge's
+own synthesizer sounds are not in the mix (`not_mixed` names them). A
+game's files are read from the Duck Forge folder around the log, or the
+server's (see "Send to a game"); `base` names another folder in the
+project. Read
 `<name>.mix.png` once: it shows where in time the trouble is.
 
 ### A small example
@@ -423,26 +428,75 @@ mix: raise its `volume`. `per_track: true` gives every track's analysis.
 Duck Echo cannot tell you whether a tune is *good*. Say so, and ask a
 person to listen.
 
-## Send it to a game
+## Send to a game
 
-When the person makes a game with Duck Forge, `game_list` lists its games
-and the Duck Echo sounds each already has. `game_send` puts a sound into
-one:
+When the person makes a game with Duck Forge, send your sounds straight
+into it. The MCP server needs the Duck Forge folder (started with
+`--duck-forge FOLDER`, or set in Duck Echo Studio's Settings); if a tool
+says none is set, ask the person for it.
+
+**1. See the games.** `game_list` names each game (the folder
+`examples/<game>` of Duck Forge) and the Duck Echo sounds it already has,
+with the recipe each came from. To change one of those sounds, send to
+its name. For a song it also gives `song`: its `tempo`, `beats_per_bar`
+and `bars`. A new theme the game fades to or from that one (day and
+night) must use the same three, so the two stay in time.
+
+**2. Send.** `game_send` takes the file and the game:
 
 ```json
-{"file": "sfx/step.toml", "game": "duck_craft"}
-{"file": "music/day.toml", "game": "duck_craft", "name": "theme_day"}
-{"file": "sfx/step.toml", "game": "duck_craft", "variants": 8}
+{"file": "sfx/thud.toml", "game": "mygame"}
+{"file": "music/theme.toml", "game": "mygame", "name": "theme_day"}
+{"file": "sfx/step.toml", "game": "mygame", "name": "step", "variants": 6}
 ```
 
-A sound goes as WAV, a song as OGG, variants as numbered WAVs with their
-list. Each lands in the game's `assets` folder with its facts file, and
-the recipe is copied into its `art` folder. The game is a name from
-`game_list`, never a path, and a `name` is letters, digits, `-` and `_`
-only (anything else is refused, with a safe name suggested). Sending again with no change writes nothing
-(`unchanged: true`), so send freely after each change. If the tool says
-no Duck Forge folder is set, ask the person to start the server with
-`--duck-forge` (or set it in Duck Echo Studio's Settings).
+* **A sound goes as WAV**: `assets/thud.wav`, with its facts file
+  `assets/thud.wav.json` (length, loudness, `hit_seconds`, `loops`...).
+* **A song goes as OGG**: `assets/theme_day.ogg`, about 14 times smaller
+  than a WAV (`"quality"` 0 to 10, default 4). It is decoded and checked
+  before it is kept: its length is exact and its loop joins cleanly.
+* **Variants** go as `assets/step_1.wav` to `step_6.wav`, each with its
+  facts, and their list `assets/step.variants.json`. Make sure the recipe
+  has something random (a range or `variation`), or every variant is the
+  same; the answer says so.
+* The recipe is copied to `art/<name>.toml`, so the game keeps where each
+  sound came from.
+* `game` is a name from `game_list`, never a path. `name` is letters,
+  digits, `-` and `_` only (anything else is refused, with a safe name
+  suggested).
+* **Sending again with no change writes nothing**: `unchanged: true`,
+  `written: []`. So send after every change.
+
+**3. What the game does with them.** Duck Forge plays them like this
+(Rust, in the game's code; tell the person, or whoever writes the game):
+
+```rust
+let thud = Wav::load("examples/mygame/assets/thud.wav")?;
+let steps = SoundSet::load("examples/mygame/assets/step.variants.json")?;
+let theme = Music::load("examples/mygame/assets/theme_day.ogg")?;
+// In update:
+ctx.play_with(&steps, 0.8, 0.0); // one footstep, never the same twice running
+ctx.play_landing(&thud, 6); // it lands in 6 frames: the hit is on that frame
+let music = ctx.play_loop(&theme, 0.6); // once; it loops with no gap
+```
+
+* A running game hears a sent sound within about a second (a loop
+  switches when it next starts again), and its recordings keep which
+  version played when, so replays sound the same.
+* `play_landing` uses `hit_seconds` from the facts file. A sound with no
+  facts plays at once, and the game warns.
+* The game chooses variants from its seed, so a replay plays the same
+  ones.
+
+**4. Check the mix in the game.** Ask the person to run the game
+headless with one of its playthroughs, writing into your project (from
+the Duck Forge folder:
+`cargo run --example mygame -- --headless --inputs playthroughs/mygame.json --out <your project>/out/mygame`).
+Then `mix_check` with `{"cues": "out/mygame/log.json"}`. The game's sound
+files are read from the Duck Forge folder. Fix until `overs` is empty and
+nothing is `buried`: change the volume in the game's code, or the sound's
+loudness in its recipe and send it again. Duck Forge's own synthesizer
+sounds are listed in `not_mixed`.
 
 ## Undo, and working beside a person
 

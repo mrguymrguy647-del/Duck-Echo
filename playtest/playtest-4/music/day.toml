@@ -1,0 +1,95 @@
+# Daytime loop for Duck Craft: a bright, easy tune in C major.
+# 84 BPM and 8 bars, the same length as the game's night theme (22.86 s).
+version = 0
+name = "day"
+description = "Duck Craft daytime loop: piano tune over pad chords, bass and a light beat."
+tempo = 84
+bars = 8
+loop = true
+
+[master]
+normalize_lufs = -18
+
+[patterns.beat]
+notes = [
+  { beat = 0, note = "kick" },
+  { beat = 1, note = "snare", velocity = 0.7 },
+  { beat = 2, note = "kick" },
+  { beat = 2.5, note = "kick", velocity = 0.6 },
+  { beat = 3, note = "snare", velocity = 0.7 },
+  { beat = 0.5, note = "hat", velocity = 0.4 },
+  { beat = 1.5, note = "hat", velocity = 0.4 },
+  { beat = 2.5, note = "hat", velocity = 0.4 },
+  { beat = 3.5, note = "hat", velocity = 0.4 },
+]
+
+[patterns.root]
+notes = [
+  { beat = 0, note = "C2", length = 1.5 },
+  { beat = 1.5, note = "C3", length = 0.5 },
+  { beat = 2, note = "G2", length = 2 },
+]
+
+[[tracks]]
+name = "chords"
+instrument = "pad"
+notes = [
+  { bar = 1, beat = 0, note = ["C4", "E4", "G4"], length = 4 },
+  { bar = 2, beat = 0, note = ["A3", "C4", "E4"], length = 4 },
+  { bar = 3, beat = 0, note = ["A3", "C4", "F4"], length = 4 },
+  { bar = 4, beat = 0, note = ["B3", "D4", "G4"], length = 4 },
+  { bar = 5, beat = 0, note = ["C4", "E4", "G4"], length = 4 },
+  { bar = 6, beat = 0, note = ["A3", "C4", "E4"], length = 4 },
+  { bar = 7, beat = 0, note = ["A3", "C4", "F4"], length = 2 },
+  { bar = 7, beat = 2, note = ["B3", "D4", "G4"], length = 2 },
+  { bar = 8, beat = 0, note = ["C4", "E4", "G4"], length = 4 },
+]
+
+[[tracks]]
+name = "bass"
+instrument = "bass"
+play = [
+  { pattern = "root", bars = [1, 5, 8] },
+  { pattern = "root", bars = [2, 6], transpose = -3 },
+  { pattern = "root", bars = [3], transpose = 5 },
+  { pattern = "root", bars = [4], transpose = 7 },
+]
+notes = [
+  { bar = 7, beat = 0, note = "F2", length = 2 },
+  { bar = 7, beat = 2, note = "G2", length = 2 },
+]
+
+[[tracks]]
+name = "tune"
+instrument = "piano"
+volume = 1.4
+notes = [
+  { bar = 1, beat = 0, note = "E5" },
+  { bar = 1, beat = 1, note = "G5" },
+  { bar = 1, beat = 2, note = "C6", length = 1.5 },
+  { bar = 1, beat = 3.5, note = "B5", length = 0.5 },
+  { bar = 2, beat = 0, note = "A5", length = 2 },
+  { bar = 2, beat = 2, note = "E5", length = 2 },
+  { bar = 3, beat = 0, note = "F5" },
+  { bar = 3, beat = 1, note = "A5" },
+  { bar = 3, beat = 2, note = "C6" },
+  { bar = 3, beat = 3, note = "A5" },
+  { bar = 4, beat = 0, note = "G5", length = 3 },
+  { bar = 5, beat = 0, note = "E5" },
+  { bar = 5, beat = 1, note = "G5" },
+  { bar = 5, beat = 2, note = "C6" },
+  { bar = 5, beat = 3, note = "D6" },
+  { bar = 6, beat = 0, note = "E6", length = 2 },
+  { bar = 6, beat = 2, note = "C6", length = 2 },
+  { bar = 7, beat = 0, note = "A5" },
+  { bar = 7, beat = 1, note = "F5" },
+  { bar = 7, beat = 2, note = "D5" },
+  { bar = 7, beat = 3, note = "B4" },
+  { bar = 8, beat = 0, note = "C5", length = 3 },
+]
+
+[[tracks]]
+name = "drums"
+instrument = "drums"
+play = [{ pattern = "beat", bars = [1, 2, 3, 4, 5, 6, 7, 8] }]
+volume = 1.3

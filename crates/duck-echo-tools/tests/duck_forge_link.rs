@@ -383,6 +383,17 @@ fn a_sound_a_song_and_variants_go_into_a_game_and_sending_again_writes_nothing()
     );
     assert_eq!(sounds[0]["variants"], 3);
     assert_eq!(sounds[2]["loops"], json!(false));
+    // A song says its shape, read from its recipe copy, so a theme the
+    // game fades to can match it (playtest 4 had to guess the tempo). A
+    // sound has none.
+    // (tune.toml is examples/songs/four_bars.toml: tempo = 110, bars = 4,
+    // and beats_per_bar left at its default, 4.)
+    assert_eq!(
+        sounds[2]["song"],
+        json!({"tempo": 110.0, "beats_per_bar": 4, "bars": 4})
+    );
+    assert!(sounds[0].get("song").is_none(), "{}", sounds[0]);
+    assert!(sounds[1].get("song").is_none(), "{}", sounds[1]);
 }
 
 #[test]
@@ -612,4 +623,84 @@ fn a_linked_assets_folder_is_refused() {
     .unwrap_err();
     assert_eq!(r.errors[0].code, duck_echo_core::Code::PathRefused, "{r}");
     assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+// ---------------------------------------------------------------------
+// Step 9: a game's log in the project, the Duck Forge folder beside it.
+// ---------------------------------------------------------------------
+
+#[test]
+fn mix_check_reads_a_games_sounds_from_the_duck_forge_folder_outside_the_project() {
+    // The project and the Duck Forge folder side by side, as with the MCP
+    // server's --duck-forge: the game's headless log written into the
+    // project (--out), its sounds in the game's folder.
+    let (proj, forge) = project_and_game("mix-outside");
+    run_with_forge(
+        &proj,
+        &forge,
+        "game_send",
+        json!({"file": "sfx/step.toml", "game": "duck_craft"}),
+    )
+    .unwrap();
+    let log = json!({
+        "game": "duck_craft",
+        "updates_per_second": 60,
+        "frames": 120,
+        "sounds": [
+            {"frame": 10, "sound": "step", "file": "examples/duck_craft/assets/step.wav"},
+            {"frame": 40, "sound": "step", "file": "examples/duck_craft/assets/step.wav", "volume": 0.5},
+            {"frame": 50, "sound": "beep", "wave": "square", "freq": 440, "ms": 100}
+        ],
+        "loops": []
+    });
+    std::fs::create_dir_all(proj.join("out/duck_craft")).unwrap();
+    std::fs::write(proj.join("out/duck_craft/log.json"), log.to_string()).unwrap();
+
+    let answer = run_with_forge(
+        &proj,
+        &forge,
+        "mix_check",
+        json!({"cues": "out/duck_craft/log.json"}),
+    )
+    .unwrap_or_else(|r| panic!("{r}"));
+    assert_eq!(answer["cues"].as_array().map(Vec::len), Some(2), "{answer}");
+    assert_eq!(answer["not_mixed"][0]["name"], "beep", "{answer}");
+    let (left, _) = mix_of(&proj, &answer);
+    // The first step starts on frame 10: sample 9 x 735.
+    assert!(left[..9 * 735].iter().all(|&s| s == 0.0));
+    assert!(left[9 * 735..9 * 735 + 2000].iter().any(|&s| s != 0.0));
+
+    // Without the Duck Forge folder the game's files can't be found, and
+    // the error says which.
+    let without = run_in(
+        &proj,
+        "mix_check",
+        json!({"cues": "out/duck_craft/log.json"}),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        without.contains("examples/duck_craft/assets/step.wav"),
+        "{without}"
+    );
+
+    // A log can't reach outside the Duck Forge folder.
+    let sneaky = json!({
+        "updates_per_second": 60,
+        "sounds": [{"frame": 1, "sound": "x", "file": "../project/sfx/step.toml"}],
+        "loops": []
+    });
+    std::fs::write(proj.join("out/sneaky.json"), sneaky.to_string()).unwrap();
+    let refused = run_with_forge(
+        &proj,
+        &forge,
+        "mix_check",
+        json!({"cues": "out/sneaky.json"}),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        refused.contains("not a plain path inside the Duck Forge folder"),
+        "{refused}"
+    );
 }

@@ -23,7 +23,7 @@ cargo run -p duck-echo-cli -- schema > schema/recipe.schema.json
 | 0 | Sound effects foundation: recipes, renderer, analysis, presets, MCP server, clean oscillators, Linux and Windows CI | done |
 | 1 | **Music**: songs, starter instruments, seamless loops, note checks, two Duck Craft loops, the agent guide | done |
 | 2 | Duck Echo Studio: an app for people, with no terminal | done |
-| 3 | Link with Duck Forge, the game engine | started: the film fixes and task 5 are done; the rest is designed in `docs/phase3-design.md` |
+| 3 | Link with Duck Forge, the game engine | done (Duck Forge's part on its branch `claude/phase3-studio-sounds`) |
 | 4 | Duck Ear: listening models | |
 | 5 | Voices made from math only | |
 | Later | Sample layers, video editor link | |
@@ -1102,7 +1102,7 @@ What the next builder needs to know:
   `report` files apart from recipes, which keeps them off the Studio's
   Home screen. Any new file Duck Echo writes beside sounds needs a kind.
 
-### 13. Save into a game, with live reload [designed: docs/phase3-design.md]
+### 13. Save into a game, with live reload [done: Phase 3 steps 1 to 9]
 
 This section was out of date (it was written before Duck Forge changed,
 and before the film fixes). Corrected after reading Duck Forge's `main`
@@ -1139,10 +1139,16 @@ and before the film fixes). Corrected after reading Duck Forge's `main`
   not read the list yet.
 * The plan, in nine steps across both repositories, with the measured
   OGG sizes and the open questions: `docs/phase3-design.md`.
-* Done so far: step 1 (`mix_check` reads a real `log.json`), step 2
-  (Duck Echo writes and checks OGG music), step 3 (`game_send` and
-  `game_list`, `duck-echo send`), step 4 (Send to game in the Studio,
-  the Duck Forge folder in Settings, `DuckEchoStudio --open`).
+* Done: step 1 (`mix_check` reads a real `log.json`), step 2 (Duck Echo
+  writes and checks OGG music), step 3 (`game_send` and `game_list`,
+  `duck-echo send`), step 4 (Send to game in the Studio, the Duck Forge
+  folder in Settings, `DuckEchoStudio --open`). In Duck Forge: step 5
+  (WAVs watched and swapped, replays exact through `out/sound-store`),
+  step 6 (OGG music streamed with `lewton`, the same samples in a window
+  and headless, on Linux and Windows), step 7 (`SoundSet`, `play_landing`,
+  facts and their warnings), step 8 (the Inspector lists Duck Echo's
+  sounds and opens their recipes). Step 9: Duck Craft uses sent sounds
+  end to end, the guide's "Send to a game" chapter, and playtest 4.
 * Accept: a Duck Forge game hears a sound change within a second of
   sending it from Duck Echo; sending again with no change writes nothing;
   the recipe and its hash are recorded with the asset; replays stay the
@@ -1165,7 +1171,67 @@ ranges inside their own instruments, picked note by note.
   and ranges work together; errors point at paths like
   `layers[0].volume.max`.
 
+### Phase 3 is done
+
+Duck Echo sends a sound (WAV), a song (OGG) or a set of variants into a
+Duck Forge game by name (`game_send`, the Studio's Send to game, `duck-echo
+send`), and sending with no change writes nothing. Duck Forge hears the
+change within a second, streams OGG music with an exact loop, plays
+variants from its seed and lands hits on their frame, and replays sound
+the same. `mix_check` checks a game's real headless log. The guide's
+"Send to a game" chapter teaches it, and playtest 4
+(`playtest/playtest-4/`) did all of it with only the guide: three sounds
+sent, the game run, its mix clean, one near-buried step found and fixed.
+
+Lessons from the whole of Phase 3:
+
+* **Design across two repositories, and mark each part with its
+  repository.** `docs/phase3-design.md` said which steps were Duck Echo's
+  and which Duck Forge's, and the facts file was the one contract between
+  them. Nothing had to be redone when the second repository was built.
+* **"Unchanged" must be decided from the game's own files**, never from
+  this computer's encoder: the OGG bytes differ between Windows and Linux.
+  The facts file keeps the recipe's hash and the sound file's SHA-256.
+* **A decoder's maths can differ between computers.** `lewton` built its
+  tables with the system's `sin` and `cos`, so Windows decoded different
+  samples. Duck Forge vendors it with its own fixed maths. Any new
+  dependency on the audio path needs a Linux-and-Windows hash test.
+* **Decoders give extra frames at the end**, so a loop is trimmed to the
+  length written in the file (`DUCKECHO_FRAMES`), or it has a gap.
+* **One piece of code fed by two callers** (the window's decoder thread
+  and the headless mixer) is how the window and the test give the same
+  samples.
+* **Paths that cross from one program to the other are plain names
+  only.** A game is a name, never a path; a log's sound files are read
+  only from plain paths inside the Duck Forge folder.
+* **Writing the guide's chapter found a real gap** (`mix_check` could not
+  read a game's sounds when Duck Forge sits outside the project). Write
+  the chapter, then make its test run it.
+* **`cargo fmt` formats vendored code** unless it has a `rustfmt.toml`
+  with `disable_all_formatting`.
+
+From playtest 4 (fixed, see `playtest/playtest-4/REVIEW.md`): `game_list`
+gives a song's `tempo`, `beats_per_bar` and `bars`; a looping song's tracks
+are judged by their join; clearer errors for a file given as `recipe` and
+for `example:` outside `create`; "pass per_track to describe each". Still
+to do, for whoever next touches `mix_check` and `game_send`:
+
+* `mix_check`: a "nearly buried" list (within 3 dB of the line); a loop's
+  highest volume, not its first; a reason when a loop is never heard.
+* `game_send`: warn when a new theme's shape differs from a theme the
+  game already has.
+* One argument name for "the file" across tools (`path`, `file` and
+  `cues` today), with the old names still accepted.
+
 ## Phase 4: Duck Ear
+
+What Phase 4 should start with (from playtest 4: the agent made a whole
+tune, sent it and checked the mix by numbers alone, and said that nobody
+could tell whether it sounded good): write `docs/phase4-design.md` first,
+as for Phase 3, then build task 14 in this order. The protocol and the
+stub `duck-ear`, with the missing-program, timeout and broken-line tests,
+come before any model. Then the `ear` section in `analyze`, and only then
+real listening models.
 
 ### 14. Duck Ear bridge (`duck-echo-ear`)
 

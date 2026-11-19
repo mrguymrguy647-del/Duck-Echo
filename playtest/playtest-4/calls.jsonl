@@ -1,0 +1,41 @@
+{"time": 1795098418.4, "tool": "game_list", "arguments": {}, "is_error": false}
+{"time": 1795098516.1, "tool": "get_guide", "arguments": {}, "is_error": false}
+{"time": 1795098518.8, "tool": "game_list", "arguments": {}, "is_error": false}
+{"time": 1795098521.3, "tool": "list_presets", "arguments": {"tag": "movement"}, "is_error": false}
+{"time": 1795098521.4, "tool": "get_preset", "arguments": {"name": "land"}, "is_error": false}
+{"time": 1795098521.4, "tool": "get_preset", "arguments": {"name": "footstep"}, "is_error": false}
+{"time": 1795098523.8, "tool": "create", "arguments": {"path": "playtest-4/sfx/land.toml", "from": "preset:land"}, "is_error": false}
+{"time": 1795098525.9, "tool": "edit", "arguments": {"path": "playtest-4/sfx/land.toml", "ops": [{"path": "master.normalize", "remove": true}, {"path": "master.normalize_peak_db", "remove": true}, {"path": "master.normalize_lufs", "value": -20}]}, "is_error": false}
+{"time": 1795098529.4, "tool": "render", "arguments": {"recipe": "playtest-4/sfx/land.toml", "output": "playtest-4/sfx/land_before.wav"}, "is_error": true}
+{"time": 1795098531.3, "tool": "render", "arguments": {"recipe": "playtest-4/sfx/land.toml", "output": "playtest-4/sfx/land_before.wav"}, "is_error": true}
+{"time": 1795098537.6, "tool": "render", "arguments": {"path": "playtest-4/sfx/land.toml", "output": "playtest-4/sfx/land_before.wav"}, "is_error": false}
+{"time": 1795098543.0, "tool": "edit", "arguments": {"path": "playtest-4/sfx/land.toml", "ops": [{"path": "layers[1].pitch.start", "value": 110}, {"path": "layers[1].pitch.end", "value": 45}, {"path": "layers[1].envelope.decay", "value": 0.16}, {"path": "layers[1].volume", "value": 0.9}]}, "is_error": false}
+{"time": 1795098543.1, "tool": "render", "arguments": {"path": "playtest-4/sfx/land.toml", "output": "playtest-4/sfx/land.wav", "per_layer": true}, "is_error": false}
+{"time": 1795098554.6, "tool": "edit", "arguments": {"path": "playtest-4/sfx/land.toml", "ops": [{"path": "layers[2]", "value": {"source": "noise", "volume": 0.5, "envelope": {"attack": 0.001, "decay": 0.03}, "filter": {"kind": "bandpass", "cutoff": 1800, "resonance": 1.5}}}, {"path": "layers[0].volume", "value": 1.5}, {"path": "layers[0].envelope.decay", "value": 0.12}, {"path": "description", "value": "A duck landing from a jump: a deep soft thump with a webbed-foot slap."}, {"path": "expect", "value": {"boom": "high", "loudness_lufs": [-20.5, -19.5]}}]}, "is_error": false}
+{"time": 1795098554.7, "tool": "render", "arguments": {"path": "playtest-4/sfx/land.toml", "output": "playtest-4/sfx/land.wav", "per_layer": true}, "is_error": false}
+{"time": 1795098557.2, "tool": "game_send", "arguments": {"file": "playtest-4/sfx/land.toml", "game": "duck_craft", "name": "land"}, "is_error": false}
+{"time": 1795098573.0, "tool": "validate", "arguments": {"path": "playtest-4/music/day.toml"}, "is_error": false}
+{"time": 1795098585.1, "tool": "analyze", "arguments": {"path": "playtest-4/music/day.toml", "per_track": true}, "is_error": false}
+{"time": 1795098590.6, "tool": "analyze", "arguments": {"path": "example:duck_craft_night"}, "is_error": true}
+{"time": 1795098592.6, "tool": "create", "arguments": {"path": "playtest-4/music/night_ref.toml", "from": "example:duck_craft_night"}, "is_error": false}
+{"time": 1795098598.4, "tool": "file_delete", "arguments": {"file": "playtest-4/music/night_ref.toml"}, "is_error": false}
+{"time": 1795098598.5, "tool": "edit", "arguments": {"path": "playtest-4/music/day.toml", "ops": [{"path": "tempo", "value": 84}]}, "is_error": false}
+{"time": 1795098612.4, "tool": "analyze", "arguments": {"path": "playtest-4/music/day.toml", "per_track": true}, "is_error": false}
+{"time": 1795098617.0, "tool": "edit", "arguments": {"path": "playtest-4/music/day.toml", "ops": [{"path": "tracks[3].volume", "value": 1.3}]}, "is_error": false}
+{"time": 1795098622.8, "tool": "render", "arguments": {"path": "playtest-4/music/day.toml", "output": "playtest-4/music/day.ogg"}, "is_error": false}
+{"time": 1795098631.0, "tool": "game_send", "arguments": {"file": "playtest-4/music/day.toml", "game": "duck_craft", "name": "music_day"}, "is_error": false}
+{"time": 1795098638.0, "tool": "validate", "arguments": {"path": "playtest-4/sfx/step.toml"}, "is_error": false}
+{"time": 1795098640.9, "tool": "sound_variants", "arguments": {"file": "playtest-4/sfx/step.toml", "count": 6}, "is_error": false}
+{"time": 1795098640.9, "tool": "analyze", "arguments": {"path": "playtest-4/sfx/step_1.wav"}, "is_error": false}
+{"time": 1795098641.0, "tool": "analyze", "arguments": {"path": "playtest-4/sfx/step_2.wav"}, "is_error": false}
+{"time": 1795098641.0, "tool": "analyze", "arguments": {"path": "playtest-4/sfx/step_3.wav"}, "is_error": false}
+{"time": 1795098641.1, "tool": "analyze", "arguments": {"path": "playtest-4/sfx/step.toml"}, "is_error": false}
+{"time": 1795098643.9, "tool": "game_send", "arguments": {"file": "playtest-4/sfx/step.toml", "game": "duck_craft", "name": "step", "variants": 6}, "is_error": false}
+{"time": 1795098643.9, "tool": "game_send", "arguments": {"file": "playtest-4/sfx/land.toml", "game": "duck_craft", "name": "land"}, "is_error": false}
+{"time": 1795098646.7, "tool": "game_send", "arguments": {"file": "playtest-4/sfx/step.toml", "game": "duck_craft", "name": "step", "variants": 6}, "is_error": false}
+{"time": 1795098646.7, "tool": "game_list", "arguments": {}, "is_error": false}
+{"time": 1795098652.8, "tool": "mix_check", "arguments": {"cues": "playtest-4/out/duck_craft/log.json"}, "is_error": false}
+{"time": 1795098673.4, "tool": "edit", "arguments": {"path": "playtest-4/sfx/step.toml", "ops": [{"path": "master.normalize_lufs", "value": -18}, {"path": "expect.loudness_lufs", "value": [-18.5, -17.5]}]}, "is_error": false}
+{"time": 1795098673.5, "tool": "game_send", "arguments": {"file": "playtest-4/sfx/step.toml", "game": "duck_craft", "name": "step", "variants": 6}, "is_error": false}
+{"time": 1795098674.7, "tool": "mix_check", "arguments": {"cues": "playtest-4/out/duck_craft/log.json"}, "is_error": false}
+{"time": 1795098688.9, "tool": "edit_history", "arguments": {"limit": 12}, "is_error": false}

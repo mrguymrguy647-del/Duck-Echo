@@ -283,7 +283,7 @@ fn layer_note(total: usize, heard: usize, per_layer: bool) -> Option<String> {
     Some(if per_layer || heard <= 1 {
         count
     } else {
-        format!("{count}; per_layer describes each")
+        format!("{count}; pass per_layer to describe each")
     })
 }
 
@@ -563,7 +563,19 @@ pub fn measure_song(
     if extras.per_track || extras.check_notes {
         for &i in &extras.heard {
             let alone = render_song_tracks(song, arrangement, &[i], &mastering);
-            let track_analysis = crate::analyze_buffer(&alone);
+            let mut track_analysis = crate::analyze_buffer(&alone);
+            if song.loop_ {
+                // A looping track's end leads into its start, so its join
+                // decides, as for the whole song (playtest 4 read "ENDS
+                // WITH A CLICK" on a track of a loop that joins cleanly).
+                let words = duck_echo_analyze::features::ending_words(&track_analysis);
+                let join = if self::loop_seam(&alone).clean {
+                    "loop joins cleanly"
+                } else {
+                    "LOOP CLICKS AT THE JOIN"
+                };
+                track_analysis.summary = track_analysis.summary.replacen(words, join, 1);
+            }
             track_levels.push((song.tracks[i].name.clone(), track_analysis.loudness_lufs));
             if let Some(checks) = &mut checks {
                 checks.push(check_track(
@@ -715,7 +727,7 @@ fn song_summary(
             lo.0, lo.1, qu.0, qu.1
         )),
         _ if facts.tracks > 1 && !extras.per_track && extras.heard.len() > 1 => {
-            line.push_str("; per_track describes each")
+            line.push_str("; pass per_track to describe each")
         }
         _ => {}
     }

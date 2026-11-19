@@ -248,6 +248,15 @@ impl Root {
         }
         // Checked on the text, before any parsing: on Windows `X:` is a
         // drive, wherever it appears once paths are joined.
+        if arg.starts_with(crate::examples::EXAMPLE_PREFIX) {
+            // Playtest 4 tried `example:NAME` in `analyze` and was told
+            // about drive letters.
+            return Err(refuse(
+                key,
+                arg,
+                "`example:NAME` works only to copy an example (`create` with `from`, or `file_copy_from`); copy it into the project first, then use its path",
+            ));
+        }
         if arg.contains(':') {
             return Err(refuse(
                 key,
@@ -439,6 +448,12 @@ mod tests {
             assert!(e.errors[0].message.contains("own folder"), "{own}");
             assert!(root.read("k", own).is_err(), "{own}");
         }
+        // `example:NAME` is refused too, saying where it does work.
+        let e = root
+            .read("k", "example:duck_craft_night")
+            .unwrap_err()
+            .into_report();
+        assert!(e.errors[0].message.contains("copy an example"), "{e:?}");
         // Whatever is accepted resolves inside the root.
         for good in ["a.toml", "sub/a.wav", "./sub/deep/a.wav"] {
             let path = root.write("k", good).unwrap();

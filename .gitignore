@@ -6,3 +6,7 @@
 !/playtest/**/*.wav
 # Output of scripts/render-fingerprints.sh
 /renders
+
+# The MCP server's Undo history for the playtest root: it is the
+# server's own, not a result.
+/playtest/.duck-echo/

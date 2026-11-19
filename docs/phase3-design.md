@@ -1,7 +1,10 @@
 # Phase 3 design: the link with Duck Forge
 
-Status: **approved** (all seven questions in section 10 as recommended).
-Done so far: steps 1 to 4.
+Status: **done**. Approved with all seven questions in section 10 as
+recommended. Steps 1 to 4 and step 9's Duck Echo part are in Duck Echo;
+steps 5 to 8 and step 9's Duck Forge part are on Duck Forge's branch
+`claude/phase3-studio-sounds`. What was learned is in `docs/ROADMAP.md`
+("Phase 3 is done").
 
 This plan covers two repositories. Every part is marked with the one it
 changes:
@@ -596,7 +599,7 @@ Done as planned. Notes for later steps:
   ...\art\step.toml`; change it; Send; the WAV changes. Linux: the same
   from the AppImage.
 
-### Step 5 [Duck Forge]: watch WAV files, swap them, keep replays exact (stronger model)
+### Step 5 [Duck Forge]: watch WAV files, swap them, keep replays exact (stronger model) [done]
 
 * The sound-file table, `Wav` looking up its samples, the watcher in the
   window, the Studio's `file` message for `.wav`, the swap between
@@ -611,7 +614,7 @@ Done as planned. Notes for later steps:
   Echo, hear it change within a second; record, replay, compare
   `audio.wav`. Linux: the same.
 
-### Step 6 [Duck Forge]: stream OGG music (stronger model)
+### Step 6 [Duck Forge]: stream OGG music (stronger model) [done]
 
 * `lewton`, `Music::load`, `play_loop(&music)`, the decoder thread and
   ring buffer, the exact wrap, headless decoding in the mixer, reload at
@@ -635,7 +638,7 @@ Done as planned. Notes for later steps:
   during heavy frames; Task Manager shows the memory drop. Linux: the
   same with ALSA; `DUCKFORGE_SOUND_BLOCK` small and large.
 
-### Step 7 [Duck Forge]: variants and facts
+### Step 7 [Duck Forge]: variants and facts [done]
 
 * `SoundSet::load`, `ctx.sound_rng`, no twice in a row, log lines;
   `hit_seconds`, `play_landing`, `play_on_hit`, `loudness_lufs`;
@@ -646,7 +649,7 @@ Done as planned. Notes for later steps:
 * Windows and Linux: footsteps in Duck Craft sound different each step;
   a recorded walk replays with the same steps (`log.json` matches).
 
-### Step 8 [Duck Forge]: the Inspector, and Open in Duck Echo
+### Step 8 [Duck Forge]: the Inspector, and Open in Duck Echo [done]
 
 * The Sound box lists `.ogg` and sound sets, shows the facts; Open in
   Duck Echo; finding Duck Echo Studio; Files panel.
@@ -655,7 +658,7 @@ Done as planned. Notes for later steps:
 * Windows: click Open in Duck Echo; Duck Echo Studio opens the recipe;
   Send; the Inspector's facts change. Linux: the same with the AppImage.
 
-### Step 9 [both]: Duck Craft, end to end, and the docs
+### Step 9 [both]: Duck Craft, end to end, and the docs [done]
 
 * Duck Craft's themes become OGG sent from Duck Echo; its footsteps a
   sound set; its playthroughs re-recorded once, on purpose.

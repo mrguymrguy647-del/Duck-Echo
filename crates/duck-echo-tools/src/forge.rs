@@ -590,6 +590,54 @@ pub struct GameSound {
     /// For variants: how many.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variants: Option<usize>,
+    /// For a song: its tempo, beats per bar and bars, read from its recipe
+    /// copy, so a new theme the game fades to can match them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song: Option<SongShape>,
+}
+
+/// A song's tempo, beats per bar and bars. Two themes with the same
+/// shape are the same length to the sample and stay in time.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SongShape {
+    /// Beats per minute.
+    pub tempo: f64,
+    /// Beats in a bar.
+    pub beats_per_bar: u64,
+    /// How many bars.
+    pub bars: u64,
+}
+
+/// The shape of the song whose recipe copy is `art_file` (from the game's
+/// folder), or nothing when it is not a song or can't be read.
+fn song_shape(game: &Path, art_file: Option<&str>) -> Option<SongShape> {
+    let file = art_file?;
+    if !is_plain_relative(file) {
+        return None;
+    }
+    let text = std::fs::read_to_string(game.join(file)).ok()?;
+    let doc: toml::Table = toml::from_str(&text).ok()?;
+    if !doc.contains_key("tracks") {
+        return None; // a sound recipe, not a song
+    }
+    let tempo = doc.get("tempo")?;
+    Some(SongShape {
+        tempo: tempo
+            .as_float()
+            .or_else(|| tempo.as_integer().map(|t| t as f64))?,
+        beats_per_bar: match doc.get("beats_per_bar") {
+            Some(b) => b.as_integer()? as u64,
+            None => 4, // the default in a song
+        },
+        bars: doc.get("bars")?.as_integer()? as u64,
+    })
+}
+
+/// A path of plain names only (no `..`, no root, no drive letter).
+fn is_plain_relative(file: &str) -> bool {
+    Path::new(file)
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
 /// One game.
@@ -620,9 +668,9 @@ pub fn list(root: &Root, prefix: &str) -> Result<Games, ToolError> {
         .games()
         .into_iter()
         .map(|name| {
-            let assets = forge.dir.join("examples").join(&name).join("assets");
+            let game = forge.dir.join("examples").join(&name);
             GameInfo {
-                sounds: sounds_in(&assets),
+                sounds: sounds_in(&game),
                 name,
             }
         })
@@ -636,7 +684,8 @@ pub fn list(root: &Root, prefix: &str) -> Result<Games, ToolError> {
 
 /// The Duck Echo sounds in a game's `assets` folder: each facts file, and
 /// each variant list (its numbered sounds are not listed one by one).
-fn sounds_in(assets: &Path) -> Vec<GameSound> {
+fn sounds_in(game: &Path) -> Vec<GameSound> {
+    let assets = &game.join("assets");
     let mut names: Vec<String> = std::fs::read_dir(assets)
         .into_iter()
         .flatten()
@@ -672,6 +721,7 @@ fn sounds_in(assets: &Path) -> Vec<GameSound> {
                 .as_ref()
                 .and_then(|f| f["recipe"].as_str().map(str::to_string)),
             variants: Some(files.len()),
+            song: None,
         });
     }
     for facts_name in names
@@ -695,6 +745,7 @@ fn sounds_in(assets: &Path) -> Vec<GameSound> {
             loops: facts["loops"].as_bool().unwrap_or(false),
             recipe: facts["recipe"].as_str().map(str::to_string),
             variants: None,
+            song: song_shape(game, facts["recipe"].as_str()),
         });
     }
     sounds.sort_by(|a, b| a.name.cmp(&b.name));

@@ -1009,7 +1009,7 @@ fn tag_typos_and_layer_counts_help_the_agent() {
     assert!(!err, "{a}");
     let summary = a["summary"].as_str().unwrap();
     assert!(
-        summary.ends_with("2 layers; per_layer describes each"),
+        summary.ends_with("2 layers; pass per_layer to describe each"),
         "{summary}"
     );
 }
