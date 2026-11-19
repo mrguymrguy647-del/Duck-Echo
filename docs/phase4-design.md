@@ -1,6 +1,10 @@
 # Phase 4 design: the Duck Ear
 
-Status: **draft, waiting for approval.** Nothing in it is built yet.
+Status: **approved**, with questions 1 to 8 as recommended and three
+changes, written in below: the same question gets the same answer (a
+cache), `llama-server` stops after 2 minutes with no describe question,
+and the Ear ships with scores only if no describe model passes its test.
+Done so far: nothing yet.
 
 ## 1. What we want, and why
 
@@ -71,15 +75,27 @@ every time.
 Loading a model takes seconds (and the big one, tens of seconds), so the
 Ear is **started once and kept**, not started for every question.
 
-* **The MCP server** starts the Ear the first time a tool needs it, keeps
-  it while the agent works, and stops it after **10 minutes with no
-  question** (it gives the memory and the graphics card back). The next
-  question starts it again.
+* **The MCP server and the Studio** each start the Ear the first time
+  they need it, and keep it by the same two rules:
+  * **The Ear and its score model stay for 10 minutes** with no question.
+    Then Duck Echo stops the Ear. (Duck Echo keeps this clock.)
+  * **`llama-server`, with the describe model, stays for 2 minutes** with
+    no describe or ask question. Then the Ear stops it and the graphics
+    card is free again, while the Ear and its score model stay. The next
+    describe question starts it again. (The Ear keeps this clock; Duck
+    Echo sends the 120 seconds in `hello`, so both numbers live in one
+    table in Duck Echo.)
+* Because the describe model may have been stopped, Duck Echo sends
+  `load` before every `describe` or `ask`. When the model is still
+  running, `load` answers at once; when it was stopped, starting it again
+  happens under `load`'s own, longer time limit, never under the
+  question's.
 * **The command line** (`duck-echo listen`, `duck-echo analyze --ear`)
-  starts it, asks, and stops it. Slow for many calls, but simple; an
+  starts the Ear, asks, and stops it. Slow for many calls, but simple; an
   agent that listens a lot uses the MCP server.
-* **The Studio** starts it only for Settings > Duck Ear > Test, then
-  stops it. (Your ratings do not need the Ear; see section 7.)
+* The Studio starts its Ear for Settings > Duck Ear > Test and for
+  measuring your ratings (section 7). Your ratings themselves never need
+  the Ear.
 * A new crate, **`crates/duck-echo-ear`**, does only this: start the
   program, speak the protocol, keep time, stop it. It knows nothing about
   recipes. `duck-echo-tools` uses it, so the CLI, the MCP server and the
@@ -109,7 +125,7 @@ stdout, matched by `id`. stdout carries nothing else; the Ear's logging
 goes to stderr. Audio is passed **by path**, never as bytes.
 
 ```
-→ {"id":0,"method":"hello","params":{"protocol":1}}
+→ {"id":0,"method":"hello","params":{"protocol":1,"describe_idle_seconds":120}}
 ← {"id":0,"result":{"protocol":1,"ear_version":"0.1.0",
      "capabilities":["score","describe","ask"],
      "device":"vulkan","device_name":"NVIDIA GeForce RTX 4060 (8 GB)",
@@ -159,6 +175,30 @@ goes to stderr. Audio is passed **by path**, never as bytes.
   own (the system's temporary folder, `duck-echo-ear-<process id>`), and
   deletes it when the Ear stops. The Ear only reads the paths it is
   given; it writes nothing but its log and its model cache.
+
+### Same question, same answer: the answer cache
+
+Asking the Ear the same thing twice gives the identical answer:
+
+* The describe model runs with **temperature 0 and a fixed seed** (42),
+  so it always picks its most likely words, the same way each time.
+* Duck Echo keeps **every answer it gets** in a cache in the Ear's folder
+  (`ear/answers/`, section 5). The key is the SHA-256 of the sound file,
+  the question (the method and its parameters, with the sound's path left
+  out), the Ear's version and the revision of every model it reported in
+  `hello`. Before asking, Duck Echo looks in the cache; a hit is answered
+  at once, without starting the Ear.
+* Every answer says where it came from: `"cached": true` or `false`.
+* Only answers are kept, never errors or timeouts: those are asked again.
+* A new model or Ear version gives new keys, so it is asked afresh, and
+  the old answers stay for comparing.
+* One small JSON file per answer (`answers/3f/3f1c....json`, named by the
+  key's SHA-256), written whole and then renamed, so two Duck Echo
+  programs can share the cache safely. Settings shows its size and has
+  **Clear answers**; Remove deletes it with the Ear.
+* The cache lives in Duck Echo (the bridge), not in the Ear, so the stub
+  is cached the same way and the test "ask twice, get the same answer,
+  the second time `cached: true`" runs without models.
 
 ### Timeouts: Duck Echo never waits longer than this
 
@@ -340,7 +380,9 @@ same way for every sound, so two scores can be compared:
 4. Where `yes` starts (for example 0.6) and `no` ends (0.3) is set in
    step 3 from the test set, and printed in `docs/ear-check.md`.
 
-The describe model's yes or no is asked **evidence first**: "What do you
+The describe model runs with temperature 0 and a fixed seed, so the same
+question gets the same words (and the answer cache in section 3 makes
+that exact). Its yes or no is asked **evidence first**: "What do you
 hear? List the sounds. Then: does it sound like *a soft coin pickup*?
 Answer yes, no or partly." Research in 2026 found these models lean
 towards yes, and miss short events. So:
@@ -391,6 +433,14 @@ never sits on the graphics card's memory.
 
 The exact sizes are known after steps 3 and 4 and are shown before
 anything is downloaded.
+
+**If no describe model passes step 4's test set**, the Ear ships with
+scores only: one size, without `llama-server` or a describe model.
+`describe` and `ask` answer "not available yet", with the reason ("No
+describe model passed Duck Echo's listening test yet: see
+docs/ear-check.md"), and `verdict` comes from the score alone. Step 4
+writes its results into `docs/ear-check.md` either way, so the next try
+starts from them.
 
 ### How it is installed
 
@@ -548,11 +598,16 @@ numbers come first and are the same as without the Ear.
     "answer": "yes", "reason": "A gentle, short chime; not harsh.",
     "verdict": "yes"
   },
-  "seconds": 5.1
+  "seconds": 5.1,
+  "cached": false
 }
 ```
 
-* `description`: the describe model's words (section 4).
+* `description`: the describe model's words (section 4). When no describe
+  model is installed (or none passed its test, section 5), it is
+  `{"available": false, "reason": "..."}` instead, and so is `answer`.
+* `cached`: `true` when the whole answer came from the answer cache
+  (section 3); the Ear was not asked.
 * `closest`: the score model's best matches from a built-in list of about
   120 game-sound and music words (`coin pickup`, `explosion`,
   `footsteps on gravel`, `calm music`, `tense music` ...), kept in the
@@ -673,8 +728,6 @@ On the sound screen and the song screen, beside Play:
   ratings.jsonl            one line per click, never rewritten, only added to
   sounds/<sha256>.wav      the exact sound rated (a song over 10 s as .ogg)
   recipes/<hash>.toml      the recipe text it came from
-  ear-answers.jsonl        the Ear's answers when measured (see below), so a
-                           second measure with the same models is quick
 ```
 
 One line of `ratings.jsonl`:
@@ -710,8 +763,8 @@ Duck Ear):
 1. For each sound you rated up or down (the latest rating), ask the Ear
    the same question about the stored sound: `sounds_like` for a
    description, "Is this a good game sound?" for "Do you like it?". The
-   answers are kept in `ear-answers.jsonl`, named by the sound, the text
-   and the models' revisions, so asking again is instant.
+   answer cache (section 3) keeps them, so measuring again with the same
+   models is instant.
 2. Count. The Ear's `yes` with your 👍, or its `no` with your 👎, agree.
    `unsure` is counted on its own, not as right or wrong.
 3. Report it honestly:
@@ -854,10 +907,14 @@ What you test on Linux:
   Schema, `RECIPE_SPEC.md` and the song spec updated; an example recipe
   with `sounds_like`.
 * The MCP server keeps one Ear and stops it after 10 minutes with no
-  question; temporary WAVs in their own folder, deleted after.
+  question; `load` before every describe question; temporary WAVs in
+  their own folder, deleted after.
+* The answer cache (section 3) in the bridge.
 * Tests (all with the stub): every field of the `ear` section; `pass:
   null` without the Ear; `compare_with`; the idle stop; a render and
-  `analyze` without `ear` never start the Ear.
+  `analyze` without `ear` never start the Ear; **asking twice gives the
+  identical answer, the second `cached: true`, with the stub not asked
+  again**; a new model revision in `hello` misses the cache.
 
 What you test on Windows:
 - [ ] `duck-echo listen preset:coin --like "a coin" --ear ear\stub\duck_ear_stub.py` answers, marked `stub`.
@@ -890,18 +947,26 @@ What you test on Linux:
 ### Step 4: the real Ear, part 2: the describe model (stronger model)
 
 * `duck-ear` starts and stops `llama-server` (`--offline`, 127.0.0.1),
-  sends audio as data, asks evidence first, pads short sounds, falls back
-  to the CPU when the card runs out of memory.
+  with temperature 0 and seed 42; stops it after `describe_idle_seconds`
+  with no describe question; sends audio as data, asks evidence first,
+  pads short sounds, falls back to the CPU when the card runs out of
+  memory.
 * `describe`, `ask`, and the `verdict` that combines the two models.
 * Qwen2.5-Omni-7B measured on a graphics card and on CPU; MiDashengLM-0.6B
   and Gemma 4 E2B measured on CPU; the small one chosen; the timeouts set
   from the measured times; silence and noise checks pass.
-* `docs/ear-check.md` gets the describe part and the times.
+* The same question asked twice of the real model (with the cache off for
+  the test) gives the same words on one PC.
+* `docs/ear-check.md` gets the describe part and the times, whether a
+  model passed or not. **If none passed**, the Ear ships with scores only
+  (section 5), and `describe` and `ask` say "not available yet" with the
+  reason.
 
 What you test on Windows (your PC with its graphics card):
 - [ ] `duck-echo listen example:duck_craft_night --ask "Is this tune calm?"` answers with a reason in under 10 s.
 - [ ] With "CPU only", the same answers in under 4 minutes.
 - [ ] After the Ear stops, Task Manager shows no `llama-server.exe` and the card's memory is free again.
+- [ ] Ask one describe question, wait 2 minutes: `llama-server.exe` is gone and the card's memory is free, but a score question still answers at once. Ask another describe question: it starts again.
 
 What you test on Linux:
 - [ ] The same on CPU (and on a graphics card if the PC has one).
@@ -930,8 +995,10 @@ What you test on Linux:
 ### Step 6: the Studio's Settings > Duck Ear
 
 * The box from section 5: sizes, install with progress, stop and carry
-  on, Test, device, Remove, Repair, the "an assistant wanted to listen"
-  note.
+  on, Test, device, Remove, Repair, Clear answers, the "an assistant
+  wanted to listen" note.
+* The Studio's Ear follows the same two rules as the MCP server's (10
+  minutes for the Ear, 2 for `llama-server`).
 * Screen tests with a fake installer, and pictures in CI.
 
 What you test on Windows:
@@ -1002,10 +1069,12 @@ What you test on Linux:
 8. **`llama-server` left running, holding the graphics card's memory.**
    *We* use a job object (Windows) and a process group (Linux), and test
    that nothing is left.
-9. **Two Ears at once** (the MCP server and the Studio's Test) loading the
-   big model twice. *We* let the Studio start the Ear only for Test, and
-   a lock file in the `ear` folder lets only one Ear load the describe
-   model; a second gets `describe: busy` and still scores.
+9. **Two Ears at once** (the MCP server's and the Studio's) loading the
+   big model twice. *We* stop `llama-server` after 2 minutes with no
+   describe question, and a lock file in the `ear` folder lets only one
+   Ear load the describe model at a time; a second gets `describe: busy`
+   and still scores. The shared answer cache means a question one of them
+   asked is not asked again by the other.
 10. **Slow on CPU** (a minute an answer with the 7B model). *We* offer
     `quick`, set timeouts from measured times, and recommend Small on
     CPU-only PCs.
@@ -1021,7 +1090,7 @@ What you test on Linux:
     the self-test when Settings opens the Ear box, and Repair re-installs
     without downloading what is already there.
 
-## 11. Open questions (my recommendation first)
+## 11. Open questions (answered: 1 to 8 as recommended, 9 changed)
 
 1. **Python for the Ear, or Rust only?** Recommend **Python**, light (no
    PyTorch): ONNX Runtime and `llama-server` do the heavy work. Rust only
@@ -1048,9 +1117,10 @@ What you test on Linux:
 8. **Does `analyze` listen by default?** Recommend **no**: only with `ear:
    true`, so `analyze` stays fast and its answer stays the same on every
    PC.
-9. **The idle time before the MCP server stops the Ear.** Recommend **10
-   minutes**: long enough for an agent's round of changes, short enough to
-   give the graphics card back when you start a game.
+9. **The idle time before the MCP server stops the Ear.** *Decided:* the
+   Ear and its score model stay 10 minutes; `llama-server` stops after 2
+   minutes with no describe question, so the graphics card is given back
+   quickly. The Studio's Ear follows the same rules.
 
 ## 12. Sources
 
