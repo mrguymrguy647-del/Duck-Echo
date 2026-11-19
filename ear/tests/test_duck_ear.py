@@ -133,6 +133,26 @@ class MelSpectrogram(unittest.TestCase):
         self.assertTrue(np.all(mel == -100.0))
 
 
+class ReadingAYesOrNo(unittest.TestCase):
+    def test_the_forced_shape(self):
+        from duck_ear.describe import read_answer
+
+        self.assertEqual(read_answer('{"answer": "partly", "reason": "Only  the start fits."}'), ("partly", "Only the start fits."))
+
+    def test_a_plain_answer(self):
+        from duck_ear.describe import read_answer
+
+        self.assertEqual(read_answer("Yes, it is a short bright chime."), ("yes", "It is a short bright chime."))
+        self.assertEqual(read_answer("**No.** The sound is far too long."), ("no", "The sound is far too long."))
+        self.assertEqual(read_answer("I would say no here.")[0], "no")
+
+    def test_no_answer_at_all_is_an_error(self):
+        from duck_ear.describe import DescribeError, read_answer
+
+        with self.assertRaises(DescribeError):
+            read_answer("It is a beep.")
+
+
 class ScoresYouCanRead(unittest.TestCase):
     def test_match_is_one_half_at_the_center(self):
         self.assertAlmostEqual(score.match_of(0.6, 0.6, 2.0), 0.5)
@@ -428,7 +448,25 @@ class TheDescribeModel(unittest.TestCase):
         self.assertEqual((hello["device"], hello["device_memory_mb"]), ("vulkan", 24564))
         self.assertIn("Pretend Card", hello["device_name"])
         ask(ear, 1, "load", {"roles": ["describe"]})
-        self.assertNotIn("--device", self.events("start")[0]["arguments"])
+        arguments = self.events("start")[0]["arguments"]
+        self.assertEqual(arguments[arguments.index("--device") + 1], "Vulkan0")
+
+    def test_graphics_that_share_the_pcs_memory_are_not_a_card(self):
+        listed = "Vulkan0: Intel(R) UHD Graphics 770 (32000 MiB, 31000 MiB free)\nVulkan1: Pretend Card (8192 MiB, 8000 MiB free)"
+        ear = self.start(FAKE_LLAMA_DEVICES=listed)
+        hello = ask(ear, 0, "hello", {"protocol": 1})["result"]
+        self.assertEqual(hello["device_memory_mb"], 8192)
+        ask(ear, 1, "load", {"roles": ["describe"]})
+        arguments = self.events("start")[0]["arguments"]
+        self.assertEqual(arguments[arguments.index("--device") + 1], "Vulkan1")
+
+    def test_only_shared_graphics_means_the_cpu_unless_one_is_named(self):
+        listed = "Vulkan0: Intel(R) UHD Graphics 770 (32000 MiB, 31000 MiB free)"
+        ear = self.start(FAKE_LLAMA_DEVICES=listed)
+        self.assertEqual(ask(ear, 0, "hello", {"protocol": 1})["result"]["device"], "cpu")
+        self.stop()
+        ear = self.start(FAKE_LLAMA_DEVICES=listed, DUCK_EAR_DEVICE="vulkan0")
+        self.assertEqual(ask(ear, 0, "hello", {"protocol": 1})["result"]["device"], "vulkan")
 
     def test_cpu_only_can_be_asked_for(self):
         card = "Vulkan0: Pretend Card (24564 MiB, 24000 MiB free)"
@@ -444,8 +482,8 @@ class TheDescribeModel(unittest.TestCase):
         self.assertEqual(ask(ear, 0, "hello", {"protocol": 1})["result"]["device"], "vulkan")
         self.assertEqual(ask(ear, 1, "load", {"roles": ["describe"]})["result"]["loaded"], ["describe"])
         first, second = self.events("start")
-        self.assertNotIn("--device", first["arguments"])
-        self.assertIn("--device", second["arguments"])
+        device = lambda arguments: arguments[arguments.index("--device") + 1]
+        self.assertEqual((device(first["arguments"]), device(second["arguments"])), ("Vulkan0", "none"))
         hello = ask(ear, 2, "hello", {"protocol": 1})["result"]
         self.assertEqual(hello["device"], "cpu")
         self.assertIn("could not be used", hello["device_name"])

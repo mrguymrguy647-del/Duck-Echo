@@ -24,7 +24,8 @@ names, else `<the Ear's folder>/llama/llama-server`. The model is in the
 folder `DUCK_EAR_DESCRIBE_MODEL` names, else `<the Ear's
 folder>/models/<the name in models/describe.txt>`, with a `model.json`
 (both written by `ear/tools/get_describe_model.py`). `DUCK_EAR_DEVICE=cpu` keeps the model
-off the graphics card.
+off the graphics card; `DUCK_EAR_DEVICE=Vulkan1` (a name from
+`llama-server --list-devices`) picks a card.
 """
 
 import base64
@@ -80,6 +81,28 @@ SILENT_TEXT = "Silence: nothing can be heard."
 SILENT_REASON = "The sound is silent (its peak is below -60 dBFS), so the model was not asked."
 SHORTEST = 1.0  # seconds: shorter sounds are padded with silence
 STARTING = 170.0  # seconds to wait for llama-server to load the model
+
+
+def starting_seconds():
+    """How long to wait for llama-server to load the model: STARTING,
+    made longer or shorter by `DUCK_ECHO_EAR_TIMEOUT_SCALE`, as Duck
+    Echo's own time limits are (0.25 to 10)."""
+    try:
+        scale = float(os.environ.get("DUCK_ECHO_EAR_TIMEOUT_SCALE", "1"))
+    except ValueError:
+        scale = 1.0
+    return STARTING * min(10.0, max(0.25, scale))
+
+
+# Graphics built into the processor share the PC's memory: they report a
+# lot of it and are slow. Names like these are not counted as a graphics
+# card (a guess from the name; `DUCK_EAR_DEVICE` can still pick one).
+SHARED_MEMORY_NAMES = ("uhd graphics", "iris", "hd graphics", "radeon(tm) graphics", "radeon graphics", "llvmpipe", "basic render")
+
+
+def shares_memory(name):
+    lower = name.lower()
+    return any(part in lower for part in SHARED_MEMORY_NAMES)
 
 
 class DescribeError(Exception):
@@ -175,7 +198,21 @@ def devices(program):
                     "free_mb": int(match.group(4)),
                 }
             )
-    return sorted(found, key=lambda d: -d["memory_mb"])
+    # Real cards first, then the biggest.
+    return sorted(found, key=lambda d: (shares_memory(d["name"]), -d["memory_mb"]))
+
+
+def cards(program):
+    """The graphics cards worth using: `devices` without graphics that
+    share the PC's memory. With `DUCK_EAR_DEVICE` naming one device, that
+    one only; with `DUCK_EAR_DEVICE=cpu`, none."""
+    wanted = os.environ.get("DUCK_EAR_DEVICE", "").strip()
+    if wanted.lower() == "cpu":
+        return []
+    found = devices(program)
+    if wanted:
+        return [d for d in found if d["id"].lower() == wanted.lower()]
+    return [d for d in found if not shares_memory(d["name"])]
 
 
 def kind_of(device_id):
@@ -221,7 +258,7 @@ class Describer:
         self.last_used = 0.0
         self.heard = {}  # what was heard, by the sound's SHA-256
         self.fell_back = None  # why the CPU is used though a card was found
-        self.cards = None if os.environ.get("DUCK_EAR_DEVICE", "").lower() != "cpu" else []
+        self.cards = None  # found when first needed
         self.closing = threading.Event()
         self.watcher = threading.Thread(target=self._watch, name="describe-idle", daemon=True)
         self.watcher.start()
@@ -230,7 +267,7 @@ class Describer:
 
     def found_cards(self):
         if self.cards is None:
-            self.cards = devices(self.program)
+            self.cards = cards(self.program)
         return self.cards
 
     def device(self):
@@ -241,8 +278,8 @@ class Describer:
             name = "CPU"
             if self.fell_back:
                 name += " (the graphics card could not be used: %s)" % self.fell_back
-            elif os.environ.get("DUCK_EAR_DEVICE", "").lower() == "cpu":
-                name += " (DUCK_EAR_DEVICE=cpu)"
+            elif os.environ.get("DUCK_EAR_DEVICE", "").strip():
+                name += " (DUCK_EAR_DEVICE=%s)" % os.environ["DUCK_EAR_DEVICE"].strip()
             return "cpu", name, None
         card = cards[0]
         return kind_of(card["id"]), "%s (%d MB)" % (card["name"], card["memory_mb"]), card["memory_mb"]
@@ -290,6 +327,9 @@ class Describer:
         ]  # fmt: skip
         if on_cpu:
             arguments += ["--device", "none", "--no-mmproj-offload"]
+        else:
+            # One card, named: never spread over the processor's own graphics.
+            arguments += ["--device", self.found_cards()[0]["id"]]
         return arguments + [str(a) for a in settings.get("server_arguments", [])]
 
     def _start(self, on_cpu):
@@ -317,7 +357,8 @@ class Describer:
         finally:
             if log_file is not subprocess.DEVNULL:
                 log_file.close()
-        deadline = time.monotonic() + STARTING
+        waiting = starting_seconds()
+        deadline = time.monotonic() + waiting
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
                 code = self.process.returncode
@@ -331,7 +372,7 @@ class Describer:
                 pass
             time.sleep(0.1)
         self._stop()
-        return "llama-server did not load the model in %.0f s (see %s)" % (STARTING, log_path)
+        return "llama-server did not load the model in %.0f s (see %s)" % (waiting, log_path)
 
     def load(self):
         """Start llama-server if it is not running. On a graphics card
@@ -467,16 +508,22 @@ class Describer:
                 self.last_used = time.monotonic()
                 return {"text": text, "heard": heard}
             turns.append({"role": "user", "content": YES_NO.format(question=question)})
-            said = self._chat(turns, ANSWER_SHAPE, most_tokens=100)
+            # The answer's shape is forced (JSON), unless the model's
+            # settings say `plain_answers`: some models think for hundreds
+            # of words before a shaped answer, whatever they are told, but
+            # answer "Yes, ..." at once when asked plainly.
+            plain = bool(self.info.get("settings", {}).get("plain_answers"))
+            said = self._chat(turns, None if plain else ANSWER_SHAPE, most_tokens=100)
             self.last_used = time.monotonic()
             answer, reason = read_answer(said)
             return {"answer": answer, "reason": reason, "heard": heard}
 
 
 def read_answer(said):
-    """The yes, no or partly and the reason in the model's words. The
-    answer's shape is forced, so this is JSON unless the model ran out of
-    words; then the first yes, no or partly found counts."""
+    """The yes, no or partly and the reason in the model's words: from
+    the forced shape (JSON), or from a plain answer that starts with one
+    of the three words ("Yes, it is a short bright chime."). Failing
+    both, the first yes, no or partly found anywhere counts."""
     try:
         parsed = json.loads(said)
         answer = str(parsed["answer"]).lower()
@@ -485,7 +532,12 @@ def read_answer(said):
             return answer, reason
     except (ValueError, KeyError, TypeError):
         pass
-    found = re.search(r"\b(yes|no|partly)\b", said.lower())
+    plain = " ".join(said.split())
+    start = re.match(r"\W*(yes|no|partly)\b[\s,.:;!*_-]*(.*)", plain, re.IGNORECASE)
+    if start:
+        reason = start.group(2).strip()
+        return start.group(1).lower(), reason[:1].upper() + reason[1:]
+    found = re.search(r"\b(yes|no|partly)\b", plain.lower())
     if not found:
         raise DescribeError("describe_failed", "the describe model gave no yes, no or partly: %r" % said[:200])
-    return found.group(1), ""
+    return found.group(1), plain

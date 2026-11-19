@@ -76,7 +76,7 @@ def download(url, to, size):
 
 def cards_found(home):
     program = describe.server_program(home)
-    return (describe.devices(program) if program else []), program
+    return (describe.cards(program) if program else []), program
 
 
 def show_list(home):

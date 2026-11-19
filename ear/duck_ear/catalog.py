@@ -82,7 +82,14 @@ MODELS = {
                 "sha256": "042cc2561806cd3b5cb5efb25cab76911e3100c43cc09d854904f921924b1429",
             },
         },
-        "settings": {"context": 4096, "sample_rate": 16000, "server_arguments": ["--reasoning", "off"]},
+        # Gemma thinks for hundreds of words before an answer whose shape
+        # is forced, even with `--reasoning off`; asked plainly it does not.
+        "settings": {
+            "context": 4096,
+            "sample_rate": 16000,
+            "server_arguments": ["--reasoning", "off"],
+            "plain_answers": True,
+        },
     },
     "gemma-4-e4b": {
         "size": "candidate for small",
@@ -102,7 +109,14 @@ MODELS = {
                 "sha256": "9257f21a0f5358204b4a612cff83fad2e56412f4f607f0049331ce60c0cf9d34",
             },
         },
-        "settings": {"context": 4096, "sample_rate": 16000, "server_arguments": ["--reasoning", "off"]},
+        # Gemma thinks for hundreds of words before an answer whose shape
+        # is forced, even with `--reasoning off`; asked plainly it does not.
+        "settings": {
+            "context": 4096,
+            "sample_rate": 16000,
+            "server_arguments": ["--reasoning", "off"],
+            "plain_answers": True,
+        },
     },
 }
 
