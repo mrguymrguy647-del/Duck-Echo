@@ -619,6 +619,28 @@ class MeasuringInOneCommand(unittest.TestCase):
         self.assertFalse((self.home / "models" / "qwen3-omni-30b-a3b" / "model.json").exists())
 
 
+class TheInstallersManifest(unittest.TestCase):
+    def test_its_describe_models_are_the_catalogs(self):
+        try:
+            import tomllib
+        except ImportError:  # Python 3.10
+            self.skipTest("needs Python 3.11 or newer to read TOML")
+        from duck_ear import catalog
+
+        manifest = tomllib.loads((EAR / "manifest.toml").read_text())
+        self.assertEqual({m["size"] for m in manifest["describe"]}, {"full", "large"})
+        for listed in manifest["describe"]:
+            ours = catalog.MODELS[listed["name"]]
+            self.assertEqual(catalog.SIZES[listed["size"]], listed["name"])
+            for field in ("repo", "revision", "licence", "listening_test"):
+                self.assertEqual(listed[field], ours[field], "%s: %s" % (listed["name"], field))
+            self.assertEqual(listed.get("needs_card_mb"), ours.get("needs_card_mb"))
+            self.assertEqual(listed["context"], ours["settings"]["context"])
+            self.assertEqual(listed["sample_rate"], ours["settings"]["sample_rate"])
+            for part in ("model", "mmproj"):
+                self.assertEqual(listed[part], ours["files"][part], "%s: %s" % (listed["name"], part))
+
+
 class TheQuickTestSet(unittest.TestCase):
     def test_it_is_ten_sounds_of_the_whole_set_with_the_same_texts(self):
         try:

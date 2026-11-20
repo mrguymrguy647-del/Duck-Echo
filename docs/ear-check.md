@@ -506,7 +506,22 @@ Duck Echo's tests ran beside it; the times above are the quiet ones.)
 
 ### Measuring on a PC with a graphics card
 
-One command per size. It finds `llama-server`, the graphics card,
+**The simple way, once the Duck Ear is installed** (step 5): in Duck Echo
+Studio, Settings > Duck Ear > "Try a bigger model (Large, 19.9 GB)",
+then "Save the results...". Or on the command line:
+
+```powershell
+duck-echo ear try large
+```
+
+Both ask first, download llama.cpp and the model, ask the model about
+all 41 sounds, show the table, and write `ear-check.json` and
+`ear-check.md` (the command line into `ear-check-qwen3-omni-30b-a3b\`).
+Full is measured the same way with `duck-echo ear try full`. Those files
+are what to send back.
+
+**By hand, from the source** (what the above does, step by step): one
+command per size. It finds `llama-server`, the graphics card,
 `duck-echo` and the Ear; shows the model's size and asks before it
 downloads; checks every file's SHA-256; runs `duck-echo ear check --part
 describe --fresh` on the whole test set; and writes `ear-check.json` and

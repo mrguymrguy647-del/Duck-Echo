@@ -5,11 +5,11 @@ changes, written in below: the same question gets the same answer (a
 cache), `llama-server` stops after 2 minutes with no describe question,
 and the Ear ships with scores only if no describe model passes its test.
 Done so far: steps 1 (the bridge and the stub), 2 (what agents get, with
-the stub), 3 (the score model: LAION-CLAP was chosen) and 4 (the describe
+the stub), 3 (the score model: LAION-CLAP was chosen), 4 (the describe
 model: built, and measured on the CPU; **no describe model passed, so the
-Ear ships with scores only**; the measurements on a graphics card, and of
-the Large model, wait for step 4's checklist). The results are in
-`docs/ear-check.md`.
+Ear ships with scores only**) and 5 (installing the Ear from the command
+line and from the Studio's Settings, and "Try a bigger model" for PCs
+with a big graphics card). The results are in `docs/ear-check.md`.
 
 ## 1. What we want, and why
 
@@ -516,6 +516,33 @@ them):
 5. **Self-test**: start the Ear, `hello`, score a built-in test sound.
    Only then is the Ear marked installed in `ear.json`.
 
+**As built (step 5):**
+
+* **uv comes from PyPI**: its wheel (a zip file, pinned by SHA-256 in
+  the manifest) holds the `uv` program. Duck Echo unpacks it with a small
+  zip reader of its own.
+* **The Ear's own code is built into Duck Echo** (the files of
+  `ear/duck_ear/`, `pyproject.toml` and `uv.lock`) and written into the
+  Ear's `package` folder. So nothing is downloaded or built for it, the
+  Ear always matches the Duck Echo that installed it, and "update" is
+  installing again with a newer Duck Echo. `uv sync --frozen
+  --no-install-project` installs only the locked packages, each checked
+  by its hash.
+* **The installed Ear is `package/duck_ear_run.py`**, run by the Ear's
+  private Python (`env`): no launcher program is built.
+* **The score model's files are checked against the release's
+  `SHA256SUMS`**, as the Studio checks its own updates: the release is
+  made by the `Ear` workflow, which converts the model and checks it
+  against the original, so its hashes are not known when the manifest is
+  written.
+* **llama.cpp is not installed with the Ear**, because the Ear ships with
+  scores only. It is downloaded when a person tries a describe model:
+  the newest release, the Vulkan build when there is a graphics card,
+  checked against the SHA-256 GitHub lists for it.
+* **Which graphics card** is found without llama.cpp (the registry on
+  Windows, `nvidia-smi` and the kernel on Linux), to decide whether Large
+  is offered before anything is downloaded.
+
 **Where it lives** (a short path, because of Windows' 260-character
 limit):
 
@@ -526,12 +553,19 @@ limit):
 
 ```
 ear/
-  ear.json        what is installed: size, versions, SHA-256s, device
+  ear.json        what is installed: versions, the score model (written
+                  only after the self-test passed)
   uv/             the uv program
   python/         the private Python
-  env/            duck-ear and its packages
-  llama/          llama-server (Vulkan or CPU)
-  models/<name>/<revision>/   each model's files, checked
+  env/            the Ear's packages
+  package/        the Ear's own code, and duck_ear_run.py that starts it
+  models/score/   the score model's files, checked
+  models/<name>/  a describe model that was tried: its files, its
+                  model.json, and its last results (ear-check.json,
+                  ear-check.md, last-check.json)
+  models/describe.txt   the describe model in use, if a person chose one
+  llama/          llama-server, once a describe model was tried
+  answers/        the answer cache
   ear.log         the Ear's last 1 MB of logging
 ```
 
@@ -1050,7 +1084,7 @@ What you test on Linux:
 - [ ] With Full on the CPU: the `listen` line above answers, `ear.log` in the Ear's folder says "started llama-server", and no `llama-server` runs after the command ends.
 - [ ] With no describe model: `duck-echo ear status` says describe is not available because no describe model passed the test, and `listen --like` still gives a verdict from the score.
 
-### Step 5: installing the Ear (stronger model)
+### Step 5: installing the Ear (stronger model) [done]
 
 * `ear/manifest.toml`; downloads with resume and SHA-256; uv, Python, `uv
   sync --frozen`; Vulkan or CPU llama.cpp; the models; the self-test;
@@ -1062,16 +1096,51 @@ What you test on Linux:
 * Tests: against a small local test server with fake files (a stopped
   download resumes; a wrong SHA-256 is refused; no space is caught); a
   manual workflow installs the real Small Ear on Windows and Linux.
+* As built:
+  * **Scores only is what is installed** (`duck-echo ear install`, no
+    `--full`): about 0.9 GB to download.
+  * `duck-echo ear install`, `ear update`, `ear remove` (each asks first;
+    `--yes` skips the question), in `ear_install.rs` and `ear_net.rs`.
+  * **The Studio's Settings > Duck Ear** was built here too, on request:
+    Install with the size and a question, progress with Stop, Update,
+    Remove (step 6 keeps Test, Clear answers, "CPU only" and the note
+    when an assistant wanted to listen).
+  * **"Try a bigger model (Large, 19.9 GB)"**, shown in Settings only
+    with a graphics card of 16 GB or more, and `duck-echo ear try large`:
+    after asking, it downloads llama.cpp and Qwen3-Omni-30B-A3B, runs the
+    full describe check, shows the results and saves `ear-check.json`
+    and `ear-check.md`. It never switches the Ear to the model. Only a
+    model that reached every bar is offered for use ("Use Large for
+    describing", `duck-echo ear use large`).
+  * **The workflow `Ear`** (`.github/workflows/ear.yml`) converts the
+    score model, installs the Ear for real on Windows and Linux, listens,
+    tries a describe model with llama.cpp's real newest build, removes
+    the Ear, and publishes the score model as the release the manifest
+    names (`ear-score-v1`). **Until that release is published, `ear
+    install` stops at the score model and says so.**
 
-What you test on Windows:
-- [ ] `duck-echo ear install` on a PC with no Python: it asks, shows the size, installs, the self-test passes.
-- [ ] Stop it in the middle (close the window); run it again: it carries on, it does not start over.
-- [ ] `ear remove` leaves no `DuckEcho\ear` folder.
+What you test on Windows (after the release `ear-score-v1` is published:
+Actions > Ear > Run workflow with "Publish the score model" ticked, or
+push the tag `ear-score-v1`):
+- [ ] `duck-echo ear install` on a PC with no Python: it shows the size (about 0.9 GB), asks, installs, and the self-test passes. `duck-echo listen preset:coin --like "a coin pickup"` says yes.
+- [ ] Stop it in the middle of the score model (Ctrl+C); run it again: it carries on from where it stopped, it does not start over.
+- [ ] In the Studio: Settings > Duck Ear shows "Installed", the size on disk and the folder.
+- [ ] `duck-echo ear remove` asks, then leaves no `DuckEcho\ear` folder. Settings > Duck Ear > "Install the Duck Ear" installs it again, with a progress bar and Stop.
+- [ ] With your RTX 4090: Settings > Duck Ear shows "Your graphics card: NVIDIA GeForce RTX 4090 (24 GB)" and "Try a bigger model (Large, 19.9 GB)". Press it: the question names the size. "Download and try" downloads, then counts the questions, then shows the table.
+- [ ] "Save the results..." writes `ear-check-large\ear-check.json` and `ear-check.md` into the folder you choose: send me those two.
+- [ ] After the try, Settings still says "It gives scores only" (unless Large reached every bar and you pressed "Use Large for describing").
+- [ ] Task Manager shows no `llama-server.exe` once the try has ended.
 
 What you test on Linux:
-- [ ] The same, and on a PC with no graphics card the CPU build of llama.cpp is chosen.
+- [ ] `duck-echo ear install`, `listen`, `ear remove` as on Windows.
+- [ ] On a PC with no graphics card of 16 GB: Settings > Duck Ear says a bigger model needs one, and shows no button; `duck-echo ear try large` says the same.
+- [ ] `duck-echo ear try full --quick` downloads llama.cpp's CPU build and Qwen2.5-Omni-7B and answers the 10 quick sounds (about 15 minutes on 4 cores).
 
 ### Step 6: the Studio's Settings > Duck Ear
+
+(Install with progress and Stop, Update, Remove and "Try a bigger model"
+were built in step 5. What is left for this step: Test, the device and
+"CPU only", Clear answers, and the "an assistant wanted to listen" note.)
 
 * The box from section 5: sizes, install with progress, stop and carry
   on, Test, device, Remove, Repair, Clear answers, the "an assistant

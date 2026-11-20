@@ -760,8 +760,10 @@ the bridge; `duck-echo-tools` decides what to ask (step 2).
 
 * **Where the Ear is**: `--ear-program PROGRAM` (the MCP server, `listen`
   and `ear status`; the old spelling `--ear PROGRAM` still works, with a
-  note), else `DUCK_ECHO_EAR`, else the installed Ear
-  in the Ear's folder (`env/bin/duck-ear`, or `env\Scripts\duck-ear.exe`).
+  note), else `DUCK_ECHO_EAR`, else the installed Ear in the Ear's
+  folder (`package/duck_ear_run.py`, run by the Ear's private Python in
+  `env`). Duck Echo starts the Ear with `DUCK_ECHO_EAR_HOME` set to that
+  folder, so both look in the same place.
   The Ear's folder is `DUCK_ECHO_EAR_HOME`, else
   `%LOCALAPPDATA%\DuckEcho\ear` on Windows and
   `$XDG_DATA_HOME/duck-echo/ear` (usually `~/.local/share/duck-echo/ear`)
@@ -809,6 +811,58 @@ the bridge; `duck-echo-tools` decides what to ask (step 2).
   of `listen`'s answer and summary unless asked for with `closest: true`
   (`--closest`), and `analyze` never gives it: for short sounds it is
   often wrong (`docs/ear-check.md`).
+
+### Installing the Ear (`ear_install.rs`, `ear_net.rs`, `ear_cards.rs`, `ear_try.rs`)
+
+Only a person starts any of this (the command line's `duck-echo ear
+...`, or the Studio's Settings > Duck Ear), after seeing the size. None
+of it is a command an AI assistant can run: it is not in
+`commands::TABLE`, so the MCP server does not have it.
+
+* **`ear/manifest.toml`**, built into Duck Echo: uv's wheel for each
+  kind of PC (address, size, SHA-256), the private Python's version, the
+  score model's release and files, where llama.cpp's releases are listed
+  and how its files are named, and the describe models (the same as
+  `ear/duck_ear/catalog.py`; a test compares them).
+* **Downloads** (`ear_net.rs`): the system's `curl` (Windows 10 and 11
+  and Linux have it; the Studio's update check uses it too), into
+  `<name>.part`, carried on from where it stopped (`--continue-at -`),
+  renamed only when the SHA-256 matches. A wrong file is deleted and
+  fetched once more, then refused by name. Free room is checked before a
+  download (`df` on Linux, PowerShell on Windows). Every failure has a
+  code and words: `no_curl`, `no_internet`, `not_found`, `no_room`,
+  `wrong_sha256`, `cancelled`. SHA-256 is Duck Echo's own, a piece at a
+  time (`asset::Sha256`), so a model file never has to fit in memory.
+* **Install** (`ear_install::install`): uv from its wheel; the Ear's own
+  code (built in with `include_str!`) written into `package/`; `uv sync
+  --frozen --no-dev --no-install-project` with `UV_PROJECT_ENVIRONMENT`,
+  `UV_PYTHON_INSTALL_DIR` and `UV_CACHE_DIR` inside the Ear's folder and
+  `UV_PYTHON_PREFERENCE=only-managed`, so a private Python is installed
+  and no Python on the PC is used; the score model, each file checked
+  against the release's `SHA256SUMS`; the self-test (a coin must score
+  higher for "a coin pickup" than for "an explosion"); then `ear.json`.
+  `installed()` is true only with `ear.json` and the program it names.
+  Installing again is updating: what is there and right is kept.
+  `DUCK_ECHO_EAR_SCORE_URL` points the score model's download elsewhere
+  (tests, CI, a mirror); `DUCK_ECHO_EAR_INSTALL_PYTHON` names a Python
+  to use instead of a private one (for building where the private one
+  cannot be downloaded).
+* **Remove** deletes only the Ear's own files and folders, by name.
+* **Graphics cards** (`ear_cards.rs`): the registry's display adapters
+  on Windows (`reg query`: name and memory for every maker),
+  `nvidia-smi` and the kernel's `mem_info_vram_total` on Linux. Graphics
+  built into the processor do not count. `DUCK_ECHO_EAR_CARDS` names
+  pretend cards for tests.
+* **Try a describe model** (`ear_try.rs`): offered by `needs_card_mb`
+  (Large: 16 GB). It downloads llama.cpp's newest release for this PC
+  (the Vulkan build with a card, else the CPU build; the file is checked
+  against the `digest` GitHub lists), the model's files from Hugging
+  Face at their pinned revision, writes the built-in test set into the
+  Ear's folder, and runs `ear_check::check_watched` (`Part::Describe`,
+  fresh) with the model named to the Ear by `DUCK_EAR_DESCRIBE_MODEL`.
+  The results stay beside the model. **It never writes
+  `models/describe.txt`**: `use_model` does, and only for a model whose
+  last check on this PC reached every describe bar on the whole set.
 
 ### The real Ear (`ear/duck_ear/`)
 
@@ -987,6 +1041,7 @@ output is one line per issue in the same order.
 | dirs 6 | studio | Where Documents and the settings folder really are: Windows' own answer (OneDrive often moves Documents), the XDG folders on Linux. The design named `windows-sys` for this, as Duck Forge uses; `windows-sys` would need `unsafe` code of ours to call Windows, and would leave Linux to us, so `dirs` (which wraps the same Windows call) does both. |
 | sha2 0.10 | studio | The SHA-256 fingerprint of a downloaded update, checked against the release's `SHA256SUMS` before it is used, as Duck Quill does.  The tools crate does not use it: the `recipe_hash` in a render's facts file comes from a 60-line SHA-256 in `tools::asset` (checked against the standard test vectors), so the command line and the MCP server gain no crate for one hash per render. |
 | rfd 0.18 | studio | The system's own Save As window for Export WAV: Windows' standard one, and on Linux the desktop's own through the XDG portal (spoken to over D-Bus in Rust, no system library; the AppImage still links only ALSA). Without a portal, "Export WAV to my Duck Echo folder" needs no window. |
+| miniz_oxide 0.8 | tools | Unpacks zip files, for the Duck Ear's installer: uv comes from PyPI as a wheel (a zip file) and llama.cpp's Windows builds are zip files. Windows has a `tar` that unzips, but Linux has no `unzip` by default, so the small zip reader in `ear_net.rs` does it on both. Pure Rust with no dependencies of its own (default features off); the Studio already had it through its picture libraries. |
 | toml_edit 0.25 | tools | Changes values inside a TOML file's text, so a person's comments and layout survive every command and the `edit` tool. It shares its parser and writer crates (`toml_parser`, `toml_writer`, `toml_datetime`) with `toml`, so it adds one crate. |
 | winresource 0.1 | studio (build only) | Puts the icon and the version into `DuckEchoStudio.exe`, as both siblings do. |
 | windows-sys 0.61 | ear (Windows only) | Four Windows calls that make a job object, so stopping the Ear also stops every program it started (`llama-server`, holding the graphics card's memory), even after a crash. It was already in `Cargo.lock` through other crates. These calls need `unsafe` code, the only `unsafe` code in Duck Echo: `duck-echo-ear` denies `unsafe` (the workspace forbids it), and its one module `windows_job.rs` allows it, with a comment on why each call is safe. On Linux the same is done with the system's `kill` program and a process group, with no `unsafe` code. |

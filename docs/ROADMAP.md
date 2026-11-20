@@ -1233,7 +1233,7 @@ stub `duck-ear`, with the missing-program, timeout and broken-line tests,
 come before any model. Then the `ear` section in `analyze`, and only then
 real listening models.
 
-### 14. Duck Ear bridge (`duck-echo-ear`) [started: steps 1 to 4 of docs/phase4-design.md done]
+### 14. Duck Ear bridge (`duck-echo-ear`) [started: steps 1 to 5 of docs/phase4-design.md done]
 
 * The JSON Lines protocol from `ARCHITECTURE.md`, with a stub Python
   `duck-ear` that answers `hello` and `describe` with fixed text, so the
@@ -1410,7 +1410,61 @@ Lessons from step 4:
   from the llama.cpp source inside the `llama-cpp-python` package on
   PyPI (commit `a956a85`). People will use llama.cpp's own release
   builds, which were not tried here.
-* [ ] Step 5: installing the Ear.
+* [x] **Step 5: installing the Ear.** `duck-echo ear install`, `ear
+  update`, `ear remove` and the Studio's Settings > Duck Ear install the
+  Ear with scores only: uv from PyPI, the Ear's own code built into Duck
+  Echo, a private Python and the locked packages with `uv sync --frozen`,
+  the score model from a Duck Echo release (checked against its
+  `SHA256SUMS`), a self-test, then `ear.json`. Downloads use the
+  system's `curl`, carry on where they stopped, and are refused if their
+  SHA-256 is wrong. On a PC with a graphics card of 16 GB or more,
+  Settings offers **"Try a bigger model (Large, 19.9 GB)"** (`duck-echo
+  ear try large`): after asking it downloads llama.cpp and the model,
+  runs the full describe check, shows the results and saves
+  `ear-check.json` and `ear-check.md`; it never switches the Ear, and
+  only a model that reached every bar is offered for use. The workflow
+  `Ear` installs it all for real on Windows and Linux and publishes the
+  score model.
+  * [ ] Still open: **publish the score model** (Actions > Ear > Run
+    workflow with "Publish the score model" ticked, or push the tag
+    `ear-score-v1`). Until then `ear install` stops at the score model
+    and says so.
+
+Lessons from step 5:
+
+* **Build the Ear's code into Duck Echo.** No download, no build step,
+  no launcher to make: the files are written into the Ear's folder and
+  run by its own Python, and "update" is "install again". `uv sync
+  --frozen --no-install-project` then installs only locked packages,
+  each checked by its hash.
+* **uv is on PyPI.** Its wheel is a zip file with the program inside,
+  with a SHA-256 in PyPI's own list: no need for GitHub to get it.
+* **A release cannot be pinned before it exists.** The score model is
+  made by a workflow, so its hashes are in the release's `SHA256SUMS`,
+  not in the manifest: the same trust as the Studio's own update.
+* **Offer by the hardware, before downloading anything.** The graphics
+  card's memory is read from the registry (Windows) or `nvidia-smi` and
+  the kernel (Linux), so "Try a bigger model" can be shown or hidden
+  without llama.cpp. Once llama.cpp is there, its own list of devices is
+  checked before the 19.9 GB download.
+* **Trying is not choosing.** The try keeps its results beside the model
+  and writes nothing the Ear reads; only `use_model` does, and it refuses
+  a model that did not pass on this PC, or was only asked the quick set.
+* **Which bars count for "passed".** A describe model must reach its own
+  bars (yes on true texts, no on wrong texts, silence, noise, the same
+  words twice). The verdict's measures are shown but do not count: they
+  also depend on the score model, which says yes to 77% of true texts by
+  itself.
+* **Test the installer where the systems are.** GitHub was blocked on
+  the build machine, so the private Python (which uv fetches from
+  GitHub) and llama.cpp's real release list could not be tried there.
+  The `Ear` workflow does the whole install, a try and a removal on
+  GitHub's Windows and Linux machines.
+* **A shell `rm -rf *` after a `cd` is never worth it.** One was stopped
+  by a safety check here; name the folder to delete, in full.
+* [ ] Step 6: the rest of the Studio's Settings > Duck Ear (Test, the
+  device and "CPU only", Clear answers, the note when an assistant
+  wanted to listen).
 
 Lessons from step 1, for the next builder:
 

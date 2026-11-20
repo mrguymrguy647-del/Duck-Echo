@@ -26,10 +26,23 @@ it. The plan is `docs/phase4-design.md`; how well it hears is
   models (Python's standard library only), and every answer says
   `"stub": true`. Duck Echo's tests use it.
 
+## Installing the Ear
+
+```bash
+duck-echo ear install
+```
+
+or, in Duck Echo Studio, Settings > Duck Ear > Install. It shows the
+size (about 0.9 GB to download) and asks first, then puts the Ear, a
+private Python and the score model into the Ear's folder
+(`%LOCALAPPDATA%\DuckEcho\ear` on Windows, `~/.local/share/duck-echo/ear`
+on Linux). `duck-echo ear update` brings it up to date and `duck-echo ear
+remove` takes it out again. What it downloads is listed in
+`manifest.toml`.
+
 ## Running the real Ear from the source
 
-The installer comes with step 5; until then, with
-[uv](https://docs.astral.sh/uv/):
+For working on the Ear itself, with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 cd ear
@@ -68,6 +81,17 @@ to too many true texts: `docs/ear-check.md`), so the Ear ships with
 scores only, and nothing needs a describe model. Full and Large can be
 added to measure them, and Full does one useful thing: with it beside
 the score model, the verdict never said yes to a wrong text.
+
+On a PC with a graphics card of 16 GB or more, the simple way to try
+Large is Settings > Duck Ear > "Try a bigger model" in the Studio, or
+
+```bash
+duck-echo ear try large
+```
+
+which downloads llama.cpp and the model (after asking), measures the
+model, and saves the results. The rest of this section is the same by
+hand, for working on the Ear.
 
 The describe model needs two things:
 
