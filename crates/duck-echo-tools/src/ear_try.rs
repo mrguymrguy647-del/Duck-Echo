@@ -321,6 +321,49 @@ fn net(error: NetError) -> InstallError {
     error.into()
 }
 
+/// The releases in what the list of releases answered: GitHub gives a
+/// list, newest first; one release alone is read as a list of one.
+fn releases(listed: &Value) -> Vec<&Value> {
+    match listed.as_array() {
+        Some(list) => list.iter().collect(),
+        None => vec![listed],
+    }
+}
+
+/// The newest release that holds a build for this PC, with that file.
+///
+/// The newest release is not always one with programs in it: llama.cpp's
+/// `v1.0.0` holds only a note naming the nightly build it was made from.
+/// So this walks down the list to the first release that has the file.
+fn newest_build<'a>(listed: &'a Value, wanted: &str) -> Option<(String, &'a Value)> {
+    let zip = format!("{wanted}.zip");
+    let tar = format!("{wanted}.tar.gz");
+    releases(listed)
+        .into_iter()
+        .filter(|release| release["draft"].as_bool() != Some(true))
+        .find_map(|release| {
+            let asset = release["assets"].as_array()?.iter().find(|asset| {
+                let name = asset["name"].as_str().unwrap_or_default();
+                name.ends_with(&zip) || name.ends_with(&tar)
+            })?;
+            let tag = release["tag_name"].as_str().unwrap_or("?").to_string();
+            Some((tag, asset))
+        })
+}
+
+/// The names of the releases looked through, for an error message.
+fn release_names(listed: &Value) -> String {
+    let names: Vec<&str> = releases(listed)
+        .into_iter()
+        .filter_map(|release| release["tag_name"].as_str())
+        .collect();
+    if names.is_empty() {
+        "the list is empty".to_string()
+    } else {
+        names.join(", ")
+    }
+}
+
 /// Get llama.cpp's newest build for this PC into the Ear's `llama`
 /// folder: the Vulkan build when there is a graphics card, else the CPU
 /// build.
@@ -346,21 +389,12 @@ fn get_llama(
             format!("{address} did not answer with a list of files."),
         )
     })?;
-    let tag = listed["tag_name"].as_str().unwrap_or("?").to_string();
-    let asset = listed["assets"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|asset| {
-            let name = asset["name"].as_str().unwrap_or_default();
-            name.ends_with(&format!("{wanted}.zip")) || name.ends_with(&format!("{wanted}.tar.gz"))
-        })
-        .ok_or_else(|| {
-            error(
-                "not_found",
-                format!("llama.cpp's release {tag} has no file whose name ends in {wanted}.zip or {wanted}.tar.gz. Download llama.cpp for this PC by hand from https://github.com/ggml-org/llama.cpp/releases and unpack it into {}.", home.join("llama").display()),
-            )
-        })?;
+    let (tag, asset) = newest_build(&listed, wanted).ok_or_else(|| {
+        error(
+            "not_found",
+            format!("None of llama.cpp's newest releases ({}) has a file whose name ends in {wanted}.zip or {wanted}.tar.gz. Download llama.cpp for this PC by hand from https://github.com/ggml-org/llama.cpp/releases and unpack it into {}.", release_names(&listed), home.join("llama").display()),
+        )
+    })?;
     let name = asset["name"].as_str().unwrap_or_default().to_string();
     let url = asset["browser_download_url"]
         .as_str()
@@ -744,6 +778,48 @@ mod tests {
             name: "Pretend Card".into(),
             memory_mb,
         }
+    }
+
+    /// A list of releases as GitHub answers it, newest first: `v1.0.0`
+    /// holds only a note (as llama.cpp's really does), a draft holds a
+    /// build nobody may see yet, and two nightly releases hold builds.
+    fn listed() -> Value {
+        let file = |name: &str| json!({"name": name, "size": 10, "browser_download_url": format!("https://example.invalid/{name}")});
+        json!([
+            {"tag_name": "v1.0.0", "draft": false, "assets": [file("nightly-tag.txt")]},
+            {"tag_name": "b12361", "draft": true, "assets": [file("llama-b12361-bin-ubuntu-x64.tar.gz")]},
+            {"tag_name": "b12360", "draft": false, "assets": [
+                file("llama-b12360-bin-ubuntu-vulkan-x64.tar.gz"),
+                file("llama-b12360-bin-ubuntu-x64.tar.gz"),
+                file("llama-b12360-bin-win-cpu-x64.zip"),
+            ]},
+            {"tag_name": "b12359", "draft": false, "assets": [file("llama-b12359-bin-ubuntu-x64.tar.gz")]},
+        ])
+    }
+
+    #[test]
+    fn the_build_comes_from_the_newest_release_that_has_one() {
+        let listed = listed();
+        let (tag, asset) = newest_build(&listed, "bin-ubuntu-x64").unwrap();
+        assert_eq!(tag, "b12360");
+        // Not the Vulkan build, whose name ends differently.
+        assert_eq!(asset["name"], "llama-b12360-bin-ubuntu-x64.tar.gz");
+        let (tag, asset) = newest_build(&listed, "bin-win-cpu-x64").unwrap();
+        assert_eq!(tag, "b12360");
+        assert_eq!(asset["name"], "llama-b12360-bin-win-cpu-x64.zip");
+        // No release has a build for this one, and the error can say
+        // which releases were looked through.
+        assert!(newest_build(&listed, "bin-win-vulkan-x64").is_none());
+        assert_eq!(release_names(&listed), "v1.0.0, b12361, b12360, b12359");
+    }
+
+    #[test]
+    fn one_release_alone_is_read_as_a_list_of_one() {
+        let one = listed()[3].clone();
+        let (tag, _) = newest_build(&one, "bin-ubuntu-x64").unwrap();
+        assert_eq!(tag, "b12359");
+        assert!(newest_build(&json!({"message": "Not Found"}), "bin-ubuntu-x64").is_none());
+        assert_eq!(release_names(&json!([])), "the list is empty");
     }
 
     #[test]

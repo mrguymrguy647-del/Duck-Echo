@@ -8,7 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use duck_echo_tools::ear_cards::Card;
-use duck_echo_tools::ear_install::Places;
+use duck_echo_tools::ear_install::{self, Places};
+use duck_echo_tools::ear_net::megabytes;
 use eframe::egui;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
@@ -154,10 +155,17 @@ fn settings_offer_to_install_the_ear_with_its_size_and_ask_first() {
             .query_by_label_contains("Try a bigger model")
             .is_none()
     );
-    press(&mut harness, "Install the Duck Ear (about 912 MB)");
+    // The size is this system's own: uv's download differs between
+    // Windows and Linux.
+    let plan = ear_install::plan(&harness.state().ear.home).expect("this system has a plan");
+    let size = megabytes(plan.download_bytes);
+    press(
+        &mut harness,
+        &format!("Install the Duck Ear (about {size})"),
+    );
     // The question says what and how much, and nothing has started.
     harness.get_by_label_contains("scores only");
-    harness.get_by_label_contains("about 912 MB to download");
+    harness.get_by_label_contains(&format!("about {size} to download"));
     harness.get_by_label("Install");
     assert!(harness.state().ear.job.is_none());
     shoot(&mut harness, "15-settings-duck-ear-install-question");

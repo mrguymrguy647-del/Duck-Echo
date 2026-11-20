@@ -539,13 +539,15 @@ and the score model made (`ear/convert/README.md`; `duck-echo ear status
 
    ```powershell
    $ear = "$env:LOCALAPPDATA\DuckEcho\ear"
-   $release = Invoke-RestMethod https://api.github.com/repos/ggml-org/llama.cpp/releases/latest
-   $zip = $release.assets | Where-Object name -like "*bin-win-vulkan-x64.zip" | Select-Object -First 1
+   $releases = Invoke-RestMethod "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+   $zip = $releases.assets | Where-Object name -like "*bin-win-vulkan-x64.zip" | Select-Object -First 1
    Invoke-WebRequest $zip.browser_download_url -OutFile "$env:TEMP\llama.zip"
    Expand-Archive "$env:TEMP\llama.zip" -DestinationPath "$ear\llama" -Force
    ```
 
-   (These five lines could not be tried on the build machine, which
+   (The list holds the newest ten releases, because the newest of all,
+   `v1.0.0`, holds no programs: only a note naming a nightly build.
+   These five lines could not be tried on the build machine, which
    cannot reach GitHub. If they fail, download the file whose name ends
    in `bin-win-vulkan-x64.zip` from
    https://github.com/ggml-org/llama.cpp/releases by hand and unpack it

@@ -537,8 +537,10 @@ them):
   written.
 * **llama.cpp is not installed with the Ear**, because the Ear ships with
   scores only. It is downloaded when a person tries a describe model:
-  the newest release, the Vulkan build when there is a graphics card,
-  checked against the SHA-256 GitHub lists for it.
+  the newest release that holds a build for this PC (the newest of all,
+  `v1.0.0`, holds only a note naming a nightly build, so the Ear reads
+  the last ten), the Vulkan build when there is a graphics card, checked
+  against the SHA-256 GitHub lists for it.
 * **Which graphics card** is found without llama.cpp (the registry on
   Windows, `nvidia-smi` and the kernel on Linux), to decide whether Large
   is offered before anything is downloaded.

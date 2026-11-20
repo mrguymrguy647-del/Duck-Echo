@@ -854,9 +854,11 @@ of it is a command an AI assistant can run: it is not in
   built into the processor do not count. `DUCK_ECHO_EAR_CARDS` names
   pretend cards for tests.
 * **Try a describe model** (`ear_try.rs`): offered by `needs_card_mb`
-  (Large: 16 GB). It downloads llama.cpp's newest release for this PC
-  (the Vulkan build with a card, else the CPU build; the file is checked
-  against the `digest` GitHub lists), the model's files from Hugging
+  (Large: 16 GB). It downloads llama.cpp's newest build for this PC
+  (from the newest of its last ten releases that holds one, since a
+  release such as `v1.0.0` holds no programs; the Vulkan build with a
+  card, else the CPU build; the file is checked against the `digest`
+  GitHub lists), the model's files from Hugging
   Face at their pinned revision, writes the built-in test set into the
   Ear's folder, and runs `ear_check::check_watched` (`Part::Describe`,
   fresh) with the model named to the Ear by `DUCK_EAR_DESCRIBE_MODEL`.

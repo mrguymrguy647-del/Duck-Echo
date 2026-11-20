@@ -1460,6 +1460,14 @@ Lessons from step 5:
   GitHub) and llama.cpp's real release list could not be tried there.
   The `Ear` workflow does the whole install, a try and a removal on
   GitHub's Windows and Linux machines.
+* **The newest release is not always the newest build.** The first run
+  of that workflow failed on both systems: llama.cpp's newest release,
+  `v1.0.0`, holds no programs, only a note naming the nightly build it
+  was made from. The Ear now reads the newest ten releases and takes the
+  first one that holds a file for this PC.
+* **A size in a test is one system's size.** "About 912 MB" is Linux's
+  download; uv's file for Windows is a different size, so the Studio's
+  test failed there. The test now works the size out as the Studio does.
 * **A shell `rm -rf *` after a `cd` is never worth it.** One was stopped
   by a safety check here; name the folder to delete, in full.
 * [ ] Step 6: the rest of the Studio's Settings > Duck Ear (Test, the

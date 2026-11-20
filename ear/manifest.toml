@@ -47,12 +47,14 @@ bytes = 784000000
 # ---- llama.cpp: runs a describe model ----------------------------------
 #
 # Only downloaded to try a describe model (the Ear ships with scores
-# only). The newest release, from GitHub's list of releases; the file for
-# this PC is the one whose name ends as written here (`.zip` or
-# `.tar.gz`), checked against the SHA-256 that list gives.
+# only). From GitHub's list of releases, newest first: the newest one
+# that holds a file for this PC (llama.cpp's `v1.0.0` holds none, only a
+# note naming a nightly build). The file is the one whose name ends as
+# written here (`.zip` or `.tar.gz`), checked against the SHA-256 that
+# list gives.
 
 [llama]
-releases = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+releases = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
 # About this much to download.
 bytes = 60000000
 

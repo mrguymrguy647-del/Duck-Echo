@@ -141,8 +141,10 @@ jobs:
           # The list is fetched here with this run's own login, so GitHub's
           # limit for anonymous requests cannot fail the test. The files
           # themselves are still downloaded from GitHub by duck-echo.
-          gh api repos/ggml-org/llama.cpp/releases/latest > site/llama-release.json
-          python -c "import json; d=json.load(open('site/llama-release.json')); print(d['tag_name']); [print(' ', a['name'], a['size'], a.get('digest')) for a in d['assets']]"
+          # The newest ten releases: the newest of all can hold no
+          # programs (v1.0.0 holds only a note naming a nightly build).
+          gh api "repos/ggml-org/llama.cpp/releases?per_page=10" > site/llama-release.json
+          python -c "import json; [print(r['tag_name'], 'draft' if r['draft'] else '', 'prerelease' if r['prerelease'] else '', len(r['assets']), 'files:', ' '.join(a['name'] for a in r['assets'] if 'x64' in a['name'] or len(r['assets']) < 4)) for r in json.load(open('site/llama-release.json'))]"
           (cd site && python -m http.server 8765 --bind 127.0.0.1 > ../site.log 2>&1 &)
           sleep 2
           curl --fail --silent http://127.0.0.1:8765/score/SHA256SUMS
