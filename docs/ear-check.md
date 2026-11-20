@@ -477,6 +477,33 @@ What is known and not known before that:
   question, are tested with a pretend `llama-server` only (and the
   2-minute rule with the real one, on the CPU).
 
+### The quick set, through the one command
+
+`ear/tools/measure_describe_model.py full --quick` was run on the build
+machine, to try the whole way a person will go: it found `llama-server`,
+`duck-echo` and the Ear, downloaded Qwen2.5-Omni-7B (6.2 GB), checked
+both files' SHA-256, asked about the 10 sounds of `ear/testset/quick.toml`
+(52 yes or no questions, silence and noise among them) with no answer
+cache, and wrote `ear-check.json` and `ear-check.md`.
+
+| Measure, on the quick set (CPU) | Qwen2.5-Omni-7B |
+|---|---|
+| Describe: yes on true texts | 7 of 13 |
+| Describe: no on wrong texts | 32 of 39 |
+| Silence: no yes to a wrong text | 5 of 5 |
+| Noise: no yes to a wrong text | 4 of 4 |
+| Verdict: yes on true texts | 5 of 13 |
+| Verdict: no on wrong texts | 25 of 39 |
+| Verdict: a wrong text said yes | 0 of 39 |
+| Same words when asked again | 8 of 8 |
+
+All 10 descriptions and all 52 answers are word for word those of the
+full run a day earlier (another start of the machine, another
+`llama-server`). Ten sounds are too few to judge a model by; the quick
+set is there to show that the driver and the verdict work, and it does.
+(Its times, 34 s to hear a sound and 11 s a question, were taken while
+Duck Echo's tests ran beside it; the times above are the quiet ones.)
+
 ### Measuring on a PC with a graphics card
 
 One command per size. It finds `llama-server`, the graphics card,
