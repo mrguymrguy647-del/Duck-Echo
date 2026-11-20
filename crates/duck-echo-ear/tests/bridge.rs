@@ -336,7 +336,20 @@ fn an_ear_in_a_folder_with_spaces_and_accents_starts() {
     std::fs::copy(env!("CARGO_BIN_EXE_fake-ear"), &copy).unwrap();
     let mut settings = Settings::new(Program::new(&copy).arg("well"));
     settings.times = quick();
-    let mut ear = Ear::start(&settings).unwrap();
+    // Linux will not run a file that any program still holds open for
+    // writing ("Text file busy"). Another test's child, started while the
+    // copy above was being written, can hold it for a moment: wait for it.
+    let mut tries = 0;
+    let mut ear = loop {
+        match Ear::start(&settings) {
+            Ok(ear) => break ear,
+            Err(u) if u.message.contains("Text file busy") && tries < 100 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(u) => panic!("{u:?}"),
+        }
+    };
     assert!(ask(&mut ear, "score", json!({})).is_ok());
     assert_eq!(ear.stop(), Some(0));
 }

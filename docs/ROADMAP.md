@@ -1392,6 +1392,11 @@ Lessons from step 4:
   said llama.cpp cannot run MiDashengLM, from a search of one source
   tree; the model's own page named the fork. Look at the model's page
   before writing that something is impossible.
+* **A test that copies a program and runs it can meet "Text file
+  busy".** Linux will not run a file that any program holds open for
+  writing, and another test's child, started in that moment, holds it.
+  The bridge's "folder with spaces and accents" test failed once in CI
+  that way; it now waits and tries again.
 * **Measure where the hardware is.** A describe model takes an hour on
   the build machine's CPU and minutes on a graphics card, and Large does
   not fit the build machine at all. `ear/tools/measure_describe_model.py`
