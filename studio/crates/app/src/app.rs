@@ -120,6 +120,8 @@ pub struct StudioApp {
     pub last_scan: Option<Instant>,
     /// The new-version check and its banner.
     pub update: UpdateState,
+    /// Settings > Duck Ear: install, remove, try a bigger model.
+    pub ear: crate::ear_panel::EarPanel,
     /// A sentence for the status line (an answer, a problem).
     pub note: Option<String>,
     /// True when the note is a problem (shown in the colour for problems).
@@ -233,6 +235,7 @@ impl StudioApp {
             redo_title: None,
             last_scan: None,
             update: UpdateState::Off,
+            ear: crate::ear_panel::EarPanel::default(),
             note: None,
             note_is_problem: false,
             about_open: false,
@@ -582,6 +585,8 @@ impl StudioApp {
                     }
                 }
             }
+            ui.add_space(8.0);
+            self.ear.show(ui);
             ui.add_space(8.0);
             self.connect_section(ui);
         }

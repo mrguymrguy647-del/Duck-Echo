@@ -1019,6 +1019,7 @@ dependencies = [
  "duck-echo-core",
  "duck-echo-ear",
  "duck-echo-synth",
+ "miniz_oxide 0.8.9",
  "schemars",
  "serde",
  "serde_json",

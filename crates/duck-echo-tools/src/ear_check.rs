@@ -275,6 +275,42 @@ fn measure(name: &str, what: &str, right: usize, of: usize, bar: f64) -> Measure
     }
 }
 
+/// Someone watching a check: told how far along it is, and able to stop
+/// it.
+pub struct Watch<'a> {
+    /// Hears how many questions were asked, and of how many.
+    pub progress: &'a mut dyn FnMut(usize, usize),
+    /// Stops the check before its next question.
+    pub cancel: crate::ear_net::Cancel,
+    done: usize,
+    of: usize,
+}
+
+impl<'a> Watch<'a> {
+    /// A watcher that hears the progress and can stop the check.
+    pub fn new(
+        progress: &'a mut dyn FnMut(usize, usize),
+        cancel: crate::ear_net::Cancel,
+    ) -> Watch<'a> {
+        Watch {
+            progress,
+            cancel,
+            done: 0,
+            of: 0,
+        }
+    }
+
+    /// Before each question: stop if told to, else count it.
+    fn question(&mut self) -> Result<(), ToolError> {
+        if self.cancel.is_cancelled() {
+            return Err(failed("the check was stopped"));
+        }
+        (self.progress)(self.done, self.of);
+        self.done += 1;
+        Ok(())
+    }
+}
+
 /// Run the test set at `testset` with the Ear `keeper` keeps: the score
 /// model, and with `part` the describe model too. With `fresh`, the Ear
 /// is asked everything, whatever the answer cache holds, and nothing is
@@ -284,6 +320,20 @@ pub fn check(
     testset: &Path,
     part: Part,
     fresh: bool,
+) -> Result<CheckReport, ToolError> {
+    let mut nobody = |_: usize, _: usize| {};
+    let mut watch = Watch::new(&mut nobody, crate::ear_net::Cancel::new());
+    check_watched(keeper, testset, part, fresh, &mut watch)
+}
+
+/// [`check`], with someone watching: `watch` hears each question and can
+/// stop the check.
+pub fn check_watched(
+    keeper: &EarKeeper,
+    testset: &Path,
+    part: Part,
+    fresh: bool,
+    watch: &mut Watch,
 ) -> Result<CheckReport, ToolError> {
     let text = std::fs::read_to_string(testset).map_err(|e| {
         ToolError::failed(
@@ -324,11 +374,32 @@ pub fn check(
             true
         }
     };
+    // How many questions there will be: a score for each sound, and with
+    // a describe model a description for each, a yes or no for each text,
+    // and the few asked twice.
+    let pairs: usize = set
+        .sound
+        .iter()
+        .map(|s| s.truths.len() + s.wrong.len())
+        .sum();
+    let twice: usize = set
+        .sound
+        .iter()
+        .take(ASKED_TWICE)
+        .map(|s| 1 + usize::from(!s.truths.is_empty()))
+        .sum();
+    watch.of = set.sound.len()
+        + if with_describe {
+            set.sound.len() + pairs + twice
+        } else {
+            0
+        };
     let mut matches: Vec<BTreeMap<String, f64>> = Vec::new();
     let mut results = Vec::new();
     let mut seconds = 0.0;
     let mut heard_sounds = Vec::new();
     for sound in &set.sound {
+        watch.question()?;
         let buffer = render(folder, &sound.file)?;
         let heard = keeper.sound(&buffer)?;
         let answer = listening
@@ -513,6 +584,7 @@ pub fn check(
             &heard_sounds,
             &matches,
             lines,
+            watch,
         )?)
     } else {
         None
@@ -568,6 +640,7 @@ fn check_describe(
     sounds: &[crate::ear::Sound],
     matches: &[BTreeMap<String, f64>],
     lines: Lines,
+    watch: &mut Watch,
 ) -> Result<DescribeReport, ToolError> {
     let ask_params = |text: &str| json!({"question": crate::ear::question_for(text), "answer": "yes_no", "guard": false});
     let mut results = Vec::new();
@@ -575,6 +648,7 @@ fn check_describe(
     let mut ask_times = Vec::new();
     let mut load = 0.0;
     for (i, sound) in set.sound.iter().enumerate() {
+        watch.question()?;
         let started = std::time::Instant::now();
         let described = listening
             .ask(&sounds[i], "describe", json!({"guard": false}))
@@ -588,6 +662,7 @@ fn check_describe(
         let mut answers = |texts: &[String]| -> Result<BTreeMap<String, TextAnswer>, ToolError> {
             let mut out = BTreeMap::new();
             for text in texts {
+                watch.question()?;
                 let asked = listening
                     .ask(&sounds[i], "ask", ask_params(text))
                     .map_err(|missed| missed_error(missed, &sound.file))?;
@@ -732,6 +807,7 @@ fn check_describe(
     keeper.stop();
     let mut asked_twice = Vec::new();
     for (i, sound) in set.sound.iter().enumerate().take(ASKED_TWICE) {
+        watch.question()?;
         let again = listening
             .ask_again(&sounds[i], "describe", json!({"guard": false}))
             .map_err(|missed| missed_error(missed, &sound.file))?;
@@ -744,6 +820,7 @@ fn check_describe(
             second,
         });
         if let Some(text) = sound.truths.first() {
+            watch.question()?;
             let again = listening
                 .ask_again(&sounds[i], "ask", ask_params(text))
                 .map_err(|missed| missed_error(missed, &sound.file))?;

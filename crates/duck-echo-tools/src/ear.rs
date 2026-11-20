@@ -86,6 +86,8 @@ pub struct EarConfig {
     /// choice (`DUCK_EAR_DESCRIBE_MODEL` for the Ear): for trying a model
     /// without making it the Ear's.
     pub describe_model: Option<PathBuf>,
+    /// More environment variables for the Ear, each a name and a value.
+    pub ear_env: Vec<(String, String)>,
 }
 
 impl EarConfig {
@@ -101,6 +103,7 @@ impl EarConfig {
             ear_idle: EAR_IDLE,
             describe_idle_seconds: duck_echo_ear::DESCRIBE_IDLE_SECONDS,
             describe_model: None,
+            ear_env: Vec::new(),
         })
     }
 
@@ -135,7 +138,10 @@ impl EarConfig {
             // The installed Ear runs in its own private Python.
             program.command = places.python();
         }
-        let program = program.env(HOME_VARIABLE, &self.home);
+        let mut program = program.env(HOME_VARIABLE, &self.home);
+        for (name, value) in &self.ear_env {
+            program = program.env(name, value);
+        }
         match &self.describe_model {
             Some(folder) => program.env("DUCK_EAR_DESCRIBE_MODEL", folder),
             None => program,

@@ -339,6 +339,30 @@ enum EarAction {
         #[arg(long)]
         json: bool,
     },
+    /// Try a bigger describe model on this PC: download it (after
+    /// asking), measure it on Duck Echo's test set, show the results and
+    /// save ear-check.json and ear-check.md. It never becomes the Ear's
+    /// model by itself. `large` is offered only with a graphics card of
+    /// 16 GB or more.
+    Try {
+        /// The model: a size (`large`, `full`) or a model's name.
+        model: String,
+        /// Ask about 10 sounds only: a check that everything works.
+        #[arg(long)]
+        quick: bool,
+        /// Do not ask: download and measure.
+        #[arg(long)]
+        yes: bool,
+        /// Where to save the results (default: ear-check-<model>).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Choose the describe model the Ear uses: a model that passed
+    /// `ear try` on this PC, or `none` for scores only.
+    Use {
+        /// The model (a size or a name), or `none`.
+        model: String,
+    },
     /// Remove the Duck Ear from this PC: its programs, its models and its
     /// kept answers.
     Remove {
@@ -631,6 +655,18 @@ fn main() -> ExitCode {
         Command::Ear {
             action: EarAction::Remove { yes, json },
         } => ear_commands::remove(yes, json),
+        Command::Ear {
+            action:
+                EarAction::Try {
+                    model,
+                    quick,
+                    yes,
+                    out,
+                },
+        } => ear_commands::try_model(&model, quick, yes, out.as_deref()),
+        Command::Ear {
+            action: EarAction::Use { model },
+        } => ear_commands::use_model(&model),
         Command::Ear {
             action:
                 EarAction::Status {

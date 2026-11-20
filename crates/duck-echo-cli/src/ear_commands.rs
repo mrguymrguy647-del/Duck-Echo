@@ -40,6 +40,14 @@ pub fn printer() -> impl FnMut(Event) {
                 }
             }
         }
+        Event::Question { done, of } => {
+            // Every twentieth of the way.
+            let mark = (done * 20 / of.max(1)) as u64;
+            if last != ("questions".to_string(), mark) {
+                last = ("questions".to_string(), mark);
+                println!("  question {} of {of}", done + 1);
+            }
+        }
     }
 }
 
@@ -138,5 +146,76 @@ pub fn remove(yes: bool, json: bool) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => failed(&error, json),
+    }
+}
+
+/// `duck-echo ear try <model>`: download a describe model (after asking),
+/// measure it on the test set, show the results and save them.
+pub fn try_model(which: &str, quick: bool, yes: bool, out: Option<&std::path::Path>) -> ExitCode {
+    use duck_echo_tools::ear_try;
+    let home = default_home();
+    let cards = duck_echo_tools::ear_cards::cards();
+    let plan = match ear_try::try_plan(&home, which, quick, &cards) {
+        Ok(plan) => plan,
+        Err(error) => return failed(&error, false),
+    };
+    println!("{}", plan.summary);
+    for (part, bytes) in &plan.parts {
+        println!("  {part}: {}", megabytes(*bytes));
+    }
+    if !yes && !asked(&format!("Try {}?", plan.model)) {
+        println!("Nothing was downloaded.");
+        return ExitCode::from(2);
+    }
+    let mut print = printer();
+    let tried = match ear_try::try_model(&home, which, quick, &cards, &mut print, &Cancel::new()) {
+        Ok(tried) => tried,
+        Err(error) => return failed(&error, false),
+    };
+    println!();
+    if let Some(describe) = &tried.report.describe {
+        println!(
+            "{} on {}:",
+            describe.model,
+            describe.device_name.as_deref().unwrap_or(&describe.device)
+        );
+        println!();
+        print!("{}", describe.table);
+        println!();
+    }
+    println!("{}", tried.summary);
+    let folder = match out {
+        Some(out) => out.to_path_buf(),
+        None => std::path::PathBuf::from(format!(
+            "ear-check-{}{}",
+            tried.model,
+            if quick { "-quick" } else { "" }
+        )),
+    };
+    if let Err(error) = ear_try::save_results(&home, which, &folder) {
+        return failed(&error, false);
+    }
+    println!(
+        "The results to send are {} and {}.",
+        folder.join("ear-check.json").display(),
+        folder.join("ear-check.md").display()
+    );
+    if tried.passed {
+        println!("To describe with it: duck-echo ear use {which}");
+    }
+    ExitCode::SUCCESS
+}
+
+/// `duck-echo ear use <model>` (or `none`): which describe model the Ear
+/// uses. A model is accepted only after it passed on this PC.
+pub fn use_model(which: &str) -> ExitCode {
+    let home = default_home();
+    let which = (which != "none").then_some(which);
+    match duck_echo_tools::ear_try::use_model(&home, which) {
+        Ok(words) => {
+            println!("{words}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => failed(&error, false),
     }
 }

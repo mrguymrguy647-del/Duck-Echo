@@ -52,6 +52,7 @@ fn config(program: &Path, home: &Path) -> EarConfig {
         ear_idle: ear::EAR_IDLE,
         describe_idle_seconds: duck_echo_ear::DESCRIBE_IDLE_SECONDS,
         describe_model: None,
+        ear_env: Vec::new(),
     }
 }
 

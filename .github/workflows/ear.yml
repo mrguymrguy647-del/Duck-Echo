@@ -1,0 +1,240 @@
+# The Duck Ear, for real: its score model is converted, the Ear is
+# installed with `duck-echo ear install` on Windows and on Linux (a
+# private Python and all), it listens, a describe model is tried, and the
+# Ear is removed again. And this workflow publishes the score model.
+#
+# The score model's release (ear/manifest.toml names it, such as
+# ear-score-v1) is what `duck-echo ear install` downloads. Two ways to
+# publish it:
+# - Actions -> Ear -> "Run workflow" with "Publish the score model" ticked
+#   (GitHub shows the button once this file is on the main branch).
+# - Pushing the tag itself: git tag ear-score-v1 && git push origin ear-score-v1
+# If the release is already there, its files are replaced.
+name: Ear
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the score model as the release ear/manifest.toml names"
+        type: boolean
+        default: false
+  push:
+    tags: ["ear-score-v*"]
+    branches: ["**"]
+    # What the installer is made of.
+    paths:
+      - ".github/workflows/ear.yml"
+      - "ear/manifest.toml"
+      - "ear/pyproject.toml"
+      - "ear/uv.lock"
+      - "ear/duck_ear/**"
+      - "ear/convert/**"
+      - "crates/duck-echo-tools/src/ear_install.rs"
+      - "crates/duck-echo-tools/src/ear_net.rs"
+      - "crates/duck-echo-tools/src/ear_try.rs"
+      - "crates/duck-echo-tools/src/ear_cards.rs"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  convert:
+    name: Convert the score model and check it against the original
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The release the manifest names
+        id: tag
+        run: |
+          tag=$(grep -E '^release = ' ear/manifest.toml | sed -E 's|.*/([^/"]+)"$|\1|')
+          [[ "$tag" == ear-score-v* ]] || { echo "ear/manifest.toml names no ear-score-v release: $tag"; exit 1; }
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo "The tag $GITHUB_REF_NAME is not the release ear/manifest.toml names ($tag)."; exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Render Duck Echo's presets and examples (the sounds to check with)
+        run: |
+          cargo build --release -p duck-echo-cli
+          mkdir -p ear-sounds
+          for f in presets/*.toml; do n=$(basename "$f" .toml); target/release/duck-echo render "preset:$n" -o "ear-sounds/preset-$n.wav" > /dev/null; done
+          for f in examples/recipes/*.toml examples/songs/*.toml; do n=$(basename "$f" .toml); target/release/duck-echo render "$f" -o "ear-sounds/example-$n.wav" > /dev/null; done
+          ls ear-sounds/*.wav | wc -l
+
+      - name: Convert LAION-CLAP to ONNX (it fails unless it matches the original)
+        working-directory: ear/convert
+        env:
+          HF_HUB_DISABLE_XET: "1"
+        run: |
+          python -m pip install --quiet uv
+          uv sync
+          uv run python convert_clap.py --sounds ../../ear-sounds --out ../../ear-models --model laion-clap-general
+          cat ../../ear-models/laion-clap-general/model.json
+
+      - name: The list of SHA-256s the installer checks each file against
+        working-directory: ear-models/laion-clap-general
+        run: |
+          files=$(grep -E '^files = ' "$GITHUB_WORKSPACE/ear/manifest.toml" | tr -d '[],"' | sed 's/^files = //')
+          sha256sum $files > SHA256SUMS
+          cat SHA256SUMS
+          ls -l
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: score-model
+          path: ear-models/laion-clap-general
+          retention-days: 7
+
+  install:
+    name: Install, listen, try a model, remove (${{ matrix.os }})
+    needs: convert
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The Ear's own folder for this run, and the score model from this
+      # run's convert job in place of the release.
+      DUCK_ECHO_EAR_HOME: ${{ github.workspace }}/the-ear
+      DUCK_ECHO_EAR_SCORE_URL: http://127.0.0.1:8765/score
+      DUCK_ECHO_LLAMA_RELEASES: http://127.0.0.1:8765/llama-release.json
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build duck-echo
+        run: cargo build --release -p duck-echo-cli
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: score-model
+          path: site/score
+
+      - name: A site on this machine with the score model and llama.cpp's list of files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The list is fetched here with this run's own login, so GitHub's
+          # limit for anonymous requests cannot fail the test. The files
+          # themselves are still downloaded from GitHub by duck-echo.
+          gh api repos/ggml-org/llama.cpp/releases/latest > site/llama-release.json
+          python -c "import json; d=json.load(open('site/llama-release.json')); print(d['tag_name']); [print(' ', a['name'], a['size'], a.get('digest')) for a in d['assets']]"
+          (cd site && python -m http.server 8765 --bind 127.0.0.1 > ../site.log 2>&1 &)
+          sleep 2
+          curl --fail --silent http://127.0.0.1:8765/score/SHA256SUMS
+
+      - name: Before installing, the Ear is "not installed" and listening says so
+        run: |
+          target/release/duck-echo ear status | tee status.txt
+          grep -q "not_installed" status.txt
+
+      - name: duck-echo ear install
+        run: |
+          target/release/duck-echo ear install --yes
+          cat "$DUCK_ECHO_EAR_HOME/ear.json"
+          ls "$DUCK_ECHO_EAR_HOME"
+          # A private Python, in the Ear's own folder.
+          ls "$DUCK_ECHO_EAR_HOME/python"
+
+      - name: It listens
+        run: |
+          target/release/duck-echo ear status
+          target/release/duck-echo listen preset:coin --like "a coin pickup" --like "an explosion" | tee listened.txt
+          grep -q '"a coin pickup": yes' listened.txt
+          grep -q '"an explosion": no' listened.txt
+
+      - name: The score check, on this system
+        run: |
+          target/release/duck-echo ear check --part score --out "ear-check-${{ runner.os }}"
+          cat "ear-check-${{ runner.os }}/ear-check.md"
+
+      - name: Installing again keeps what is there (an update)
+        run: target/release/duck-echo ear update --yes
+
+      - name: Try a describe model (Full, the quick set), with llama.cpp's newest build
+        run: |
+          target/release/duck-echo ear try full --quick --yes --out "try-full-${{ runner.os }}"
+          cat "try-full-${{ runner.os }}/ear-check.md"
+          cat "$DUCK_ECHO_EAR_HOME/llama/release.txt"
+          # It is not the Ear's model: only a model that passed is offered.
+          [[ ! -f "$DUCK_ECHO_EAR_HOME/models/describe.txt" ]]
+          if target/release/duck-echo ear use full; then echo "a quick try must not be usable"; exit 1; fi
+
+      - name: Keep the results on this run's page
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ear-results-${{ runner.os }}
+          path: |
+            ear-check-*
+            try-full-*
+            the-ear/ear.log
+            the-ear/llama-server.log
+            the-ear/ear.json
+            site.log
+
+      - name: duck-echo ear remove
+        run: |
+          target/release/duck-echo ear remove --yes
+          [[ ! -e "$DUCK_ECHO_EAR_HOME/env" && ! -e "$DUCK_ECHO_EAR_HOME/models" ]]
+          target/release/duck-echo ear status | grep -q "not_installed"
+
+  publish:
+    name: Publish the score model
+    needs: [convert, install]
+    if: startsWith(github.ref, 'refs/tags/ear-score-v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: score-model
+          path: release
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.convert.outputs.tag }}
+        run: |
+          cd release
+          ls -l
+          sha256sum --check SHA256SUMS
+          files=(*)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "The release $TAG is already there: replacing its files."
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            # Made as a draft with every file, then published, so an
+            # install never sees half a release. Not marked as the latest
+            # release: that is the Studio's.
+            gh release create "$TAG" "${files[@]}" --draft --latest=false --target "$GITHUB_SHA" \
+              --title "Duck Ear score model ($TAG)" \
+              --notes "The Duck Ear's score model: LAION-CLAP (laion/larger_clap_general, Apache-2.0), converted to ONNX by ear/convert/convert_clap.py and checked against the original. Nothing here is for downloading by hand: \`duck-echo ear install\` and Duck Echo Studio's Settings > Duck Ear download these files and check each against SHA256SUMS."
+            gh release edit "$TAG" --draft=false --latest=false
+          fi
+          echo "Published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

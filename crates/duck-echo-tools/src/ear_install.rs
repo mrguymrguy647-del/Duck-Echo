@@ -311,6 +311,13 @@ pub enum Event<'a> {
         /// Of how many, when known.
         of: Option<u64>,
     },
+    /// A model is being asked the test set's questions.
+    Question {
+        /// Questions asked so far.
+        done: usize,
+        /// Of how many.
+        of: usize,
+    },
 }
 
 /// Where each part of the Ear is, inside its folder.
@@ -774,6 +781,7 @@ const OWN: &[&str] = &[
     "llama",
     "answers",
     "downloads",
+    "testset",
 ];
 
 /// How many bytes the Ear takes in `home` now.
