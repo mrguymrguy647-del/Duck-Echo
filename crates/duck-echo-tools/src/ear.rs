@@ -82,6 +82,10 @@ pub struct EarConfig {
     /// How long the Ear keeps its describe model with no describe
     /// question (sent to it in `hello`).
     pub describe_idle_seconds: u64,
+    /// The folder of a describe model to use instead of the Ear's own
+    /// choice (`DUCK_EAR_DESCRIBE_MODEL` for the Ear): for trying a model
+    /// without making it the Ear's.
+    pub describe_model: Option<PathBuf>,
 }
 
 impl EarConfig {
@@ -96,18 +100,15 @@ impl EarConfig {
             times: Times::from_environment()?,
             ear_idle: EAR_IDLE,
             describe_idle_seconds: duck_echo_ear::DESCRIBE_IDLE_SECONDS,
+            describe_model: None,
         })
     }
 
-    /// The Ear that the installer puts in the Ear's folder (step 5 of the
-    /// design): `env/Scripts/duck-ear.exe` on Windows,
-    /// `env/bin/duck-ear` elsewhere.
+    /// The installed Ear's program: the file `ear install` writes into
+    /// the Ear's folder (`package/duck_ear_run.py`), which the Ear's own
+    /// private Python runs.
     pub fn installed_program(&self) -> PathBuf {
-        if cfg!(windows) {
-            self.home.join("env").join("Scripts").join("duck-ear.exe")
-        } else {
-            self.home.join("env").join("bin").join("duck-ear")
-        }
+        crate::ear_install::Places::new(&self.home).launcher()
     }
 
     /// The Ear program, and how it was found: `named` (on the command line
@@ -122,6 +123,23 @@ impl EarConfig {
     /// The folder of the answer cache.
     pub fn answers(&self) -> PathBuf {
         self.home.join("answers")
+    }
+
+    /// How to start the Ear at `file`: in this Ear's folder (so the Ear
+    /// finds its models where Duck Echo looks), and with the describe
+    /// model to try, if one is named.
+    fn program_for(&self, file: &Path) -> Program {
+        let places = crate::ear_install::Places::new(&self.home);
+        let mut program = Program::new(file);
+        if file == places.launcher() {
+            // The installed Ear runs in its own private Python.
+            program.command = places.python();
+        }
+        let program = program.env(HOME_VARIABLE, &self.home);
+        match &self.describe_model {
+            Some(folder) => program.env("DUCK_EAR_DESCRIBE_MODEL", folder),
+            None => program,
+        }
     }
 }
 
@@ -255,7 +273,7 @@ impl EarKeeper {
             let (program, _) = self.config.locate();
             let _ = std::fs::create_dir_all(&self.config.home);
             let settings = Settings {
-                program: Program::new(&program),
+                program: self.config.program_for(&program),
                 times: self.config.times,
                 describe_idle_seconds: self.config.describe_idle_seconds,
                 log_file: self

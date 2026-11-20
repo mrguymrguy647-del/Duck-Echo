@@ -19,6 +19,8 @@
 //! argument at fault (`input`, `--output`, `--solo[1]`). Human-readable
 //! diagnostics go to stderr.
 
+mod ear_commands;
+
 use clap::{Parser, Subcommand, ValueEnum};
 use duck_echo_audio::WavFormat;
 use duck_echo_tools::commands;
@@ -315,6 +317,38 @@ enum Command {
 /// What to do with the Duck Ear.
 #[derive(Subcommand)]
 enum EarAction {
+    /// Install the Duck Ear on this PC (scores only: about 0.9 GB to
+    /// download). It shows what it will download and asks first. Only a
+    /// person runs this, never an AI assistant.
+    Install {
+        /// Do not ask: install.
+        #[arg(long)]
+        yes: bool,
+        /// Print the result as JSON (with --yes).
+        #[arg(long)]
+        json: bool,
+    },
+    /// Bring the installed Duck Ear up to date with this Duck Echo. Files
+    /// that are already there and right are kept, so the models are not
+    /// downloaded again.
+    Update {
+        /// Do not ask: update.
+        #[arg(long)]
+        yes: bool,
+        /// Print the result as JSON (with --yes).
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove the Duck Ear from this PC: its programs, its models and its
+    /// kept answers.
+    Remove {
+        /// Do not ask: remove.
+        #[arg(long)]
+        yes: bool,
+        /// Print the result as JSON (with --yes).
+        #[arg(long)]
+        json: bool,
+    },
     /// Is the Duck Ear there, and what can it do: its program, its
     /// version, its models, its device and how many answers it keeps.
     /// The same as `duck-echo do ear_status`.
@@ -588,6 +622,15 @@ fn main() -> ExitCode {
             }
             listen(&args, &project, ear_program, json)
         }
+        Command::Ear {
+            action: EarAction::Install { yes, json },
+        } => ear_commands::install(yes, json, false),
+        Command::Ear {
+            action: EarAction::Update { yes, json },
+        } => ear_commands::install(yes, json, true),
+        Command::Ear {
+            action: EarAction::Remove { yes, json },
+        } => ear_commands::remove(yes, json),
         Command::Ear {
             action:
                 EarAction::Status {

@@ -12,6 +12,8 @@ pub mod asset;
 pub mod commands;
 pub mod ear;
 pub mod ear_check;
+pub mod ear_install;
+pub mod ear_net;
 pub mod examples;
 pub mod expect;
 pub mod files;

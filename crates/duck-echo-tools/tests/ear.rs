@@ -51,6 +51,7 @@ fn config(program: &Path, home: &Path) -> EarConfig {
         times: duck_echo_ear::Times::default(),
         ear_idle: ear::EAR_IDLE,
         describe_idle_seconds: duck_echo_ear::DESCRIBE_IDLE_SECONDS,
+        describe_model: None,
     }
 }
 

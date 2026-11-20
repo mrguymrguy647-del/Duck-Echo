@@ -30,6 +30,8 @@ pub struct Program {
     pub args: Vec<OsString>,
     /// The file Duck Echo was pointed at, to name in messages.
     pub file: PathBuf,
+    /// Environment variables set for the Ear, on top of Duck Echo's own.
+    pub envs: Vec<(OsString, OsString)>,
 }
 
 /// The environment variable naming the Python that runs an Ear given as a
@@ -56,12 +58,14 @@ impl Program {
                 command: python.into(),
                 args: vec![file.clone().into_os_string()],
                 file,
+                envs: Vec::new(),
             }
         } else {
             Program {
                 command: file.clone(),
                 args: Vec::new(),
                 file,
+                envs: Vec::new(),
             }
         }
     }
@@ -69,6 +73,13 @@ impl Program {
     /// The same program with `arg` added at the end.
     pub fn arg(mut self, arg: impl Into<OsString>) -> Program {
         self.args.push(arg.into());
+        self
+    }
+
+    /// The same program with the environment variable `name` set to
+    /// `value` when it starts.
+    pub fn env(mut self, name: impl Into<OsString>, value: impl Into<OsString>) -> Program {
+        self.envs.push((name.into(), value.into()));
         self
     }
 }
@@ -99,6 +110,7 @@ pub fn start(program: &Program) -> io::Result<(Tree, Pipes)> {
     let mut command = Command::new(&program.command);
     command
         .args(&program.args)
+        .envs(program.envs.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

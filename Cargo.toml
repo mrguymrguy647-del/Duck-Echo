@@ -28,6 +28,9 @@ schemars = "1"
 serde_path_to_error = "0.1"
 strsim = "0.11"
 hound = "3.5"
+# Unpacks zip files (uv and llama.cpp come as zip files) for the Duck
+# Ear's installer. Pure Rust, no dependencies of its own.
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
 # OGG Vorbis: vorbis_rs encodes (Xiph's libvorbis with the aoTuV tuning,
 # built from C), lewton decodes (pure Rust, the decoder Duck Forge uses).
 # The default features of vorbis_rs pick a random stream serial; Duck Echo
