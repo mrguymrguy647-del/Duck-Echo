@@ -6,9 +6,11 @@ sounds, on one test set with known answers.
 * **The score model** (step 3 of `docs/phase4-design.md`): two models
   were converted and measured, the better one was chosen, and its yes and
   no lines were set. This is most of the page.
-* **The describe model** (step 4): three models were measured on the CPU.
+* **The describe model** (step 4): four models were measured on the CPU.
   **None passes**, so the Ear ships with scores only. That part is at the
-  end: "The describe model".
+  end: "The describe model". Its numbers on a graphics card are **to be
+  measured on the person's PC** (one command per size: "Measuring on a PC
+  with a graphics card").
 
 **Chosen: LAION-CLAP (`laion/larger_clap_general`).** It tells which of
 two sounds a text fits much more often than CLAP2-S (98% against 88%),
@@ -216,8 +218,9 @@ wrong texts**, counted apart (a model that always says yes gets 100% and
 0%), and it must not say yes to a sound when there is only silence or
 noise.
 
-**Result: none of the three models measured passes.** All three say no
-far too often to true texts. As agreed in the design, the Ear ships with
+**Result: none of the models measured passes.** Three say no far too
+often to true texts, and the fourth (MiDashengLM-0.6B) does not answer
+yes or no at all. As agreed in the design, the Ear ships with
 **scores only**: the Small Ear has no describe model. Full
 (Qwen2.5-Omni-7B) and Large (Qwen3-Omni-30B-A3B) can still be added by a
 person, to measure them on a graphics card; they are not what Duck Echo
@@ -232,17 +235,21 @@ recommends until one passes.
 | Full | Qwen2.5-Omni-7B, `ggml-org/Qwen2.5-Omni-7B-GGUF` at `89b785438c89`, Q4_K_M (4.7 GB) with the Q8_0 hearing part (1.5 GB); Apache-2.0 |
 | Tried for Small | Gemma 4 E4B, `ggml-org/gemma-4-E4B-it-GGUF` at `8903cb408c7d`, Q4_0 (4.6 GB + 0.6 GB); Apache-2.0 |
 | Tried for Small | Gemma 4 E2B, `ggml-org/gemma-4-E2B-it-GGUF` at `2a8538c2e2d4`, Q4_0 (2.8 GB + 0.6 GB); Apache-2.0 |
-| Not measured | MiDashengLM-0.6B, the design's first choice for Small: this llama.cpp cannot run it |
+| Tried for Small | MiDashengLM-0.6B, the design's first choice. Its GGUF (`mispeech/midashenglm-0.6b-gguf`) needs its makers' own fork of llama.cpp, which could not be fetched here, so its original weights were asked with PyTorch instead: `mispeech/midashenglm-0.6b-fp32` at `3969e451d1c6` (2.7 GB, fp32), transformers 4.57.6, not through the Ear; Apache-2.0 |
 | Test set | the same 41 sounds: 47 true and 137 wrong pairs of a sound and a text |
 
-Run it again with a describe model installed (`ear/README.md`):
+Run it again with one command for a size, which downloads the model
+(after asking) and writes `ear-check.json` and `ear-check.md`:
 
 ```bash
-duck-echo ear check --ear-program ear/.venv/bin/duck-ear
+ear/.venv/bin/python ear/tools/measure_describe_model.py full
 ```
 
-`--part score` leaves the describe model out; `--part describe` is an
-error when the Ear has none.
+(On Windows: `ear\.venv\Scripts\python.exe ear\tools\measure_describe_model.py full`.)
+Under it is `duck-echo ear check --part describe --fresh`: `--part score`
+leaves the describe model out, `--part describe` is an error when the
+Ear has none, and `--fresh` asks the Ear everything again whatever the
+answer cache holds, so the times are that run's own.
 
 ### How a question is asked
 
@@ -283,6 +290,14 @@ the Ear answers silence itself, without the model).
 Every model reaches the bar for wrong texts and misses the bar for true
 texts by a wide margin. They are no-sayers: the opposite of what the
 research warned of, and just as useless for a yes.
+
+**MiDashengLM-0.6B is not in the table**, because it gave no yes or no
+to measure. Asked the same two questions with its original weights, it
+answered 154 of the 184 yes or no questions with its description again
+("It is a bell ringing.") or the question's own words, and the other 30
+with yes: 8 for true texts, 22 for wrong ones, and never a no. It writes
+captions; it does not answer questions. See "What the models hear" for
+its captions.
 
 **The silence and noise rows pass, but the models are not listening to
 silence.** The measure only counts a plain yes. Given pure silence,
@@ -338,6 +353,23 @@ hum. It feels deep and steady." (the coin among them), and silence is "a
 low, resonant hum" to it too. Gemma
 4 E4B called the coin "a sharp, high-pitched metallic clang" and silence
 "a low, rumbling bass note".
+
+MiDashengLM-0.6B is the quickest by far (about 1 s a caption on 4 CPU
+cores, with PyTorch) and its captions are short. On music they are good:
+the Duck Craft day theme is "a soft, ambient, and mellow piano song",
+the tense loop "a fast-paced electronic music piece with a strong
+bassline". On sound effects they are a lottery: the coin, the gem and
+the chime are "A bell ringing", the shotgun "A gun fire" and the wind
+"Waves and wind", but the menu click is "A cat meowing", the missile "A
+sneeze", the footstep "Thunderstorm" and a jump "Bass drum". Silence is
+"A loud, high-pitched, metallic sound that is repeated."
+
+**Is a Small candidate worth keeping? No.** Gemma 4 E2B hears a hum in
+nearly everything (yes to 13% of true texts). MiDashengLM-0.6B cannot
+answer a question, its sound effect captions are wrong too often to
+trust, and running it in the Ear would mean building and shipping its
+makers' fork of llama.cpp ourselves. Its music captions are the one
+thing worth remembering if a later version answers questions.
 
 What Qwen2.5-Omni-7B heard in every sound, with its wrong answers:
 
@@ -404,9 +436,26 @@ describe question on the CPU, 180 s to load) leave room for a PC a few
 times slower. The Gemma times are from the full run, where other work
 ran beside it now and then.
 
-### What still needs a graphics card
+### To be measured on the person's PC
 
-Nothing here ran on a graphics card: the build machine has none.
+Nothing here ran on a graphics card: the build machine has none. These
+are filled in from the `ear-check.json` and `ear-check.md` that
+`ear/tools/measure_describe_model.py` writes on a PC with a big card
+(the first one: an NVIDIA RTX 4090, 24 GB, with 36 GB of memory):
+
+| | Full (Qwen2.5-Omni-7B) | Large (Qwen3-Omni-30B-A3B) |
+|---|---|---|
+| Yes on true texts (bar 80%) | 45% on the CPU; on the card: to be measured on the person's PC | to be measured on the person's PC |
+| No on wrong texts (bar 80%) | 90% on the CPU; on the card: to be measured on the person's PC | to be measured on the person's PC |
+| Silence and noise | to be measured on the person's PC | to be measured on the person's PC |
+| Verdict: yes on true, no on wrong, mistakes | 34%, 68%, 6% and 0% on the CPU; on the card: to be measured on the person's PC | to be measured on the person's PC |
+| Same words when asked again | 8 of 8 on the CPU; on the card: to be measured on the person's PC | to be measured on the person's PC |
+| Loading the model | to be measured on the person's PC | to be measured on the person's PC |
+| Hearing a sound the first time | to be measured on the person's PC | to be measured on the person's PC |
+| A further yes or no question | to be measured on the person's PC | to be measured on the person's PC |
+| The card's memory in use | to be measured on the person's PC | to be measured on the person's PC |
+
+What is known and not known before that:
 
 * **Every time on a graphics card** is unmeasured: loading, hearing a
   sound, a question, for Full and for Large. The 60 s limit for a
@@ -428,9 +477,81 @@ Nothing here ran on a graphics card: the build machine has none.
   question, are tested with a pretend `llama-server` only (and the
   2-minute rule with the real one, on the CPU).
 
-The step 4 checklist for a PC with a graphics card runs
-`duck-echo ear check` with Full and with Large and sends back both
-`ear-check.md` files; they go into this page.
+### Measuring on a PC with a graphics card
+
+One command per size. It finds `llama-server`, the graphics card,
+`duck-echo` and the Ear; shows the model's size and asks before it
+downloads; checks every file's SHA-256; runs `duck-echo ear check --part
+describe --fresh` on the whole test set; and writes `ear-check.json` and
+`ear-check.md` into `ear-check-full\` or `ear-check-large\`. It does not
+change which model the Ear uses.
+
+On Windows, in PowerShell, from the repository's top folder. Before the
+first time: `cargo build --release -p duck-echo-cli`, `uv sync` in `ear\`,
+and the score model made (`ear/convert/README.md`; `duck-echo ear status
+--ear-program ear\.venv\Scripts\duck-ear.exe` then names
+`laion-clap-general`).
+
+1. Get `llama-server` (llama.cpp's newest Windows build for any graphics
+   card, the Vulkan one) into the Ear's folder:
+
+   ```powershell
+   $ear = "$env:LOCALAPPDATA\DuckEcho\ear"
+   $release = Invoke-RestMethod https://api.github.com/repos/ggml-org/llama.cpp/releases/latest
+   $zip = $release.assets | Where-Object name -like "*bin-win-vulkan-x64.zip" | Select-Object -First 1
+   Invoke-WebRequest $zip.browser_download_url -OutFile "$env:TEMP\llama.zip"
+   Expand-Archive "$env:TEMP\llama.zip" -DestinationPath "$ear\llama" -Force
+   ```
+
+   (These five lines could not be tried on the build machine, which
+   cannot reach GitHub. If they fail, download the file whose name ends
+   in `bin-win-vulkan-x64.zip` from
+   https://github.com/ggml-org/llama.cpp/releases by hand and unpack it
+   into `%LOCALAPPDATA%\DuckEcho\ear\llama`.)
+
+2. See that the card is found and Large is offered:
+
+   ```powershell
+   ear\.venv\Scripts\python.exe ear\tools\get_describe_model.py --list
+   ```
+
+3. A quick try first (10 sounds, a few minutes with the 6.2 GB
+   download): it shows that everything works.
+
+   ```powershell
+   ear\.venv\Scripts\python.exe ear\tools\measure_describe_model.py full --quick
+   ```
+
+4. Measure Full (6.2 GB):
+
+   ```powershell
+   ear\.venv\Scripts\python.exe ear\tools\measure_describe_model.py full
+   ```
+
+5. Measure Large (19.9 GB to download):
+
+   ```powershell
+   ear\.venv\Scripts\python.exe ear\tools\measure_describe_model.py large
+   ```
+
+6. While step 4 and step 5 run, note in Task Manager (Performance, GPU)
+   the "Dedicated GPU memory" in use. After each ends, Task Manager
+   shows no `llama-server.exe`.
+
+7. Send back four files: `ear-check-full\ear-check.json`,
+   `ear-check-full\ear-check.md`, `ear-check-large\ear-check.json` and
+   `ear-check-large\ear-check.md` (and the two memory numbers). They hold
+   the model, the card, every yes and no with its reason, the verdicts,
+   and the times.
+
+If a run stops with a time limit while a model loads from a slow disk,
+set `$env:DUCK_ECHO_EAR_TIMEOUT_SCALE = "6"` and run it again (the tool
+uses 3 by itself). The Ear's log is `ear.log` and `llama-server`'s is
+`llama-server.log`, both in `%LOCALAPPDATA%\DuckEcho\ear`.
+
+On Linux the commands are the same with `ear/.venv/bin/python` and
+`ear/tools/...`, and `llama-server` goes into
+`~/.local/share/duck-echo/ear/llama/`.
 
 ### Honest notes
 

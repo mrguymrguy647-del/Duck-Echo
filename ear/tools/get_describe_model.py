@@ -99,6 +99,60 @@ def show_list(home):
     print("No describe model has passed the listening test yet (docs/ear-check.md): the Ear's")
     print("scores work without one. Full and Large are here to be measured.")
     print("Tried for small, for measuring again only: gemma-4-e2b, gemma-4-e4b")
+    print()
+    print("To download a model and measure it in one go: ear/tools/measure_describe_model.py")
+
+
+def fetch(which, home, yes=False, keep_current=False):
+    """Download and check the model `which` names (a size or a model's
+    name), asking first. Returns (0, its folder), or (an exit code, None)
+    with the reason printed."""
+    name = catalog.SIZES.get(which, which)
+    if name is None:
+        print("The Small Ear has scores only: no small describe model passed the listening test (docs/ear-check.md).")
+        return 1, None
+    if name not in catalog.MODELS:
+        print("There is no size or model `%s`. Sizes: full, large. Models: %s." % (which, ", ".join(catalog.MODELS)))
+        return 2, None
+    model = catalog.MODELS[name]
+    cards, _ = cards_found(home)
+    may, why = catalog.offered(name, cards)
+    if not may:
+        print("%s is not offered on this PC: it %s." % (name, why))
+        return 1, None
+    folder = home / "models" / name
+    folder.mkdir(parents=True, exist_ok=True)
+    files = list(model["files"].values())
+    missing = [f for f in files if not (folder / f["name"]).is_file()]
+    need = sum(f["bytes"] for f in missing)
+    free = shutil.disk_usage(folder).free
+    print("%s (%s, %s): %s to download into %s" % (name, model["maker"], model["licence"], gigabytes(need), folder))
+    print("Its listening test: %s" % model["listening_test"])
+    if need > free:
+        print("Not enough room: %s free on that disk." % gigabytes(free))
+        return 1, None
+    if missing and not yes:
+        if input("Download %s? [y/N] " % gigabytes(need)).strip().lower() not in ("y", "yes"):
+            print("Nothing was downloaded.")
+            return 1, None
+    for file in missing:
+        print("downloading %s" % file["name"], flush=True)
+        url = "https://huggingface.co/%s/resolve/%s/%s" % (model["repo"], model["revision"], file["name"])
+        download(url, folder / file["name"], file["bytes"])
+    # `model.json` is written only after every file matched its SHA-256,
+    # so files of the right size beside it were checked before.
+    checked = (folder / "model.json").is_file() and all((folder / f["name"]).stat().st_size == f["bytes"] for f in files)
+    if missing or not checked:
+        for file in files:
+            print("checking %s" % file["name"], flush=True)
+            if sha256_of(folder / file["name"]) != file["sha256"]:
+                print("%s does not match its SHA-256: delete it and run this again." % (folder / file["name"]))
+                return 1, None
+    (folder / "model.json").write_text(json.dumps(catalog.model_json(name), indent=2) + "\n")
+    if not keep_current:
+        (home / "models" / "describe.txt").write_text(name + "\n")
+        print("The Ear now uses %s." % name)
+    return 0, folder
 
 
 def main():
@@ -112,48 +166,10 @@ def main():
     if args.list or not args.which:
         show_list(home)
         return 0
-    name = catalog.SIZES.get(args.which, args.which)
-    if name is None:
-        print("The Small Ear has scores only: no small describe model passed the listening test (docs/ear-check.md).")
-        return 1
-    if name not in catalog.MODELS:
-        print("There is no size or model `%s`. Sizes: full, large. Models: %s." % (args.which, ", ".join(catalog.MODELS)))
-        return 2
-    model = catalog.MODELS[name]
-    cards, _ = cards_found(home)
-    may, why = catalog.offered(name, cards)
-    if not may:
-        print("%s is not offered on this PC: it %s." % (name, why))
-        return 1
-    folder = home / "models" / name
-    folder.mkdir(parents=True, exist_ok=True)
-    missing = [f for f in model["files"].values() if not (folder / f["name"]).is_file()]
-    need = sum(f["bytes"] for f in missing)
-    free = shutil.disk_usage(folder).free
-    print("%s (%s, %s): %s to download into %s" % (name, model["maker"], model["licence"], gigabytes(need), folder))
-    print("Its listening test: %s" % model["listening_test"])
-    if need > free:
-        print("Not enough room: %s free on that disk." % gigabytes(free))
-        return 1
-    if missing and not args.yes:
-        if input("Download %s? [y/N] " % gigabytes(need)).strip().lower() not in ("y", "yes"):
-            print("Nothing was downloaded.")
-            return 1
-    for file in missing:
-        print("downloading %s" % file["name"], flush=True)
-        url = "https://huggingface.co/%s/resolve/%s/%s" % (model["repo"], model["revision"], file["name"])
-        download(url, folder / file["name"], file["bytes"])
-    for file in model["files"].values():
-        print("checking %s" % file["name"], flush=True)
-        if sha256_of(folder / file["name"]) != file["sha256"]:
-            print("%s does not match its SHA-256: delete it and run this again." % (folder / file["name"]))
-            return 1
-    (folder / "model.json").write_text(json.dumps(catalog.model_json(name), indent=2) + "\n")
-    if not args.keep_current:
-        (home / "models" / "describe.txt").write_text(name + "\n")
-        print("The Ear now uses %s." % name)
-    print("Done: %s" % folder)
-    return 0
+    code, folder = fetch(args.which, home, args.yes, args.keep_current)
+    if folder is not None:
+        print("Done: %s" % folder)
+    return code
 
 
 if __name__ == "__main__":

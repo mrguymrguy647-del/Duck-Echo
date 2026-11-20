@@ -14,10 +14,13 @@ it. The plan is `docs/phase4-design.md`; how well it hears is
   `llama-server` (llama.cpp), which the Ear starts and stops.
 * `tools/get_describe_model.py`: downloads a describe model and checks
   it. A person runs it; the Ear itself never uses the network.
+* `tools/measure_describe_model.py`: downloads a describe model (after
+  asking) and measures it on this PC, in one command.
 * `convert/`: run once, by Duck Echo's builders: converts the score
   models to ONNX and checks them against the originals (see
   `convert/README.md`). It needs PyTorch; the Ear does not.
-* `testset/`: sounds with known answers, for `duck-echo ear check`.
+* `testset/`: sounds with known answers, for `duck-echo ear check`
+  (`testset.toml`, 41 sounds; `quick.toml`, 10 of them).
 * `tests/`: the Ear's own tests (`python -m unittest discover -s tests`).
 * `stub/duck_ear_stub.py`: the stub Ear. It speaks the protocol with no
   models (Python's standard library only), and every answer says
@@ -86,6 +89,17 @@ The describe model needs two things:
    `models/` in the Ear's folder, and becomes the model the Ear uses.
    To try another model without changing that, set
    `DUCK_EAR_DESCRIBE_MODEL` to its folder.
+
+To download a model **and measure it** on this PC in one command
+(`docs/ear-check.md` has the Windows steps):
+
+```bash
+ear/.venv/bin/python ear/tools/measure_describe_model.py full
+```
+
+It writes `ear-check.json` and `ear-check.md` into `ear-check-full/`, and
+does not change which model the Ear uses. `--quick` asks about 10 sounds
+only.
 
 Then `duck-echo ear status` names the describe model and where it runs,
 and `listen` gives a description and a yes or no for each `--like`:

@@ -98,7 +98,9 @@ ear/stub/                  the stub Duck Ear (Python, standard library only):
 ear/duck_ear/              the real Duck Ear (Python: numpy, ONNX Runtime,
                            tokenizers), with its tests in ear/tests/
 ear/tools/                 get_describe_model.py: a person downloads a
-                           describe model with it, checked by SHA-256
+                           describe model with it, checked by SHA-256;
+                           measure_describe_model.py: downloads and
+                           measures one, in one command
 ear/convert/               converts the score models to ONNX and checks
                            them (PyTorch; run once, by builders)
 ear/testset/               sounds with known answers, for `ear check`
@@ -799,7 +801,10 @@ the bridge; `duck-echo-tools` decides what to ask (step 2).
   or no for every true and wrong text, and measures: yes on true texts,
   no on wrong texts, silence and noise, the verdict of both models with
   its mistakes, the same words when asked again of an Ear started
-  afresh, and the times.
+  afresh, and the times. `--fresh` asks the Ear everything again,
+  whatever the answer cache holds, so the times are that run's own.
+  `ear/tools/measure_describe_model.py` wraps it for a person: it
+  downloads a size's model (after asking) and runs the check.
 * **`closest`** (the Ear's own words that fit a sound best) is left out
   of `listen`'s answer and summary unless asked for with `closest: true`
   (`--closest`), and `analyze` never gives it: for short sounds it is

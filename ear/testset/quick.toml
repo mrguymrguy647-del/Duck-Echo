@@ -1,0 +1,61 @@
+# A quick test set: 10 of the 41 sounds of testset.toml, with the same
+# texts, silence and noise among them. Enough to see that the Ear's
+# models, the describe model's driver and the verdict work end to end
+# (`duck-echo ear check --testset ear/testset/quick.toml`, or
+# `ear/tools/measure_describe_model.py full --quick`). Too few sounds to
+# judge a model by: the numbers in docs/ear-check.md come from the whole
+# set.
+
+version = 1
+
+[[sound]]
+file = "preset:coin"
+true = ["a coin pickup", "a short bright game pickup sound"]
+wrong = ["an explosion", "footsteps", "wind blowing", "a heavy thud", "an engine hum"]
+
+[[sound]]
+file = "preset:explosion"
+true = ["an explosion"]
+wrong = ["a coin pickup", "a gentle chime", "footsteps", "calm music", "a menu click"]
+
+[[sound]]
+file = "preset:laser"
+true = ["a laser shot"]
+wrong = ["a coin pickup", "footsteps", "calm music", "wind blowing"]
+
+[[sound]]
+file = "preset:footstep"
+true = ["a footstep"]
+wrong = ["an explosion", "a laser shot", "a coin pickup", "calm music"]
+
+[[sound]]
+file = "preset:alarm"
+true = ["an alarm"]
+wrong = ["calm music", "a coin pickup", "footsteps"]
+
+[[sound]]
+file = "preset:wind"
+true = ["wind blowing"]
+wrong = ["a coin pickup", "a laser shot", "calm music"]
+
+[[sound]]
+file = "calm_loop.toml"
+group = "mood"
+true = ["calm music", "slow gentle music"]
+wrong = ["tense music", "fast exciting music", "an explosion"]
+
+[[sound]]
+file = "tense_loop.toml"
+group = "mood"
+true = ["tense music", "fast exciting music"]
+wrong = ["calm music", "slow gentle music", "a coin pickup"]
+
+[[sound]]
+file = "silence"
+true = ["silence"]
+wrong = ["a coin pickup", "an explosion", "music", "footsteps", "an alarm"]
+
+[[sound]]
+file = "noise.toml"
+true = ["white noise"]
+wrong = ["a coin pickup", "calm music", "a gentle chime", "a menu click"]

@@ -1011,8 +1011,12 @@ What you test on Linux:
   * **None passed** (above), so the Ear ships with scores only.
   * **A third size, Large** (Qwen3-Omni-30B-A3B, 19.9 GB), offered only
     when a graphics card with 16 GB or more is found.
-  * **MiDashengLM-0.6B could not be measured**: llama.cpp does not run
-    it. Gemma 4 E2B and E4B were measured for Small instead.
+  * **MiDashengLM-0.6B needs its makers' fork of llama.cpp** to run as
+    GGUF, so the Ear cannot run it. Its original weights were asked the
+    same questions with PyTorch: it writes captions (good ones for
+    music) but does not answer yes or no. Gemma 4 E2B and E4B were
+    measured for Small through the Ear. Neither small candidate is worth
+    keeping.
   * **Evidence first is two turns**, not one question: "What do you
     hear?" with no hint, then the question after the model's own words.
     In one turn the models heard whatever the question named.
@@ -1023,21 +1027,24 @@ What you test on Linux:
     question, well inside 240 s.
   * `ear/tools/get_describe_model.py` downloads a model for a person
     (step 5's installer takes this over); `duck-echo ear check --part
-    describe` measures it.
+    describe` measures it; and `ear/tools/measure_describe_model.py
+    full` (or `large`) does both in one command and writes the
+    `ear-check.json` and `ear-check.md` to send back. `--quick` uses
+    `ear/testset/quick.toml`: 10 sounds, to see that it all works.
   * `closest` is left out of answers unless asked for (`closest: true`).
 
-What you test on Windows (your PC with its graphics card). First: unpack
-llama.cpp's newest Windows Vulkan build into `llama\` in the Ear's folder
-(`ear/README.md`), then get both models with
-`ear\.venv\Scripts\python.exe ear\tools\get_describe_model.py full` and
-`... large`.
-- [ ] `get_describe_model.py --list` names your graphics card with its memory and says Large is offered.
-- [ ] With `DUCK_EAR_DESCRIBE_MODEL` set to the Full model's folder: `duck-echo ear check --out ear-check-full` finishes and prints the describe model's tables. Keep `ear-check-full\ear-check.md`.
-- [ ] The same with the Large model's folder and `--out ear-check-large`. Keep `ear-check-large\ear-check.md`. The two files hold every yes and no and the times: they decide the default for big cards.
-- [ ] `duck-echo listen examples\songs\duck_craft_night.toml --like "calm music" --ask "Is this tune calm?"` answers with a description and a reason. Note how long it takes with Full and with Large.
-- [ ] With `DUCK_EAR_DEVICE=cpu`, the same answers (slowly: about a minute here with Full on 4 cores).
-- [ ] After the command ends, Task Manager shows no `llama-server.exe` and the card's memory is free again.
-- [ ] In Claude Code with the project's MCP server (and `DUCK_ECHO_EAR` set), ask one describe question, wait 2 minutes: `llama-server.exe` is gone and the card's memory is free, but a `quick` listen still answers at once. Ask another describe question: it starts again.
+What you test on Windows (your PC with its graphics card). The exact
+commands are in `docs/ear-check.md`, "Measuring on a PC with a graphics
+card".
+- [ ] `llama-server` is unpacked into `llama\` in the Ear's folder (five PowerShell lines).
+- [ ] `ear\.venv\Scripts\python.exe ear\tools\get_describe_model.py --list` names your graphics card with its memory and says Large is offered.
+- [ ] `ear\.venv\Scripts\python.exe ear\tools\measure_describe_model.py full --quick` asks before it downloads, then finishes and names two files.
+- [ ] `ear\.venv\Scripts\python.exe ear\tools\measure_describe_model.py full` finishes. Note the card's memory in use while it runs.
+- [ ] `ear\.venv\Scripts\python.exe ear\tools\measure_describe_model.py large` finishes. Note the card's memory in use while it runs.
+- [ ] Send back `ear-check-full\ear-check.json` and `.md`, and `ear-check-large\ear-check.json` and `.md`: they decide the default for big cards.
+- [ ] After each command ends, Task Manager shows no `llama-server.exe` and the card's memory is free again.
+- [ ] With `$env:DUCK_EAR_DESCRIBE_MODEL` set to a model's folder: `duck-echo listen examples\songs\duck_craft_night.toml --like "calm music" --ask "Is this tune calm?" --ear-program ear\.venv\Scripts\duck-ear.exe` answers with a description and a reason.
+- [ ] In Claude Code with the project's MCP server (and `DUCK_ECHO_EAR` and `DUCK_EAR_DESCRIBE_MODEL` set), ask one describe question, wait 2 minutes: `llama-server.exe` is gone and the card's memory is free, but a `quick` listen still answers at once. Ask another describe question: it starts again.
 
 What you test on Linux:
 - [ ] With Full on the CPU: the `listen` line above answers, `ear.log` in the Ear's folder says "started llama-server", and no `llama-server` runs after the command ends.

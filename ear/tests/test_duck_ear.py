@@ -489,12 +489,150 @@ class TheDescribeModel(unittest.TestCase):
         self.assertIn("could not be used", hello["device_name"])
         self.assertEqual(ask(ear, 3, "describe", {"wav": self.coin})["result"]["text"], "A pretend description.")
 
+    def test_llama_server_is_found_in_the_ears_folder_or_a_folder_inside(self):
+        from duck_ear.describe import server_program
+
+        home = Path(self.folder.name)
+        name = "llama-server.exe" if os.name == "nt" else "llama-server"
+        saved = os.environ.pop("DUCK_EAR_LLAMA_SERVER", None)
+        try:
+            self.assertIsNone(server_program(home))
+            inside = home / "llama" / "build" / "bin"
+            inside.mkdir(parents=True)
+            (inside / name).write_bytes(b"")
+            self.assertEqual(server_program(home), inside / name)
+            (home / "llama" / name).write_bytes(b"")
+            self.assertEqual(server_program(home), home / "llama" / name)
+        finally:
+            if saved is not None:
+                os.environ["DUCK_EAR_LLAMA_SERVER"] = saved
+
     def test_a_model_with_no_llama_server_says_so(self):
         self.ear = start_ear(self.folder.name)
         self.addCleanup(self.stop)
         hello = ask(self.ear, 0, "hello", {"protocol": 1})["result"]
         self.assertEqual(hello["capabilities"], [])
         self.assertIn("no llama-server", hello["not_available"]["describe"])
+
+
+TOOLS = EAR / "tools"
+FAKE_DUCK_ECHO = Path(__file__).resolve().parent / "fake_duck_echo.py"
+
+
+class MeasuringInOneCommand(unittest.TestCase):
+    """ear/tools/measure_describe_model.py, with a pretend llama-server, a
+    pretend duck-echo and a pretend model: nothing is downloaded."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.home = Path(self.folder.name)
+        self.model = self.home / "a-model"
+        self.model.mkdir()
+        (self.model / "pretend.gguf").write_bytes(b"GGUF")
+        (self.model / "mmproj-pretend.gguf").write_bytes(b"GGUF")
+        (self.model / "model.json").write_text(
+            json.dumps({"name": "pretend-model", "files": {"model": "pretend.gguf", "mmproj": "mmproj-pretend.gguf"}})
+        )
+        score = self.home / "models" / "score"
+        score.mkdir(parents=True)
+        (score / "model.json").write_text("{}")
+        self.log = self.home / "duck-echo.log"
+
+    def measure(self, *arguments, **more):
+        env = dict(
+            os.environ,
+            DUCK_ECHO_EAR_HOME=str(self.home),
+            DUCK_EAR_LLAMA_SERVER=str(FAKE_LLAMA),
+            DUCK_ECHO_EAR=str(EAR / "stub" / "duck_ear_stub.py"),
+            FAKE_DUCK_ECHO_LOG=str(self.log),
+        )
+        for name in ("DUCK_EAR_SCORE_MODEL", "DUCK_EAR_DESCRIBE_MODEL", "DUCK_EAR_DEVICE", "DUCK_ECHO_EAR_TIMEOUT_SCALE"):
+            env.pop(name, None)
+        env.update(more)
+        return subprocess.run(
+            [sys.executable, str(TOOLS / "measure_describe_model.py"), "--duck-echo", str(FAKE_DUCK_ECHO), *arguments],
+            env=env,
+            cwd=str(self.home),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            stdin=subprocess.DEVNULL,
+        )
+
+    def started_with(self):
+        return json.loads(self.log.read_text())
+
+    def test_it_runs_the_describe_check_fresh_and_says_what_to_send(self):
+        done = self.measure("--model-folder", str(self.model))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        started = self.started_with()
+        arguments = started["arguments"]
+        self.assertEqual(arguments[:5], ["ear", "check", "--part", "describe", "--fresh"])
+        self.assertTrue(arguments[arguments.index("--testset") + 1].endswith("testset.toml"))
+        out = Path(arguments[arguments.index("--out") + 1])
+        self.assertEqual(out.name, "ear-check-pretend-model")
+        self.assertEqual(Path(started["environment"]["DUCK_EAR_DESCRIBE_MODEL"]), self.model.resolve())
+        self.assertIsNone(started["environment"]["DUCK_EAR_DEVICE"])
+        self.assertEqual(started["environment"]["DUCK_ECHO_EAR_TIMEOUT_SCALE"], "3")
+        self.assertIn("measured on:  the CPU", done.stdout)
+        self.assertIn("Describe: yes on true texts", done.stdout)
+        self.assertIn("Send back these two files:", done.stdout)
+        self.assertIn(str((self.home / out / "ear-check.json").resolve()), done.stdout)
+        # It does not change the model the Ear uses.
+        self.assertFalse((self.home / "models" / "describe.txt").exists())
+
+    def test_quick_and_cpu(self):
+        card = "Vulkan0: Pretend Card (24564 MiB, 24000 MiB free)"
+        done = self.measure("--model-folder", str(self.model), "--quick", "--cpu", FAKE_LLAMA_DEVICES=card)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        started = self.started_with()
+        arguments = started["arguments"]
+        self.assertTrue(arguments[arguments.index("--testset") + 1].endswith("quick.toml"))
+        self.assertEqual(Path(arguments[arguments.index("--out") + 1]).name, "ear-check-pretend-model-cpu-quick")
+        self.assertEqual(started["environment"]["DUCK_EAR_DEVICE"], "cpu")
+        self.assertIn("measured on:  the CPU", done.stdout)
+
+    def test_it_names_the_graphics_card(self):
+        card = "Vulkan0: Pretend Card (24564 MiB, 24000 MiB free)"
+        done = self.measure("--model-folder", str(self.model), FAKE_LLAMA_DEVICES=card)
+        self.assertIn("measured on:  Pretend Card (24564 MB)", done.stdout)
+
+    def test_no_llama_server_is_said_before_anything_is_downloaded(self):
+        done = self.measure("full", DUCK_EAR_LLAMA_SERVER=str(self.home / "nothing-here"))
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("There is no llama-server", done.stdout)
+        self.assertIn("llama.cpp/releases", done.stdout)
+        self.assertFalse(self.log.exists())
+
+    def test_no_score_model_is_said(self):
+        (self.home / "models" / "score" / "model.json").unlink()
+        done = self.measure("--model-folder", str(self.model))
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("There is no score model", done.stdout)
+
+    def test_large_is_not_offered_without_a_big_card(self):
+        done = self.measure("large", "--yes")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("needs a graphics card with 16 GB or more (found none)", done.stdout)
+        self.assertFalse(self.log.exists(), "nothing was measured")
+        self.assertFalse((self.home / "models" / "qwen3-omni-30b-a3b" / "model.json").exists())
+
+
+class TheQuickTestSet(unittest.TestCase):
+    def test_it_is_ten_sounds_of_the_whole_set_with_the_same_texts(self):
+        try:
+            import tomllib
+        except ImportError:  # Python 3.10
+            self.skipTest("needs Python 3.11 or newer to read TOML")
+
+        read = lambda name: tomllib.loads((EAR / "testset" / name).read_text())["sound"]
+        whole = {sound["file"]: sound for sound in read("testset.toml")}
+        quick = read("quick.toml")
+        self.assertEqual(len(quick), 10)
+        for sound in quick:
+            self.assertEqual(sound, whole[sound["file"]])
+        self.assertTrue({"silence", "noise.toml"} <= {sound["file"] for sound in quick})
 
 
 GUARDED = """

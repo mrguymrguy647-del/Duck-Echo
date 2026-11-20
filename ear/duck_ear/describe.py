@@ -20,7 +20,8 @@ How a question is asked (docs/phase4-design.md, section 4):
   `load`.
 
 Where things are: `llama-server` is the program `DUCK_EAR_LLAMA_SERVER`
-names, else `<the Ear's folder>/llama/llama-server`. The model is in the
+names, else `llama-server` in `<the Ear's folder>/llama/` (or in a folder
+inside it). The model is in the
 folder `DUCK_EAR_DESCRIBE_MODEL` names, else `<the Ear's
 folder>/models/<the name in models/describe.txt>`, with a `model.json`
 (both written by `ear/tools/get_describe_model.py`). `DUCK_EAR_DEVICE=cpu` keeps the model
@@ -120,8 +121,15 @@ def server_program(home):
     if named:
         return Path(named) if Path(named).is_file() else None
     name = "llama-server.exe" if os.name == "nt" else "llama-server"
-    usual = Path(home) / "llama" / name
-    return usual if usual.is_file() else None
+    folder = Path(home) / "llama"
+    if (folder / name).is_file():
+        return folder / name
+    # An unpacked download may keep its own folders (`llama/build/bin/`).
+    try:
+        inside = sorted(folder.rglob(name))
+    except OSError:
+        inside = []
+    return inside[0] if inside else None
 
 
 def model_folder(home):

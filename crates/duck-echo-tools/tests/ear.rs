@@ -673,9 +673,13 @@ wrong = ["a coin pickup"]
     )
     .unwrap();
 
-    let report =
-        duck_echo_tools::ear_check::check(&keeper, &testset, duck_echo_tools::ear_check::Part::All)
-            .unwrap();
+    let report = duck_echo_tools::ear_check::check(
+        &keeper,
+        &testset,
+        duck_echo_tools::ear_check::Part::All,
+        false,
+    )
+    .unwrap();
     assert_eq!((report.sounds, report.texts), (3, 3));
     let measure = |name: &str| {
         let m = report.measures.iter().find(|m| m.name == name).unwrap();
@@ -734,13 +738,48 @@ wrong = ["a coin pickup"]
     assert!(md.contains("## The describe model"));
 
     // The score part alone leaves the describe model out.
-    let report = duck_echo_tools::ear_check::check(
+    let score_only = duck_echo_tools::ear_check::check(
         &keeper,
         &testset,
         duck_echo_tools::ear_check::Part::Score,
+        false,
     )
     .unwrap();
-    assert!(report.describe.is_none());
+    assert!(score_only.describe.is_none());
+
+    // Every answer is in the cache now: a new Ear is greeted, not asked.
+    keeper.stop();
+    let cached = duck_echo_tools::ear_check::check(
+        &keeper,
+        &testset,
+        duck_echo_tools::ear_check::Part::Score,
+        false,
+    )
+    .unwrap();
+    assert!(!keeper.log_tail().contains("answered score"));
+    assert_eq!(cached.measures, report.measures);
+    // Fresh: the Ear is asked everything again, and says the same.
+    let fresh_score = duck_echo_tools::ear_check::check(
+        &keeper,
+        &testset,
+        duck_echo_tools::ear_check::Part::Score,
+        true,
+    )
+    .unwrap();
+    assert!(keeper.log_tail().contains("answered score"));
+    assert_eq!(fresh_score.measures, report.measures);
+    let fresh = duck_echo_tools::ear_check::check(
+        &keeper,
+        &testset,
+        duck_echo_tools::ear_check::Part::All,
+        true,
+    )
+    .unwrap();
+    assert_eq!(fresh.measures, report.measures);
+    assert_eq!(
+        fresh.describe.as_ref().unwrap().measures,
+        report.describe.as_ref().unwrap().measures
+    );
 }
 
 #[test]
@@ -757,6 +796,7 @@ fn ear_check_refuses_a_test_set_with_an_unknown_field() {
         &keeper,
         &testset,
         duck_echo_tools::ear_check::Part::Score,
+        false,
     )
     .unwrap_err()
     .into_report();

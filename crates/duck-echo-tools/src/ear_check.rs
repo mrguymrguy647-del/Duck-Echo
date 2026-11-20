@@ -170,6 +170,9 @@ pub struct DescribeReport {
     pub model: String,
     /// Where it ran: `cpu`, `vulkan` ...
     pub device: String,
+    /// The device in words, such as the graphics card's name and memory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
     /// Its measures, with their bars.
     pub measures: Vec<Measure>,
     /// The verdict's mistakes: a true text given a no, a wrong one a yes.
@@ -273,8 +276,15 @@ fn measure(name: &str, what: &str, right: usize, of: usize, bar: f64) -> Measure
 }
 
 /// Run the test set at `testset` with the Ear `keeper` keeps: the score
-/// model, and with `part` the describe model too.
-pub fn check(keeper: &EarKeeper, testset: &Path, part: Part) -> Result<CheckReport, ToolError> {
+/// model, and with `part` the describe model too. With `fresh`, the Ear
+/// is asked everything, whatever the answer cache holds, and nothing is
+/// kept: the times are then this run's own.
+pub fn check(
+    keeper: &EarKeeper,
+    testset: &Path,
+    part: Part,
+    fresh: bool,
+) -> Result<CheckReport, ToolError> {
     let text = std::fs::read_to_string(testset).map_err(|e| {
         ToolError::failed(
             Code::NotFound,
@@ -300,6 +310,7 @@ pub fn check(keeper: &EarKeeper, testset: &Path, part: Part) -> Result<CheckRepo
 
     let mut listening =
         Listening::begin(keeper).map_err(|u| failed(crate::ear::unavailable_words(&u)))?;
+    listening.fresh = fresh;
     let with_describe = match part {
         Part::Score => false,
         Part::All => listening.hello.can("ask") && listening.hello.can("describe"),
@@ -781,6 +792,7 @@ fn check_describe(
     Ok(DescribeReport {
         model,
         device: listening.hello.device.clone(),
+        device_name: listening.hello.device_name.clone(),
         measures,
         mistakes,
         times,
@@ -959,8 +971,14 @@ pub fn write(report: &CheckReport, out: &Path) -> Result<(), ToolError> {
     let md = match &report.describe {
         None => md,
         Some(d) => format!(
-            "{md}\n## The describe model\n\nModel: `{}` on `{}`.\n\n{}",
-            d.model, d.device, d.table
+            "{md}\n## The describe model\n\nModel: `{}` on `{}`{}.\n\n{}",
+            d.model,
+            d.device,
+            d.device_name
+                .as_deref()
+                .map(|name| format!(" ({name})"))
+                .unwrap_or_default(),
+            d.table
         ),
     };
     std::fs::write(out.join("ear-check.md"), md).map_err(io)?;

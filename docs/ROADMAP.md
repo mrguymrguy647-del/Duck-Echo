@@ -1341,7 +1341,10 @@ Lessons from step 3:
   `closest` is now left out of answers unless asked for.
   * [ ] Still open: every time on a graphics card, and Large
     altogether (it was downloaded and its SHA-256 matches, but the
-    build machine's 15 GB of memory could not load its 19.9 GB). Step 4's checklist runs `ear check` with Full and Large
+    build machine's 15 GB of memory could not load its 19.9 GB). One
+    command per size does it on the person's PC:
+    `ear/tools/measure_describe_model.py full` and `... large`
+    (`docs/ear-check.md`, "Measuring on a PC with a graphics card"). Step 4's checklist runs `ear check` with Full and Large
     on a PC with a big card; its two `ear-check.md` files go into
     `docs/ear-check.md` and decide whether a describe model is offered
     to big cards.
@@ -1379,9 +1382,21 @@ Lessons from step 4:
   over every device it finds, a processor's built-in graphics too. The
   Ear passes `--device` with one card, and does not count graphics that
   share the PC's memory as a card.
-* **The design's first choice for Small could not run.** MiDashengLM-0.6B
-  has no llama.cpp support. Check that a model runs in the chosen
-  program before planning around it.
+* **The design's first choice for Small could not run in the Ear.**
+  MiDashengLM-0.6B's GGUF needs its makers' own fork of llama.cpp. Asked
+  with PyTorch instead, it turned out to write captions (good for music,
+  a lottery for sound effects) and not to answer yes or no at all. Check
+  that a model runs in the chosen program, and does the job asked of it,
+  before planning around it.
+* **Say "I could not check" instead of "it cannot".** The first report
+  said llama.cpp cannot run MiDashengLM, from a search of one source
+  tree; the model's own page named the fork. Look at the model's page
+  before writing that something is impossible.
+* **Measure where the hardware is.** A describe model takes an hour on
+  the build machine's CPU and minutes on a graphics card, and Large does
+  not fit the build machine at all. `ear/tools/measure_describe_model.py`
+  makes the measurement one command on the person's PC, and writes the
+  two files to send back; `--quick` (10 sounds) shows it works first.
 * **A killed Ear leaves `llama-server` behind** unless its whole process
   group (Linux) or job (Windows) is stopped, as Duck Echo does. Tests
   must stop the Ear politely (close its stdin), or they leave pretend

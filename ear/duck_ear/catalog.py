@@ -69,7 +69,8 @@ MODELS = {
     },
     # Tried for Small, and did not pass the listening test
     # (docs/ear-check.md). Kept so the test can be run again; not offered
-    # as a size.
+    # as a size. (MiDashengLM-0.6B was tried too and is not here: it
+    # needs its makers' fork of llama.cpp, and does not answer yes or no.)
     "gemma-4-e2b": {
         "size": "tried for small",
         "maker": "Google, GGUF by ggml-org",

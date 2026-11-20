@@ -468,6 +468,9 @@ pub(crate) struct Listening<'k> {
     /// The Ear's own time for the answers (from the answers, so a cached
     /// answer gives the same number).
     seconds: f64,
+    /// True to ask the Ear everything, whatever the cache holds, and keep
+    /// nothing: for measuring (`ear check --fresh`).
+    pub(crate) fresh: bool,
 }
 
 impl<'k> Listening<'k> {
@@ -485,6 +488,7 @@ impl<'k> Listening<'k> {
             hello,
             all_cached: true,
             seconds: 0.0,
+            fresh: false,
         })
     }
 
@@ -494,6 +498,12 @@ impl<'k> Listening<'k> {
         method: &str,
         params: Value,
     ) -> Result<Value, Missed> {
+        if self.fresh {
+            self.all_cached = false;
+            let answer = self.ask_again(sound, method, params)?;
+            self.seconds += answer["seconds"].as_f64().unwrap_or(0.0);
+            return Ok(answer);
+        }
         let key = cache_key(sound, method, &params, &self.hello);
         let answer = match cached(&self.keeper.config, &key) {
             Some(answer) => answer,

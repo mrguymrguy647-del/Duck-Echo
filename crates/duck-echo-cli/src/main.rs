@@ -346,6 +346,10 @@ enum EarAction {
         /// describe model too when the Ear has one).
         #[arg(long, default_value = "all", value_parser = ["score", "describe", "all"])]
         part: String,
+        /// Ask the Ear everything again: do not use or fill the answer
+        /// cache. For measuring, so the times are this run's own.
+        #[arg(long)]
+        fresh: bool,
         /// The Duck Ear program. Default: DUCK_ECHO_EAR, or the installed
         /// Ear.
         #[arg(long, value_name = "PROGRAM")]
@@ -598,10 +602,11 @@ fn main() -> ExitCode {
                     testset,
                     out,
                     part,
+                    fresh,
                     ear_program,
                     json,
                 },
-        } => ear_check(&testset, &out, &part, ear_program, json),
+        } => ear_check(&testset, &out, &part, fresh, ear_program, json),
         Command::Compare { a, b, compact } => {
             let a = duck_echo_tools::load_audio(&a).map_err(|e| e.at("a"));
             let b = duck_echo_tools::load_audio(&b).map_err(|e| e.at("b"));
@@ -892,6 +897,7 @@ fn ear_check(
     testset: &Path,
     out: &Path,
     part: &str,
+    fresh: bool,
     ear_program: Option<PathBuf>,
     json: bool,
 ) -> ExitCode {
@@ -902,7 +908,7 @@ fn ear_check(
         _ => Part::All,
     };
     let result = ear_keeper(ear_program).and_then(|keeper| {
-        let report = duck_echo_tools::ear_check::check(&keeper, testset, part)?;
+        let report = duck_echo_tools::ear_check::check(&keeper, testset, part, fresh)?;
         duck_echo_tools::ear_check::write(&report, out)?;
         Ok(report)
     });
