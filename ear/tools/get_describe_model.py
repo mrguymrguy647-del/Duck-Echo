@@ -87,15 +87,18 @@ def show_list(home):
     print()
     for size, name in catalog.SIZES.items():
         if name is None:
-            print("%-6s scores only: no small describe model has passed the listening test yet" % size)
+            print("%-6s scores only: no small describe model passed the listening test" % size)
             continue
         may, why = catalog.offered(name, cards)
         print(
             "%-6s %-20s %8s  %s: %s"
             % (size, name, gigabytes(catalog.total_bytes(name)), "offered" if may else "not offered", why)
         )
+        print("       listening test: %s" % catalog.MODELS[name]["listening_test"])
     print()
-    print("Candidates for small, for measuring only: gemma-4-e2b, gemma-4-e4b")
+    print("No describe model has passed the listening test yet (docs/ear-check.md): the Ear's")
+    print("scores work without one. Full and Large are here to be measured.")
+    print("Tried for small, for measuring again only: gemma-4-e2b, gemma-4-e4b")
 
 
 def main():
@@ -111,7 +114,7 @@ def main():
         return 0
     name = catalog.SIZES.get(args.which, args.which)
     if name is None:
-        print("The Small Ear has scores only: no small describe model has passed the listening test yet (docs/ear-check.md).")
+        print("The Small Ear has scores only: no small describe model passed the listening test (docs/ear-check.md).")
         return 1
     if name not in catalog.MODELS:
         print("There is no size or model `%s`. Sizes: full, large. Models: %s." % (args.which, ", ".join(catalog.MODELS)))
@@ -128,6 +131,7 @@ def main():
     need = sum(f["bytes"] for f in missing)
     free = shutil.disk_usage(folder).free
     print("%s (%s, %s): %s to download into %s" % (name, model["maker"], model["licence"], gigabytes(need), folder))
+    print("Its listening test: %s" % model["listening_test"])
     if need > free:
         print("Not enough room: %s free on that disk." % gigabytes(free))
         return 1

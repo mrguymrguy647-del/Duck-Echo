@@ -67,8 +67,12 @@ jobs:
           cargo test -p duck-echo-ear --no-run
           sudo unshare --net -- sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" \
             DUCK_ECHO_REQUIRE_PYTHON=1 cargo test --offline -p duck-echo-ear
-          sudo unshare --net -- sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" \
-            python -m unittest discover -s ear/tests
+          # The Ear talks to its own llama-server over this PC's loopback
+          # (127.0.0.1), which every PC has: bring it up in the namespace.
+          # There is still no way out.
+          sudo unshare --net -- bash -c \
+            'ip link set lo up && sudo -u "$0" env "PATH=$1" "HOME=$2" python -m unittest discover -s ear/tests' \
+            "$USER" "$PATH" "$HOME"
 
       - name: Render every example and preset, and hash each WAV
         run: |

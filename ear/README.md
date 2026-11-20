@@ -54,14 +54,17 @@ guard refuses every connection that is not to this PC.
 
 The Ear comes in three sizes:
 
-| Size | Describe model | Download | For |
-|---|---|---|---|
-| Small | none: scores only | | every PC |
-| Full | Qwen2.5-Omni-7B | 6.2 GB | a graphics card of 8 GB or more (works on the CPU, slowly) |
-| Large | Qwen3-Omni-30B-A3B | 19.9 GB | offered only when a graphics card of 16 GB or more is found |
+| Size | Describe model | Download | For | Listening test |
+|---|---|---|---|---|
+| Small | none: scores only | | every PC | |
+| Full | Qwen2.5-Omni-7B | 6.2 GB | a graphics card of 8 GB or more (works on the CPU, slowly) | did not pass |
+| Large | Qwen3-Omni-30B-A3B | 19.9 GB | offered only when a graphics card of 16 GB or more is found | not measured yet |
 
-No small describe model has passed Duck Echo's listening test yet, so
-Small has none. The measured results are in `docs/ear-check.md`.
+**No describe model has passed Duck Echo's listening test** (they say no
+to too many true texts: `docs/ear-check.md`), so the Ear ships with
+scores only, and nothing needs a describe model. Full and Large can be
+added to measure them, and Full does one useful thing: with it beside
+the score model, the verdict never said yes to a wrong text.
 
 The describe model needs two things:
 

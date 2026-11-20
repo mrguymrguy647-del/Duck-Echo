@@ -30,8 +30,8 @@ from .words import WORDS_VERSION
 PROTOCOL = 1
 # Why there may be no describe model: the Small Ear has none.
 SCORES_ONLY = (
-    "no describe model is installed. The Small Ear gives scores only: no small describe model "
-    "has passed Duck Echo's listening test yet (docs/ear-check.md)"
+    "no describe model is installed. The Ear ships with scores only: no describe model "
+    "passed Duck Echo's listening test (docs/ear-check.md)"
 )
 
 

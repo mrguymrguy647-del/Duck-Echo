@@ -1233,7 +1233,7 @@ stub `duck-ear`, with the missing-program, timeout and broken-line tests,
 come before any model. Then the `ear` section in `analyze`, and only then
 real listening models.
 
-### 14. Duck Ear bridge (`duck-echo-ear`) [started: steps 1 to 3 of docs/phase4-design.md done]
+### 14. Duck Ear bridge (`duck-echo-ear`) [started: steps 1 to 4 of docs/phase4-design.md done]
 
 * The JSON Lines protocol from `ARCHITECTURE.md`, with a stub Python
   `duck-ear` that answers `hello` and `describe` with fixed text, so the
@@ -1327,7 +1327,70 @@ Lessons from step 3:
 * **Tune the lines on one set, say so.** The lines were chosen on the
   test set they are measured on; `docs/ear-check.md` says that, and a
   leave-one-out check gave the same kind-of-sound score.
-* [ ] Step 4: the real Ear, part 2: the describe model.
+* [x] **Step 4: the real Ear, part 2: the describe model.** `duck-ear`
+  starts and stops `llama-server` (`ear/duck_ear/describe.py`): this PC
+  only, evidence first in two turns, temperature 0 and seed 42, the
+  graphics card let go after 2 minutes, a fall back to the CPU. Three
+  sizes (`catalog.py`): Small (scores only), Full (Qwen2.5-Omni-7B),
+  Large (Qwen3-Omni-30B-A3B, offered only with a graphics card of 16 GB
+  or more); `ear/tools/get_describe_model.py` downloads one for a
+  person. `duck-echo ear check --part describe` measures a describe
+  model. **Measured on the CPU, no describe model passed** (yes on true
+  texts: Qwen2.5-Omni-7B 45%, Gemma 4 E4B 34%, Gemma 4 E2B 13%; the bar
+  is 80%), so **the Ear ships with scores only**, as agreed.
+  `closest` is now left out of answers unless asked for.
+  * [ ] Still open: every time on a graphics card, and Large
+    altogether (it was downloaded and its SHA-256 matches, but the
+    build machine's 15 GB of memory could not load its 19.9 GB). Step 4's checklist runs `ear check` with Full and Large
+    on a PC with a big card; its two `ear-check.md` files go into
+    `docs/ear-check.md` and decide whether a describe model is offered
+    to big cards.
+
+Lessons from step 4:
+
+* **Ask what is heard before asking the question.** Asked "does this
+  sound like a coin?" straight away, a model heard a coin in an
+  explosion. Two turns (first "What do you hear?", then the question)
+  stopped that. Even one word about the sound's maker ("made with a
+  synthesizer") changed what the model heard, so the first question says
+  nothing.
+* **These models say no, not yes.** The research warned of yes-sayers;
+  with evidence first, all three were no-sayers on our short synthesizer
+  sounds. Count yes on true texts and no on wrong texts apart, always.
+* **A model can fail its bar and still help.** With Qwen2.5-Omni-7B
+  beside the score model, the verdict never said yes to a wrong text
+  (the score alone did 13 times of 137), at the cost of most true
+  yeses. `docs/ear-check.md` has that table; it is the case for offering
+  Full as an extra check, if someone wants to make it.
+* **"No yes to silence" is too weak a test.** Every model passed it, and
+  every model described a sound in pure silence ("a high-pitched
+  electronic tone", "a low hum"). The Ear's own silence guard stays, and
+  the next test set should ask for a yes to "silence".
+* **Keep what the model worked out for a sound.** Qwen2.5-Omni-7B pads
+  every sound to 30 seconds: 32 s on 4 CPU cores to hear a coin.
+  `llama-server` keeps that (`cache_prompt`), so the next question about
+  the same sound takes 8 s. The answers stayed the same words, run after
+  run, with it on.
+* **A forced answer shape makes some models think.** Gemma 4 thought for
+  hundreds of words before a JSON answer, even with thinking switched
+  off, and ran out of words. A model's settings can say `plain_answers`;
+  the Ear then reads "Yes, ..." itself.
+* **Name the graphics card.** By default `llama-server` spreads a model
+  over every device it finds, a processor's built-in graphics too. The
+  Ear passes `--device` with one card, and does not count graphics that
+  share the PC's memory as a card.
+* **The design's first choice for Small could not run.** MiDashengLM-0.6B
+  has no llama.cpp support. Check that a model runs in the chosen
+  program before planning around it.
+* **A killed Ear leaves `llama-server` behind** unless its whole process
+  group (Linux) or job (Windows) is stopped, as Duck Echo does. Tests
+  must stop the Ear politely (close its stdin), or they leave pretend
+  servers running.
+* **GitHub was blocked on the build machine.** `llama-server` was built
+  from the llama.cpp source inside the `llama-cpp-python` package on
+  PyPI (commit `a956a85`). People will use llama.cpp's own release
+  builds, which were not tried here.
+* [ ] Step 5: installing the Ear.
 
 Lessons from step 1, for the next builder:
 

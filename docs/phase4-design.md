@@ -5,8 +5,11 @@ changes, written in below: the same question gets the same answer (a
 cache), `llama-server` stops after 2 minutes with no describe question,
 and the Ear ships with scores only if no describe model passes its test.
 Done so far: steps 1 (the bridge and the stub), 2 (what agents get, with
-the stub) and 3 (the score model: LAION-CLAP was chosen, see
-`docs/ear-check.md`).
+the stub), 3 (the score model: LAION-CLAP was chosen) and 4 (the describe
+model: built, and measured on the CPU; **no describe model passed, so the
+Ear ships with scores only**; the measurements on a graphics card, and of
+the Large model, wait for step 4's checklist). The results are in
+`docs/ear-check.md`.
 
 ## 1. What we want, and why
 
@@ -444,13 +447,14 @@ never sits on the graphics card's memory.
 ### Three sizes, chosen by the person
 
 (Two were planned. Step 4 added Large, for PCs with a big graphics card,
-and no small describe model has passed its test yet: `docs/ear-check.md`
-gets the results.)
+and found that no describe model passes the listening test:
+`docs/ear-check.md`. So Small is what the Ear ships as, and Full and
+Large are there to be measured on a graphics card.)
 
 | | Small | Full | Large |
 |---|---|---|---|
 | For | every PC | a PC with a graphics card of 8 GB or more (works on CPU, slowly) | offered only when a graphics card with 16 GB or more is found |
-| Gives | `score` and the `verdict` from the score. No describe model: none has passed step 4's test yet | the same, and `describe` and `ask` from Qwen2.5-Omni-7B | the same, from Qwen3-Omni-30B-A3B |
+| Gives | `score` and the `verdict` from the score. No describe model: none passed step 4's test | the same, and `describe` and `ask` from Qwen2.5-Omni-7B | the same, from Qwen3-Omni-30B-A3B |
 | Programs: uv, Python, packages, llama.cpp | ~150–200 MB (est.) | same | same |
 | Models | 0.8 GB score (LAION-CLAP) | + 6.2 GB | + 19.9 GB |
 | **Total on disk** | **about 1 GB** | **about 7.2 GB** | **about 21 GB** |
@@ -465,6 +469,17 @@ describe model passed Duck Echo's listening test yet: see
 docs/ear-check.md"), and `verdict` comes from the score alone. Step 4
 writes its results into `docs/ear-check.md` either way, so the next try
 starts from them.
+
+**This is what happened.** On the CPU, Qwen2.5-Omni-7B said yes to 45% of
+the true texts (the bar is 80%), Gemma 4 E4B to 34% and Gemma 4 E2B to
+13%; all three said no to more than 80% of the wrong texts. So the Ear
+ships with scores only, and `describe` and `ask` answer `not_available`
+with that reason. A person can still add Full or Large with
+`ear/tools/get_describe_model.py` (it says "did not pass" or "not
+measured yet" before it downloads); then the verdict needs both models
+to agree, which on the test set never said yes to a wrong text but
+turned most true yeses into `unsure`. Whether Large passes is decided by
+its numbers from a PC with a big graphics card.
 
 ### How it is installed
 
@@ -633,9 +648,12 @@ numbers come first and are the same as without the Ear.
 * `cached`: `true` when the whole answer came from the answer cache
   (section 3); the Ear was not asked.
 * `closest`: the score model's best matches from a built-in list of about
-  120 game-sound and music words (`coin pickup`, `explosion`,
+  100 game-sound and music words (`coin pickup`, `explosion`,
   `footsteps on gravel`, `calm music`, `tense music` ...), kept in the
-  Ear's package so it travels with the model.
+  Ear's package so it travels with the model. **Left out unless asked
+  for** (`closest: true` on `listen`; never in `analyze`): step 3 found
+  it often wrong for short sounds (the coin's first three were speech,
+  footsteps on gravel and birds).
 * `sounds_like`: only when the recipe's `expect` has `sounds_like` (below).
 * `match` is 0 to 1: how much more this text fits the sound than the
   other words in the list do (section 4, "Scores you can read"). `rank`
@@ -972,7 +990,7 @@ What you test on Windows:
 What you test on Linux:
 - [ ] The same, and `ear check` gives the same table as on Windows (to 2 decimals).
 
-### Step 4: the real Ear, part 2: the describe model (stronger model)
+### Step 4: the real Ear, part 2: the describe model (stronger model) [built; the graphics card measurements wait for the checklist]
 
 * `duck-ear` starts and stops `llama-server` (`--offline`, 127.0.0.1),
   with temperature 0 and seed 42; stops it after `describe_idle_seconds`
@@ -989,15 +1007,41 @@ What you test on Linux:
   model passed or not. **If none passed**, the Ear ships with scores only
   (section 5), and `describe` and `ask` say "not available yet" with the
   reason.
+* As built:
+  * **None passed** (above), so the Ear ships with scores only.
+  * **A third size, Large** (Qwen3-Omni-30B-A3B, 19.9 GB), offered only
+    when a graphics card with 16 GB or more is found.
+  * **MiDashengLM-0.6B could not be measured**: llama.cpp does not run
+    it. Gemma 4 E2B and E4B were measured for Small instead.
+  * **Evidence first is two turns**, not one question: "What do you
+    hear?" with no hint, then the question after the model's own words.
+    In one turn the models heard whatever the question named.
+  * **Measured on the CPU only.** The build machine has no graphics
+    card, so every time on a card, and Large altogether, wait for the
+    checklist below. The time limits are unchanged: on 4 CPU cores
+    Qwen2.5-Omni-7B takes 32 s to hear a sound and 8 s for a further
+    question, well inside 240 s.
+  * `ear/tools/get_describe_model.py` downloads a model for a person
+    (step 5's installer takes this over); `duck-echo ear check --part
+    describe` measures it.
+  * `closest` is left out of answers unless asked for (`closest: true`).
 
-What you test on Windows (your PC with its graphics card):
-- [ ] `duck-echo listen example:duck_craft_night --ask "Is this tune calm?"` answers with a reason in under 10 s.
-- [ ] With "CPU only", the same answers in under 4 minutes.
-- [ ] After the Ear stops, Task Manager shows no `llama-server.exe` and the card's memory is free again.
-- [ ] Ask one describe question, wait 2 minutes: `llama-server.exe` is gone and the card's memory is free, but a score question still answers at once. Ask another describe question: it starts again.
+What you test on Windows (your PC with its graphics card). First: unpack
+llama.cpp's newest Windows Vulkan build into `llama\` in the Ear's folder
+(`ear/README.md`), then get both models with
+`ear\.venv\Scripts\python.exe ear\tools\get_describe_model.py full` and
+`... large`.
+- [ ] `get_describe_model.py --list` names your graphics card with its memory and says Large is offered.
+- [ ] With `DUCK_EAR_DESCRIBE_MODEL` set to the Full model's folder: `duck-echo ear check --out ear-check-full` finishes and prints the describe model's tables. Keep `ear-check-full\ear-check.md`.
+- [ ] The same with the Large model's folder and `--out ear-check-large`. Keep `ear-check-large\ear-check.md`. The two files hold every yes and no and the times: they decide the default for big cards.
+- [ ] `duck-echo listen examples\songs\duck_craft_night.toml --like "calm music" --ask "Is this tune calm?"` answers with a description and a reason. Note how long it takes with Full and with Large.
+- [ ] With `DUCK_EAR_DEVICE=cpu`, the same answers (slowly: about a minute here with Full on 4 cores).
+- [ ] After the command ends, Task Manager shows no `llama-server.exe` and the card's memory is free again.
+- [ ] In Claude Code with the project's MCP server (and `DUCK_ECHO_EAR` set), ask one describe question, wait 2 minutes: `llama-server.exe` is gone and the card's memory is free, but a `quick` listen still answers at once. Ask another describe question: it starts again.
 
 What you test on Linux:
-- [ ] The same on CPU (and on a graphics card if the PC has one).
+- [ ] With Full on the CPU: the `listen` line above answers, `ear.log` in the Ear's folder says "started llama-server", and no `llama-server` runs after the command ends.
+- [ ] With no describe model: `duck-echo ear status` says describe is not available because no describe model passed the test, and `listen --like` still gives a verdict from the score.
 
 ### Step 5: installing the Ear (stronger model)
 

@@ -1,10 +1,14 @@
-# Duck Ear check: the score model
+# Duck Ear check
 
-This page records how well the Duck Ear's score model hears Duck Echo's
-own sounds. It covers step 3 of `docs/phase4-design.md`: two models were
-converted, both were measured on the same test set, the better one was
-chosen, and its yes and no lines were set. Step 4 adds the describe
-model's results here.
+This page records how well the Duck Ear's models hear Duck Echo's own
+sounds, on one test set with known answers.
+
+* **The score model** (step 3 of `docs/phase4-design.md`): two models
+  were converted and measured, the better one was chosen, and its yes and
+  no lines were set. This is most of the page.
+* **The describe model** (step 4): three models were measured on the CPU.
+  **None passes**, so the Ear ships with scores only. That part is at the
+  end: "The describe model".
 
 **Chosen: LAION-CLAP (`laion/larger_clap_general`).** It tells which of
 two sounds a text fits much more often than CLAP2-S (98% against 88%),
@@ -201,3 +205,256 @@ anything but silence).
 * **The numbers are from one PC**, the CPU only. ONNX Runtime may round a
   little differently on another PC; the step 3 checklist compares Windows
   and Linux to 2 decimals.
+
+## The describe model
+
+A describe model is a language model that hears: it says in words what a
+sound is, and answers "does this sound like a coin pickup?" with yes, no
+or partly and a reason. The design asks a lot of it: on the same test
+set, it must say **yes to 80% of the true texts and no to 80% of the
+wrong texts**, counted apart (a model that always says yes gets 100% and
+0%), and it must not say yes to a sound when there is only silence or
+noise.
+
+**Result: none of the three models measured passes.** All three say no
+far too often to true texts. As agreed in the design, the Ear ships with
+**scores only**: the Small Ear has no describe model. Full
+(Qwen2.5-Omni-7B) and Large (Qwen3-Omni-30B-A3B) can still be added by a
+person, to measure them on a graphics card; they are not what Duck Echo
+recommends until one passes.
+
+### What was measured, and where
+
+| | |
+|---|---|
+| PC | the same as above: Linux, Intel Xeon at 2.1 GHz, 4 cores, 15 GB of memory, **no graphics card** |
+| llama.cpp | `llama-server` built from source at commit `a956a85` (November 2026), CPU only |
+| Full | Qwen2.5-Omni-7B, `ggml-org/Qwen2.5-Omni-7B-GGUF` at `89b785438c89`, Q4_K_M (4.7 GB) with the Q8_0 hearing part (1.5 GB); Apache-2.0 |
+| Tried for Small | Gemma 4 E4B, `ggml-org/gemma-4-E4B-it-GGUF` at `8903cb408c7d`, Q4_0 (4.6 GB + 0.6 GB); Apache-2.0 |
+| Tried for Small | Gemma 4 E2B, `ggml-org/gemma-4-E2B-it-GGUF` at `2a8538c2e2d4`, Q4_0 (2.8 GB + 0.6 GB); Apache-2.0 |
+| Not measured | MiDashengLM-0.6B, the design's first choice for Small: this llama.cpp cannot run it |
+| Test set | the same 41 sounds: 47 true and 137 wrong pairs of a sound and a text |
+
+Run it again with a describe model installed (`ear/README.md`):
+
+```bash
+duck-echo ear check --ear-program ear/.venv/bin/duck-ear
+```
+
+`--part score` leaves the describe model out; `--part describe` is an
+error when the Ear has none.
+
+### How a question is asked
+
+Evidence first, in two turns of one talk, with temperature 0, the most
+likely word each time, and seed 42:
+
+1. The sound, and: *"What do you hear? Describe the sound itself in one
+   or two short sentences: what kind of sound it is, its pitch, and how
+   it feels. (It is 0.3 seconds long.)"* The length is given because
+   these models pad every sound to a fixed window and cannot hear it.
+   The answer is the description.
+2. Then, after the model's own words: *"This sound was made for a video
+   game. Does this sound like a coin pickup? Answer yes, no or partly,
+   then say why in one sentence. Say yes only if that describes this
+   sound well; say partly if only some of it fits."*
+
+Asked in one turn, the models heard whatever the question named: the
+small Gemma heard "a metallic clinking sound" in a coin *and* in an
+explosion when asked about a coin, and "a loud bang" in both when asked
+about an explosion. That is why the question comes second.
+
+A sound shorter than 1 second is padded with silence to 1 second. In the
+check, silence and noise go to the model like any sound (in normal use
+the Ear answers silence itself, without the model).
+
+### The results
+
+| Measure | Bar | Qwen2.5-Omni-7B (Full) | Gemma 4 E4B | Gemma 4 E2B |
+|---|---|---|---|---|
+| Yes on true texts | 80% | 21 of 47 (**45%**) | 16 of 47 (34%) | 6 of 47 (13%) |
+| No on wrong texts | 80% | 124 of 137 (90%) | 118 of 137 (86%) | 132 of 137 (96%) |
+| Silence: no yes to a wrong text | 100% | 5 of 5 | 5 of 5 | 5 of 5 |
+| Noise: no yes to a wrong text | 100% | 4 of 4 | 4 of 4 | 4 of 4 |
+| Same words when asked again | 100% | 8 of 8 | 8 of 8 | 8 of 8 |
+| A true text said no | fewer is better | 18 of 47 (38%) | 27 of 47 (57%) | 41 of 47 (87%) |
+| A wrong text said yes | fewer is better | 3 of 137 (2%) | 16 of 137 (12%) | 5 of 137 (4%) |
+
+Every model reaches the bar for wrong texts and misses the bar for true
+texts by a wide margin. They are no-sayers: the opposite of what the
+research warned of, and just as useless for a yes.
+
+**The silence and noise rows pass, but the models are not listening to
+silence.** The measure only counts a plain yes. Given pure silence,
+Qwen2.5-Omni-7B described "a high-pitched, electronic, and synthesized
+tone", said no to "silence", and said "partly" to "a coin pickup" and to
+"an alarm". Both Gemma models heard "a low, resonant hum" or "a low,
+rumbling bass note" in silence. So the Ear's own silence guard (a sound
+whose peak is below -60 dBFS is answered without the model) stays.
+
+**Same words twice**: after the run, the Ear and `llama-server` were
+stopped and started again, and the first four sounds were asked again
+with no answer cache: all 8 answers came back word for word, for every
+model. A second run of four sounds with Qwen2.5-Omni-7B later gave the
+same four descriptions and the same ten answers as the first.
+
+### The verdict of both models
+
+The `verdict` an agent sees needs both models to agree for a yes or a
+no. With Qwen2.5-Omni-7B beside the score model:
+
+| Who decides | Yes on true texts | No on wrong texts | A true text said no | A wrong text said yes |
+|---|---|---|---|---|
+| The score model alone | 36 of 47 (77%) | 103 of 137 (75%) | 4 (9%) | 13 (9%) |
+| The describe model alone | 21 of 47 (45%) | 124 of 137 (90%) | 18 (38%) | 3 (2%) |
+| Both must agree (the verdict) | 16 of 47 (34%) | 93 of 137 (68%) | 3 (6%) | **0 (0%)** |
+
+This is the one useful thing the describe model does here: **with it,
+the verdict never said yes to a wrong text** (the score alone did 13
+times), and a yes was right 16 times out of 16. But it turns most true
+yeses into `unsure`: 36 down to 16. A person who adds Full gets fewer
+wrong answers and far fewer answers.
+
+One example, the calm Duck Craft night theme: the score model gave
+"tense music" a match of 0.98 (a clear yes, and wrong). The describe
+model heard "a slow, soft, and dreamy electronic piece" and said no, so
+the verdict was `unsure` instead of a wrong yes.
+
+### What the models hear
+
+Qwen2.5-Omni-7B hears the big differences: a beep from a low boom, music
+from a sound effect, calm music from fast music (the calm loop: yes to
+"calm music" and "slow gentle music", no to "tense music"; the tense
+loop: yes to "fast exciting music", but no to "tense music"). It does not
+hear what a game sound *is*: 14 of the 41 sounds are "a high-pitched,
+electronic beep" to it (every pickup, both jumps, the menu click, the
+alarm and the warning beep), a footstep and a landing are "a low, continuous hum", and a
+metal clang is "a low, dark, and heavy electronic synth". It cannot tell
+a soft coin from a harsh one (no to all of those texts).
+
+The Gemma models hear less. Gemma 4 E2B gave only 18 different
+descriptions for 41 sounds, 12 of them word for word "A low, resonant
+hum. It feels deep and steady." (the coin among them), and silence is "a
+low, resonant hum" to it too. Gemma
+4 E4B called the coin "a sharp, high-pitched metallic clang" and silence
+"a low, rumbling bass note".
+
+What Qwen2.5-Omni-7B heard in every sound, with its wrong answers:
+
+| Sound | What the describe model heard | True texts not given a yes | Wrong texts given a yes |
+|---|---|---|---|
+| `preset:coin` | I hear a high pitched, electronic beep. |  |  |
+| `examples/recipes/coin.toml` | The sound is a high-pitched, electronic beep with a short duration. |  |  |
+| `preset:gem` | The sound is a high-pitched, electronic beep. It feels like a quick, sharp tone. |  |  |
+| `preset:key_pickup` | The sound is a high-pitched, electronic beep with a clear and sharp quality. |  |  |
+| `preset:extra_life` | The sound is a high-pitched, electronic beep with a clear and sharp quality. | a cheerful rising jingle (no) |  |
+| `preset:powerup` | The sound is a high pitched, electronic beep with a long decay. It feels like a digital signal or notification. | a rising power-up sound (partly) |  |
+| `examples/recipes/fanfare.toml` | I hear a short, high-pitched, electronic beep. It feels like a quick, sharp sound. | a short victory fanfare (partly) |  |
+| `coin_soft.toml` | The sound is a high-pitched, electronic beep. It feels like a short, sharp tone. | a gentle chime (no), a soft coin pickup (no) |  |
+| `coin_harsh.toml` | I hear a short, high-pitched beep. It feels like a quick electronic signal. | a harsh buzzy coin sound (no) |  |
+| `preset:laser` | I hear a high pitched, electronic, synthesized sound that feels like a quick, sharp zap. |  |  |
+| `examples/recipes/laser.toml` | I hear a high pitched, electronic, synthesized sound that feels like a quick, sharp, and sudden burst. |  |  |
+| `preset:blaster` | The sound is a low, deep, and resonant electronic beep. | a laser shot (no) |  |
+| `preset:shotgun` | I hear a short, sharp, and high-pitched sound. It feels like a quick, sudden strike. | a gunshot (partly) |  |
+| `preset:explosion` | I hear a sound that is a bit like a gun firing, but it's not a real gun. It's a synthesized sound, and it's quite loud. | an explosion (partly) |  |
+| `preset:big_explosion` | I hear a loud, deep, metallic bang that reverberates and echoes. It feels like a heavy object hitting a hard surface. | a big explosion with a long rumble (partly) |  |
+| `examples/recipes/explosion.toml` | I hear a sound that is a combination of a whoosh and a pop, with a high pitch and a feeling of intensity. |  |  |
+| `preset:missile` | I hear a sound that is a low, deep, and resonant electronic tone, it feels like a powerful and vibrating sound. | a whoosh (partly) |  |
+| `preset:punch` | The sound is a low, deep, and resonant bass drum hit, with a slow decay and a sense of power. | a punch (no) |  |
+| `preset:hit` | The sound is a low, deep, and resonant electronic beep. It feels like a low-frequency electronic signal. | a hit (no) |  |
+| `preset:thud` | I hear a low, deep, and resonant sound that feels heavy and powerful. |  |  |
+| `preset:land` | The sound is a low, continuous hum, like a distant engine or a soft, vibrating background noise. | a heavy thud (no) |  |
+| `preset:metal_clang` | The sound is a low, dark, and heavy electronic synth with a slow, pulsating rhythm. | a metal clang (no) |  |
+| `preset:footstep` | The sound is a low, continuous hum, like a distant engine or a soft, ambient noise. It has a low pitch and feels steady and unchanging. | a footstep (no) |  |
+| `preset:jump` | The sound is a high-pitched, electronic beep that feels like a quick, sharp signal. | a jump in a platform game (partly) |  |
+| `examples/recipes/jump.toml` | The sound is a high-pitched, electronic beep that feels like a short, sharp, and clear signal. | a jump in a platform game (partly) |  |
+| `preset:ui_click` | The sound is a high-pitched, electronic beep that feels like a digital signal. |  |  |
+| `preset:ui_confirm` | I hear a high pitched, short, and sharp sound. |  |  |
+| `preset:ui_error` | The sound is a low, electronic beep with a slow decay. It feels like a simple, clean tone. | an error buzz (no) |  |
+| `examples/recipes/chime.toml` | The sound is a high-pitched, clear, and resonant tone that feels sharp and crisp. | a gentle chime (no) | a harsh buzzy coin sound (yes) |
+| `preset:alarm` | The sound is a high-pitched, electronic beep with a smooth, clean quality. | an alarm (no) | a coin pickup (yes) |
+| `examples/recipes/siren.toml` | The sound is a high-pitched, electronic, and synthesized tone that feels like a futuristic or sci-fi sound effect. | a siren (no) |  |
+| `preset:warning_beep` | I hear a short, high-pitched beep. |  |  |
+| `preset:engine_hum` | The sound is a low, dark, and heavy synthesizer bass with a slow, pulsating rhythm. It has a deep, rich, and resonant quality, creating a sense of depth and intensity. | an engine hum (no) |  |
+| `preset:wind` | The sound is a whoosh, it is high pitched and feels like it is moving quickly. |  | a laser shot (yes) |
+| `calm_loop.toml` | I hear a slow, soft, and dreamy synth melody with a high pitch. |  |  |
+| `tense_loop.toml` | The sound is a fast-paced, electronic music track with a strong beat and a repetitive synth melody. It has a high pitch and feels energetic and upbeat. | tense music (no) |  |
+| `example:duck_craft_day` | The sound is a synth melody with a slow tempo, low pitch, and a dreamy, ethereal quality. |  |  |
+| `example:duck_craft_night` | I hear a slow, soft, and dreamy electronic piece with a repetitive melody and a slow, steady beat. |  |  |
+| `example:four_bars` | The sound is a synth melody with a retro vibe, it's high pitched and feels nostalgic. |  |  |
+| `silence` | The sound is a high-pitched, electronic, and synthesized tone that feels like a futuristic or sci-fi sound effect. | silence (no) |  |
+| `noise.toml` | The sound is a high-pitched, electronic whoosh that feels fast and sharp. | white noise (no) |  |
+
+### The times, on the CPU
+
+Measured on 4 CPU cores with nothing else running (four sounds):
+
+| | Qwen2.5-Omni-7B | Gemma 4 E4B | Gemma 4 E2B |
+|---|---|---|---|
+| Starting `llama-server` and loading the model (files already read once) | 4 to 8 s | 5 s | 4 s |
+| Hearing a sound the first time (`describe`) | 32 s (longest 34 s) | 3.5 s | 1.6 s |
+| A yes or no question about a sound already heard | 8 s (longest 10 s) | 3.0 s | 1.5 s |
+| `listen` with two texts and one free question, from nothing | 67 s | | |
+
+Qwen2.5-Omni-7B pads every sound to 30 seconds (750 pieces of sound for
+the model), so a coin costs as much as a tune. `llama-server` keeps what
+it worked out for a sound, so the second question about the same sound
+costs a quarter of the first. Duck Echo's time limits (240 s for a
+describe question on the CPU, 180 s to load) leave room for a PC a few
+times slower. The Gemma times are from the full run, where other work
+ran beside it now and then.
+
+### What still needs a graphics card
+
+Nothing here ran on a graphics card: the build machine has none.
+
+* **Every time on a graphics card** is unmeasured: loading, hearing a
+  sound, a question, for Full and for Large. The 60 s limit for a
+  describe question on a card is a guess until then.
+* **Large (Qwen3-Omni-30B-A3B) is not measured at all**: its yes and no
+  answers and its times. It was downloaded here and both files match
+  their SHA-256, but it could not be loaded: it is 19.9 GB, the build
+  machine has 15 GB of memory and no card, and the kernel stopped
+  `llama-server` for lack of memory about 30 s into loading, twice. So
+  it is also not yet known that this `llama-server` answers the Ear's
+  questions with this model; the checklist's first Large step finds
+  out.
+* **Full's answers on a card** may differ in a word here and there from
+  the CPU's (the same model, but sums done in another order). The
+  measures should be close to the ones above; "same words twice" must be
+  checked again on the card.
+* **The fall back to the CPU** when a card has too little memory, and
+  that the card's memory is free again 2 minutes after the last describe
+  question, are tested with a pretend `llama-server` only (and the
+  2-minute rule with the real one, on the CPU).
+
+The step 4 checklist for a PC with a graphics card runs
+`duck-echo ear check` with Full and with Large and sends back both
+`ear-check.md` files; they go into this page.
+
+### Honest notes
+
+* **One wording was measured in full.** Four wordings of the questions
+  were tried by hand first, on two to six sounds each. A kinder second
+  question ("judge if a player would take it for ...") made
+  Qwen2.5-Omni-7B say yes to "a coin pickup" for wind; the plain
+  question with no word about games made it say no to "a coin pickup"
+  for the coin. The wording used is between the two. Another wording
+  could move some answers between yes, partly and no. But 18 true texts
+  got a plain no, mostly for sounds whose description was already wrong
+  (a footstep heard as a hum), and wording does not fix hearing.
+* **Counting "partly" as yes would not pass either**: 29 of 47 true texts
+  (62%) for Qwen2.5-Omni-7B.
+* **Naming the sound's maker changes what is heard.** Telling
+  Qwen2.5-Omni-7B that the sounds were "made with a synthesizer" before
+  it listened turned an explosion into "a short, sharp electronic beep".
+  So the first question says nothing about the sound.
+* **Gemma is asked plainly.** Asked for an answer in a forced shape, both
+  Gemma models think for hundreds of words first, even with thinking
+  switched off (about 30 s for an answer on Gemma 4 E2B). They are asked
+  without the shape, and the Ear reads "Yes, ..." itself. Qwen answers in the forced
+  shape.
+* **The sounds are short and made by a synthesizer**, and these models
+  learned from speech, music and recordings. The music results are
+  better than the sound effect results for that reason.
+

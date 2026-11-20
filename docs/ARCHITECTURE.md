@@ -854,16 +854,29 @@ model answers `score`. The describe model, when one is installed with
     Duck Echo sends before each of them. The Ear stops it too when its
     stdin closes.
   * **Device**: `llama-server --list-devices` names the graphics cards
-    and their memory; the biggest is used, and `hello` reports it
-    (`device`, `device_name`, `device_memory_mb`). If `llama-server` will
-    not start on the card, it is started on the CPU (`--device none`) and
-    `hello` says why. `DUCK_EAR_DEVICE=cpu` asks for the CPU.
+    and their memory. The biggest real card is used, by name (`--device
+    Vulkan0`), so a model is never spread over a processor's built-in
+    graphics (which share the PC's memory and do not count as a card);
+    `hello` reports it (`device`, `device_name`, `device_memory_mb`). If
+    `llama-server` will not start on the card, it is started on the CPU
+    (`--device none`) and `hello` says why. `DUCK_EAR_DEVICE=cpu` asks
+    for the CPU, `DUCK_EAR_DEVICE=Vulkan1` for one device.
+  * **Why llama.cpp**: one program with ready builds for Windows and
+    Linux (Vulkan for any maker's card, or CPU only), MIT licence, and
+    it runs the GGUF files these models are published as. It is started
+    as a program, never linked: Duck Echo's Rust workspace gains no
+    library.
+  * **Models that think** before an answer in a forced shape (Gemma 4)
+    have `plain_answers` in their settings: they are asked plainly and
+    the Ear reads "Yes, ..." itself.
   * **Silence** (peak below -60 dBFS) is answered without the model,
     unless a request says `guard: false` (`ear check` does, to see what
     the model itself says to silence).
 * **Three sizes** (`catalog.py`): Small has no describe model (scores
-  only), Full is Qwen2.5-Omni-7B, Large is Qwen3-Omni-30B-A3B, offered
-  only when a graphics card with 16 GB or more is found. Each model is
+  only: no describe model passed the listening test, so this is what
+  the Ear ships as), Full is Qwen2.5-Omni-7B, Large is
+  Qwen3-Omni-30B-A3B, offered only when a graphics card with 16 GB or
+  more is found. Each model's `listening_test` line says how it did. Each model is
   two GGUF files at a pinned Hugging Face revision with their sizes and
   SHA-256. `ear/tools/get_describe_model.py` (run by a person) downloads
   one, checks it, writes its `model.json`, and names it in

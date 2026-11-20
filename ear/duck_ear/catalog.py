@@ -7,12 +7,15 @@ can be checked. The results that chose them are in docs/ear-check.md.
 
 The sizes a person can choose:
 
-* **Small**: scores only. No small describe model has passed Duck Echo's
-  listening test yet, so there is none (docs/ear-check.md).
+* **Small**: scores only. No describe model passed Duck Echo's listening
+  test (docs/ear-check.md), so the Ear ships without one.
 * **Full**: Qwen2.5-Omni-7B, for a graphics card of 8 GB or more (it
-  works on the CPU, slowly).
+  works on the CPU, slowly). It did not pass the test either: a person
+  can add it, but Duck Echo does not recommend it yet.
 * **Large**: Qwen3-Omni-30B-A3B, offered only when a graphics card with
-  16 GB or more is found.
+  16 GB or more is found. Not measured yet: it needs such a card.
+
+Each model's `listening_test` says how it did, in one line.
 """
 
 # A graphics card must have this much memory before Large is offered.
@@ -27,6 +30,7 @@ MODELS = {
         # The original model's own LICENSE file is Apache-2.0 (the GGUF
         # page's label says otherwise, but links to that same file).
         "licence": "Apache-2.0",
+        "listening_test": "did not pass (CPU): yes to 45% of true texts (bar 80%), no to 90% of wrong texts",
         "files": {
             "model": {
                 "name": "Qwen2.5-Omni-7B-Q4_K_M.gguf",
@@ -48,6 +52,7 @@ MODELS = {
         "repo": "ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF",
         "revision": "6e35a28f4a19b18730f8949b0c579c6429649ab8",
         "licence": "Apache-2.0",
+        "listening_test": "not measured yet: it needs a graphics card with 16 GB or more",
         "files": {
             "model": {
                 "name": "Qwen3-Omni-30B-A3B-Instruct-Q4_K_M.gguf",
@@ -62,14 +67,16 @@ MODELS = {
         },
         "settings": {"context": 4096, "sample_rate": 16000},
     },
-    # Candidates for Small: measured with `duck-echo ear check`
-    # (docs/ear-check.md), not offered as a size.
+    # Tried for Small, and did not pass the listening test
+    # (docs/ear-check.md). Kept so the test can be run again; not offered
+    # as a size.
     "gemma-4-e2b": {
-        "size": "candidate for small",
+        "size": "tried for small",
         "maker": "Google, GGUF by ggml-org",
         "repo": "ggml-org/gemma-4-E2B-it-GGUF",
         "revision": "2a8538c2e2d4687953a86c422c7c623cfd022880",
         "licence": "Apache-2.0",
+        "listening_test": "did not pass (CPU): yes to 13% of true texts (bar 80%), no to 96% of wrong texts",
         "files": {
             "model": {
                 "name": "gemma-4-E2B-it-Q4_0.gguf",
@@ -92,11 +99,12 @@ MODELS = {
         },
     },
     "gemma-4-e4b": {
-        "size": "candidate for small",
+        "size": "tried for small",
         "maker": "Google, GGUF by ggml-org",
         "repo": "ggml-org/gemma-4-E4B-it-GGUF",
         "revision": "8903cb408c7df39cde2ed15fac397e6d7be92951",
         "licence": "Apache-2.0",
+        "listening_test": "did not pass (CPU): yes to 34% of true texts (bar 80%), no to 86% of wrong texts",
         "files": {
             "model": {
                 "name": "gemma-4-E4B-it-Q4_0.gguf",
@@ -149,6 +157,7 @@ def model_json(name):
         "source": "https://huggingface.co/%s" % model["repo"],
         "revision": model["revision"],
         "licence": model["licence"],
+        "listening_test": model["listening_test"],
         "files": {part: file["name"] for part, file in model["files"].items()},
         "sha256": {file["name"]: file["sha256"] for file in model["files"].values()},
         "bytes": total_bytes(name),
