@@ -53,6 +53,7 @@ fn config(program: &Path, home: &Path) -> EarConfig {
         describe_idle_seconds: duck_echo_ear::DESCRIBE_IDLE_SECONDS,
         describe_model: None,
         ear_env: Vec::new(),
+        notes_wanted: true,
     }
 }
 
@@ -350,6 +351,71 @@ fn a_missing_ear_is_said_in_the_answer_and_the_numbers_stay() {
     assert_eq!(status["available"], false);
     assert_eq!(status["reason"], "not_installed");
     assert_eq!(status["found_by"], "named");
+    // A program named and missing is not "an assistant wanted the Ear".
+    assert!(duck_echo_tools::ear_home::wanted(&dir.join("ear-home")).is_none());
+}
+
+#[test]
+fn an_assistant_that_wanted_to_listen_is_noted_for_the_studio() {
+    let dir = folder("wanted");
+    let home = dir.join("ear-home");
+    let installed_ear = EarConfig {
+        program: None,
+        ..config(&dir.join("unused"), &home)
+    };
+    let keeper = EarKeeper::new(installed_ear.clone());
+    let (_dir, root) = project("wanted-project", &keeper);
+    for _ in 0..2 {
+        let listened = run(
+            &root,
+            "listen",
+            json!({"path": "sfx/coin.toml", "like": ["a coin"]}),
+        )
+        .unwrap();
+        assert_eq!(listened["ear"]["reason"], "not_installed");
+    }
+    let note = duck_echo_tools::ear_home::wanted(&home).expect("noted");
+    assert_eq!((note.tool.as_str(), note.times), ("listen", 2));
+
+    // The Studio's own Ear notes nothing.
+    let quiet_home = dir.join("quiet-home");
+    let studio = EarKeeper::new(EarConfig {
+        program: None,
+        notes_wanted: false,
+        ..config(&dir.join("unused"), &quiet_home)
+    });
+    let (_dir, root) = project("wanted-quiet", &studio);
+    run(
+        &root,
+        "listen",
+        json!({"path": "sfx/coin.toml", "like": ["a coin"]}),
+    )
+    .unwrap();
+    assert!(duck_echo_tools::ear_home::wanted(&quiet_home).is_none());
+}
+
+#[test]
+fn the_test_listens_to_the_coin_and_the_night_song_afresh() {
+    if !python_found() {
+        return;
+    }
+    let dir = folder("test");
+    let keeper = EarKeeper::new(config(&stub_file(), &dir.join("ear-home")));
+    let tested = duck_echo_tools::ear_test::test(&keeper).unwrap();
+    let sounds: Vec<&str> = tested.lines.iter().map(|l| l.sound.as_str()).collect();
+    assert_eq!(sounds, ["coin", "night song"]);
+    assert_eq!(tested.lines[1].text, "calm music");
+    assert!(tested.summary.contains("stub"), "{}", tested.summary);
+    // Afresh: nothing was kept.
+    assert_eq!(
+        duck_echo_tools::ear_home::answers(&dir.join("ear-home")).0,
+        0
+    );
+    keeper.stop();
+
+    let missing = EarKeeper::new(config(&dir.join("no-ear"), &dir.join("ear-home")));
+    let error = duck_echo_tools::ear_test::test(&missing).unwrap_err();
+    assert_eq!(error.code, "not_installed");
 }
 
 #[test]

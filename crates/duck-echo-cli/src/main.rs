@@ -373,6 +373,30 @@ enum EarAction {
         #[arg(long)]
         json: bool,
     },
+    /// Let the installed Ear really listen to two sounds (a coin and the
+    /// Duck Craft night song) and say what it heard and how long it took.
+    /// Kept answers are not used.
+    Test {
+        /// Print the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Where the Ear's describe model may run: `auto` (a graphics card
+    /// when there is one) or `cpu` (never a graphics card). With no word,
+    /// says the choice. The command line, the MCP server and the Studio
+    /// all follow it. The score model always runs on the CPU.
+    Device {
+        /// `auto` or `cpu`.
+        #[arg(value_parser = ["auto", "cpu"])]
+        choice: Option<String>,
+    },
+    /// Forget the answers the Ear keeps. Questions about the same sounds
+    /// are then asked again, which takes longer.
+    ClearAnswers {
+        /// Do not ask: clear them.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Is the Duck Ear there, and what can it do: its program, its
     /// version, its models, its device and how many answers it keeps.
     /// The same as `duck-echo do ear_status`.
@@ -667,6 +691,15 @@ fn main() -> ExitCode {
         Command::Ear {
             action: EarAction::Use { model },
         } => ear_commands::use_model(&model),
+        Command::Ear {
+            action: EarAction::Test { json },
+        } => ear_commands::test(json),
+        Command::Ear {
+            action: EarAction::Device { choice },
+        } => ear_commands::device(choice.as_deref()),
+        Command::Ear {
+            action: EarAction::ClearAnswers { yes },
+        } => ear_commands::clear_answers(yes),
         Command::Ear {
             action:
                 EarAction::Status {

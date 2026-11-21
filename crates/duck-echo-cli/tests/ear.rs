@@ -189,3 +189,39 @@ fn the_old_spelling_ear_program_is_accepted_with_a_note() {
         );
     }
 }
+
+#[test]
+fn ear_device_and_clear_answers_keep_their_choice_in_the_ears_folder() {
+    let dir = fresh("device");
+    let home = dir.join("ear-home");
+    let said = |out: &Output| String::from_utf8_lossy(&out.stdout).to_string();
+
+    let out = duck_echo(&dir, &["ear", "device"]);
+    assert!(out.status.success());
+    assert!(said(&out).contains("(automatic)"), "{}", said(&out));
+    let out = duck_echo(&dir, &["ear", "device", "cpu"]);
+    assert!(said(&out).contains("CPU only"), "{}", said(&out));
+    assert_eq!(
+        std::fs::read_to_string(home.join("device.txt")).unwrap(),
+        "cpu\n"
+    );
+    // Without an Ear, ear_status still says the choice.
+    let status = json_of(&duck_echo(&dir, &["ear", "status", "--json"]));
+    assert_eq!(status["device_choice"], "cpu_only");
+    duck_echo(&dir, &["ear", "device", "auto"]);
+    assert!(!home.join("device.txt").exists());
+    let out = duck_echo(&dir, &["ear", "device", "gpu"]);
+    assert_eq!(out.status.code(), Some(2), "only auto or cpu");
+
+    let out = duck_echo(&dir, &["ear", "clear-answers", "--yes"]);
+    assert!(said(&out).contains("keeps no answers"), "{}", said(&out));
+    std::fs::create_dir_all(home.join("answers/ab")).unwrap();
+    std::fs::write(home.join("answers/ab/ab1.json"), "{}").unwrap();
+    let out = duck_echo(&dir, &["ear", "clear-answers", "--yes"]);
+    assert!(
+        said(&out).contains("1 answer was forgotten"),
+        "{}",
+        said(&out)
+    );
+    assert!(!home.join("answers").exists());
+}

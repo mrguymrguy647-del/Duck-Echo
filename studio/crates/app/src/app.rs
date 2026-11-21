@@ -14,6 +14,7 @@ use duck_echo_tools::root::Root;
 use eframe::egui::{self, RichText};
 
 use crate::app_menu;
+use crate::ear_panel::BannerChoice as EarChoice;
 use crate::editor::Editor;
 use crate::library::{MyFile, Shelf, Thumbs};
 use crate::settings::{self, Settings};
@@ -186,6 +187,7 @@ impl StudioApp {
         app_menu: AppMenu,
         opening: Option<crate::opening::Opening>,
     ) -> StudioApp {
+        let watch_ear = settings.file.is_some();
         let project = match &opening {
             Some(o) => o.project.clone(),
             None => settings.project_folder(),
@@ -235,7 +237,9 @@ impl StudioApp {
             redo_title: None,
             last_scan: None,
             update: UpdateState::Off,
-            ear: crate::ear_panel::EarPanel::default(),
+            // The person's own Ear is watched only by the real Studio (a
+            // test's settings are not saved to a file).
+            ear: crate::ear_panel::EarPanel::watching(watch_ear),
             note: None,
             note_is_problem: false,
             about_open: false,
@@ -289,7 +293,10 @@ impl StudioApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
+        self.ear.at_start();
+        let ear_busy = self.ear.poll();
         self.top_bar(ui);
+        self.ear_banner(ui);
         if self.update.shows() {
             let chosen = egui::Panel::top("new version")
                 .show(ui, |ui| update_banner::banner(ui, &self.update))
@@ -315,6 +322,7 @@ impl StudioApp {
         self.frames += 1;
         self.smoke_test(&ctx);
         if self.playing.is_some()
+            || ear_busy
             || self.thumbs.busy()
             || matches!(
                 self.update,
@@ -324,6 +332,33 @@ impl StudioApp {
             ctx.request_repaint_after(Duration::from_millis(50));
         } else {
             ctx.request_repaint_after(Duration::from_millis(500));
+        }
+    }
+
+    /// The Duck Ear's note across the window: an install running while
+    /// Settings is closed, or an AI assistant that wanted to listen.
+    fn ear_banner(&mut self, ui: &mut egui::Ui) {
+        let seen = self.settings.ear_wanted_seen;
+        // In Settings, the Duck Ear section says all of it already.
+        let showing =
+            !self.settings_open && (self.ear.job.is_some() || self.ear.wanted_note(seen).is_some());
+        if !showing {
+            return;
+        }
+        let chosen = egui::Panel::top("duck ear")
+            .show(ui, |ui| self.ear.banner(ui, seen))
+            .inner;
+        match chosen {
+            Some(EarChoice::OpenSettings) => self.settings_open = true,
+            Some(EarChoice::Install) => {
+                self.settings_open = true;
+                self.ear.asking = Some(crate::ear_panel::Asking::Install);
+            }
+            Some(EarChoice::NotNow(first)) => {
+                self.settings.ear_wanted_seen = Some(first);
+                self.settings.save();
+            }
+            None => {}
         }
     }
 

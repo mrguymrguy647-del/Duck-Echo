@@ -36,6 +36,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 /// The list of everything the installer downloads (`ear/manifest.toml`).
 const MANIFEST: &str = include_str!("../../../ear/manifest.toml");
@@ -91,6 +92,11 @@ pub const LAUNCHER: &str = "duck_ear_run.py";
 /// another address (a test server, or a mirror) instead of the release in
 /// the manifest.
 pub const SCORE_URL_VARIABLE: &str = "DUCK_ECHO_EAR_SCORE_URL";
+
+/// The environment variable naming another address for uv's file (a test
+/// server, or a test that must not reach the internet). Its SHA-256 is
+/// still checked against the manifest's.
+pub const UV_URL_VARIABLE: &str = "DUCK_ECHO_EAR_UV_URL";
 
 /// The environment variable naming a Python to use instead of installing
 /// a private one. For building and testing where the private Python
@@ -486,10 +492,248 @@ fn io_error(what: &str, path: &Path, error: std::io::Error) -> InstallError {
     )
 }
 
-/// Install the Ear into `home` (or bring it up to date). `events` hears
-/// what is being done; `cancel` stops it at the next download or step.
+// ---------------------------------------------------------------------
+// A stopped install, and a broken one.
+// ---------------------------------------------------------------------
+
+/// Who started an install.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Starter {
+    /// `duck-echo ear install`.
+    CommandLine,
+    /// Duck Echo Studio, Settings > Duck Ear.
+    Studio,
+}
+
+impl Starter {
+    fn word(self) -> &'static str {
+        match self {
+            Starter::CommandLine => "command_line",
+            Starter::Studio => "studio",
+        }
+    }
+}
+
+/// `installing.json`: there while an install runs, and after one that did
+/// not finish. A running install writes the time into it every few
+/// seconds, so another program can tell it still runs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Marker {
+    version: u32,
+    /// `studio` or `command_line`.
+    by: String,
+    /// When it began and when it last said it was running, in seconds
+    /// since 1970.
+    started: u64,
+    beat: u64,
+    /// How it ended without finishing: `person` (Stop, Ctrl+C) or `error`.
+    /// None while it runs, or when its program was closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stopped: Option<String>,
+    /// What went wrong, when `stopped` is `error`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// After this long with no word from a running install, it was closed.
+const BEAT_EVERY: Duration = Duration::from_secs(3);
+const CLOSED_AFTER: u64 = 20;
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn marker_file(home: &Path) -> PathBuf {
+    home.join("installing.json")
+}
+
+fn read_marker(home: &Path) -> Option<Marker> {
+    serde_json::from_str(&std::fs::read_to_string(marker_file(home)).ok()?).ok()
+}
+
+fn write_marker(home: &Path, marker: &Marker) {
+    let text = serde_json::to_string_pretty(marker).expect("serializes") + "\n";
+    let part = marker_file(home).with_extension(format!("part{}", std::process::id()));
+    if std::fs::write(&part, text).is_ok() {
+        let _ = std::fs::rename(&part, marker_file(home));
+    }
+}
+
+/// How an install that did not finish ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ended {
+    /// Its program was closed (the Studio, or the terminal) while it ran.
+    Closed,
+    /// A person pressed Stop. (Ctrl+C on the command line closes the
+    /// program, so it reads as [`Ended::Closed`].)
+    ByPerson,
+    /// It failed: why, in words.
+    Failed(String),
+}
+
+/// An install that began and did not finish.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stopped {
+    /// Who started it.
+    pub by: Starter,
+    /// How it ended.
+    pub ended: Ended,
+    /// How much is already in the Ear's folder, in bytes: an install
+    /// carries on from there.
+    pub bytes_here: u64,
+}
+
+/// What is in the Ear's folder.
+#[derive(Debug, Clone, PartialEq)]
+pub enum State {
+    /// No Ear, and no install begun.
+    NotInstalled,
+    /// An install runs now, in another program (or this one).
+    Installing(Starter),
+    /// An install began and did not finish.
+    Stopped(Stopped),
+    /// It was installed and something is missing now: what, in words.
+    Broken(String),
+    /// Installed.
+    Installed(Installed),
+}
+
+/// What is in the Ear's folder `home`: installed, broken, stopped half
+/// way, being installed, or nothing.
+pub fn state(home: &Path) -> State {
+    let places = Places::new(home);
+    if let Some(marker) = read_marker(home) {
+        let by = if marker.by == "studio" {
+            Starter::Studio
+        } else {
+            Starter::CommandLine
+        };
+        let ended = match marker.stopped.as_deref() {
+            Some("person") => Ended::ByPerson,
+            Some(_) => Ended::Failed(marker.error.unwrap_or_default()),
+            None if now().saturating_sub(marker.beat) < CLOSED_AFTER => {
+                return State::Installing(by)
+            }
+            None => Ended::Closed,
+        };
+        return State::Stopped(Stopped {
+            by,
+            ended,
+            bytes_here: disk_use(home),
+        });
+    }
+    let Some(record) = std::fs::read_to_string(places.record())
+        .ok()
+        .and_then(|text| serde_json::from_str::<Installed>(&text).ok())
+    else {
+        return State::NotInstalled;
+    };
+    let missing = |what: &str, path: &Path| {
+        State::Broken(format!(
+            "{what} is missing ({}). An antivirus may have removed it: allow the Duck Ear's folder, then Repair (it installs again, and keeps what is still there).",
+            path.display()
+        ))
+    };
+    if !places.python().is_file() {
+        return missing("The Ear's private Python", &places.python());
+    }
+    if !places.launcher().is_file() {
+        return missing("The Ear's own code", &places.launcher());
+    }
+    if let Some(file) = manifest()
+        .score
+        .files
+        .iter()
+        .map(|file| places.score_model().join(file))
+        .find(|path| !path.is_file())
+    {
+        return missing("A file of the score model", &file);
+    }
+    State::Installed(record)
+}
+
+/// Install the Ear into `home` (or bring it up to date, or repair it),
+/// for `by`. `events` hears what is being done; `cancel` stops it at the
+/// next download or step. Files already there and checked are kept, so
+/// an install that stopped carries on where it was.
+///
+/// While it runs, `installing.json` in `home` says so; it goes when the
+/// install finishes, and stays when it does not, saying how it ended.
 pub fn install(
     home: &Path,
+    by: Starter,
+    events: &mut dyn FnMut(Event),
+    cancel: &Cancel,
+) -> Result<Installed, InstallError> {
+    let uv_url = std::env::var(UV_URL_VARIABLE).ok();
+    install_from(home, by, uv_url.as_deref(), events, cancel)
+}
+
+/// [`install`], with uv's file from `uv_url` instead of the manifest's
+/// address (its SHA-256 is still the manifest's). For tests that must not
+/// reach the internet.
+pub fn install_from(
+    home: &Path,
+    by: Starter,
+    uv_url: Option<&str>,
+    events: &mut dyn FnMut(Event),
+    cancel: &Cancel,
+) -> Result<Installed, InstallError> {
+    std::fs::create_dir_all(home).map_err(|e| io_error("make the folder", home, e))?;
+    let mut marker = Marker {
+        version: 1,
+        by: by.word().to_string(),
+        started: now(),
+        beat: now(),
+        stopped: None,
+        error: None,
+    };
+    write_marker(home, &marker);
+    let running = std::sync::atomic::AtomicBool::new(true);
+    let done = std::thread::scope(|scope| {
+        let beat = marker.clone();
+        let running = &running;
+        scope.spawn(move || {
+            let mut beat = beat;
+            while running.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(250));
+                if now() >= beat.beat + BEAT_EVERY.as_secs() {
+                    beat.beat = now();
+                    if running.load(std::sync::atomic::Ordering::Relaxed) {
+                        write_marker(home, &beat);
+                    }
+                }
+            }
+        });
+        let done = install_steps(home, uv_url, events, cancel);
+        running.store(false, std::sync::atomic::Ordering::Relaxed);
+        done
+    });
+    match &done {
+        Ok(_) => {
+            let _ = std::fs::remove_file(marker_file(home));
+            crate::ear_home::forget_wanted(home);
+        }
+        Err(error) => {
+            marker.beat = now();
+            if error.code == "cancelled" {
+                marker.stopped = Some("person".into());
+            } else {
+                marker.stopped = Some("error".into());
+                marker.error = Some(error.message.clone());
+            }
+            write_marker(home, &marker);
+        }
+    }
+    done
+}
+
+fn install_steps(
+    home: &Path,
+    uv_url: Option<&str>,
     events: &mut dyn FnMut(Event),
     cancel: &Cancel,
 ) -> Result<Installed, InstallError> {
@@ -516,7 +760,7 @@ pub fn install(
     let have_uv = uv_says(&places.uv()).is_some_and(|said| said.contains(&manifest.uv.version));
     if !have_uv {
         ear_net::download(
-            &uv_file.url,
+            uv_url.unwrap_or(&uv_file.url),
             &wheel,
             &Expected {
                 bytes: Some(uv_file.bytes),
@@ -782,6 +1026,9 @@ const OWN: &[&str] = &[
     "answers",
     "downloads",
     "testset",
+    "installing.json",
+    "device.txt",
+    "wanted.json",
 ];
 
 /// How many bytes the Ear takes in `home` now.
@@ -899,6 +1146,121 @@ mod tests {
         assert!(plan.summary.contains("scores only"));
         assert!(plan.summary.contains("to download"));
         assert!(!home.exists(), "a plan writes nothing");
+    }
+
+    fn empty(name: &str) -> PathBuf {
+        let home =
+            std::env::temp_dir().join(format!("duck-echo-ear-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        home
+    }
+
+    fn marker(by: &str, beat: u64, stopped: Option<&str>, error: Option<&str>) -> Marker {
+        Marker {
+            version: 1,
+            by: by.into(),
+            started: beat,
+            beat,
+            stopped: stopped.map(str::to_string),
+            error: error.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_stopped_install_says_how_it_ended() {
+        let home = empty("state-stopped");
+        assert_eq!(state(&home), State::NotInstalled);
+        std::fs::create_dir_all(home.join("downloads")).unwrap();
+        std::fs::write(home.join("downloads/uv.zip.part"), vec![0u8; 500]).unwrap();
+        // Its program wrote the time a moment ago: it still runs.
+        write_marker(&home, &marker("studio", now(), None, None));
+        assert_eq!(state(&home), State::Installing(Starter::Studio));
+        // No word for a minute: its program was closed.
+        write_marker(&home, &marker("studio", now() - 60, None, None));
+        let State::Stopped(stopped) = state(&home) else {
+            panic!("{:?}", state(&home))
+        };
+        assert_eq!(stopped.by, Starter::Studio);
+        assert_eq!(stopped.ended, Ended::Closed);
+        assert!(stopped.bytes_here >= 500, "{stopped:?}");
+        write_marker(
+            &home,
+            &marker("command_line", now() - 60, Some("person"), None),
+        );
+        assert!(matches!(
+            state(&home),
+            State::Stopped(Stopped {
+                by: Starter::CommandLine,
+                ended: Ended::ByPerson,
+                ..
+            })
+        ));
+        write_marker(
+            &home,
+            &marker("studio", now(), Some("error"), Some("The disk is full.")),
+        );
+        assert!(
+            matches!(state(&home), State::Stopped(Stopped { ended: Ended::Failed(why), .. }) if why == "The disk is full.")
+        );
+        // Remove takes the marker too.
+        remove(&home).unwrap();
+        assert_eq!(state(&home), State::NotInstalled);
+    }
+
+    #[test]
+    fn an_install_that_is_stopped_leaves_a_note_and_one_that_is_cancelled_says_so() {
+        let home = empty("state-cancel");
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let error = install(&home, Starter::Studio, &mut |_| {}, &cancel).unwrap_err();
+        assert_eq!(error.code, "cancelled");
+        let marker = read_marker(&home).expect("the note stays");
+        assert_eq!(marker.by, "studio");
+        assert_eq!(marker.stopped.as_deref(), Some("person"));
+        assert!(matches!(
+            state(&home),
+            State::Stopped(Stopped {
+                ended: Ended::ByPerson,
+                ..
+            })
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_broken_ear_says_what_is_missing() {
+        let home = empty("state-broken");
+        let places = Places::new(&home);
+        let record = Installed {
+            version: 1,
+            duck_echo: "0.1.0".into(),
+            ear_version: "0.4.0".into(),
+            uv: "0.13.9".into(),
+            python: "3.12".into(),
+            score_model: "laion-clap-general@ada0c23a36c4".into(),
+            capabilities: vec!["score".into()],
+        };
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(places.record(), serde_json::to_string(&record).unwrap()).unwrap();
+        let State::Broken(why) = state(&home) else {
+            panic!("{:?}", state(&home))
+        };
+        assert!(why.contains("private Python is missing"), "{why}");
+        assert!(why.contains("Repair"), "{why}");
+        for file in [places.launcher(), places.python()] {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, b"").unwrap();
+        }
+        let State::Broken(why) = state(&home) else {
+            panic!("{:?}", state(&home))
+        };
+        assert!(why.contains("score model"), "{why}");
+        std::fs::create_dir_all(places.score_model()).unwrap();
+        for file in &manifest().score.files {
+            std::fs::write(places.score_model().join(file), b"x").unwrap();
+        }
+        assert_eq!(state(&home), State::Installed(record));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

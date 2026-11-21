@@ -1,6 +1,7 @@
 //! `duck-echo ear install`, `ear update` and `ear remove`: a person
 //! installs the Duck Ear from the command line. Each shows what it will
-//! do and asks first (`--yes` skips the question).
+//! do and asks first (`--yes` skips the question). And `ear test`, `ear
+//! device` and `ear clear-answers`, as in the Studio's Settings > Duck Ear.
 
 use duck_echo_tools::ear::default_home;
 use duck_echo_tools::ear_install::{self, Event};
@@ -71,6 +72,25 @@ pub fn install(yes: bool, json: bool, update: bool) -> ExitCode {
         Ok(plan) => plan,
         Err(error) => return failed(&error, json),
     };
+    if let ear_install::State::Installing(by) = ear_install::state(&home) {
+        let who = match by {
+            ear_install::Starter::Studio => "Duck Echo Studio",
+            ear_install::Starter::CommandLine => "another duck-echo",
+        };
+        eprintln!(
+            "error[in_use]: {who} is installing the Duck Ear into {} now. Let it finish, or stop it there.",
+            home.display()
+        );
+        return ExitCode::from(2);
+    }
+    if let ear_install::State::Stopped(stopped) = ear_install::state(&home) {
+        if !json {
+            println!(
+                "An install that did not finish is here ({} already in place): this one carries on from it.",
+                megabytes(stopped.bytes_here)
+            );
+        }
+    }
     if update && ear_install::installed(&home).is_none() {
         eprintln!(
             "The Duck Ear is not installed in {}: `duck-echo ear install` installs it.",
@@ -97,7 +117,12 @@ pub fn install(yes: bool, json: bool, update: bool) -> ExitCode {
     let mut print = printer();
     let mut quiet = |_: Event| {};
     let events: &mut dyn FnMut(Event) = if json { &mut quiet } else { &mut print };
-    match ear_install::install(&home, events, &Cancel::new()) {
+    match ear_install::install(
+        &home,
+        ear_install::Starter::CommandLine,
+        events,
+        &Cancel::new(),
+    ) {
         Ok(installed) => {
             if json {
                 println!(
@@ -217,5 +242,114 @@ pub fn use_model(which: &str) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => failed(&error, false),
+    }
+}
+
+/// `duck-echo ear test`: let the installed Ear listen to two sounds.
+pub fn test(json: bool) -> ExitCode {
+    let keeper = match duck_echo_tools::ear::keeper_from_environment(None) {
+        Ok(keeper) => keeper,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    if !json {
+        println!("Listening to a coin and to the Duck Craft night song...");
+    }
+    let tested = duck_echo_tools::ear_test::test(&keeper);
+    keeper.stop();
+    match tested {
+        Ok(tested) => {
+            if json {
+                println!("{}", serde_json::json!({"ok": true, "test": tested}));
+            } else {
+                println!("{}", tested.summary);
+            }
+            if tested.passed {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Err(error) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"ok": false, "code": error.code, "message": error.message})
+                );
+            } else {
+                eprintln!("error[{}]: {}", error.code, error.message);
+            }
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// `duck-echo ear device [auto|cpu]`.
+pub fn device(choice: Option<&str>) -> ExitCode {
+    use duck_echo_tools::ear_home::{self, Device};
+    let home = default_home();
+    if let Some(choice) = choice {
+        let choice = if choice == "cpu" {
+            Device::CpuOnly
+        } else {
+            Device::Automatic
+        };
+        if let Err(error) = ear_home::choose_device(&home, choice) {
+            eprintln!(
+                "error: cannot keep the choice in {}: {error}",
+                home.display()
+            );
+            return ExitCode::from(2);
+        }
+    }
+    match ear_home::device(&home) {
+        Device::Automatic => println!(
+            "The Ear's describe model runs on a graphics card when there is one (automatic). The score model always runs on the CPU."
+        ),
+        Device::CpuOnly => println!(
+            "The Ear runs on the CPU only, never on a graphics card. `duck-echo ear device auto` lets it use one again."
+        ),
+    }
+    ExitCode::SUCCESS
+}
+
+/// `duck-echo ear clear-answers`.
+pub fn clear_answers(yes: bool) -> ExitCode {
+    use duck_echo_tools::ear_home;
+    let home = default_home();
+    let (count, bytes) = ear_home::answers(&home);
+    if count == 0 {
+        println!("The Ear keeps no answers.");
+        return ExitCode::SUCCESS;
+    }
+    let question = format!(
+        "Forget the {count} answers the Ear keeps ({})? The same questions are then asked again, which takes longer.",
+        megabytes(bytes)
+    );
+    if !yes && !asked(&question) {
+        println!("Nothing was cleared.");
+        return ExitCode::from(2);
+    }
+    match ear_home::clear_answers(&home) {
+        Ok(count) => {
+            println!(
+                "{count} {} forgotten.",
+                if count == 1 {
+                    "answer was"
+                } else {
+                    "answers were"
+                }
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!(
+                "error: cannot clear {}: {error}",
+                home.join("answers").display()
+            );
+            ExitCode::from(2)
+        }
     }
 }

@@ -267,6 +267,9 @@ pub fn download(
     progress: &mut dyn FnMut(u64, Option<u64>),
     cancel: &Cancel,
 ) -> Result<(), NetError> {
+    if cancel.is_cancelled() {
+        return Err(NetError::Cancelled);
+    }
     if matches!(expected.matches(to), Ok(true)) {
         progress(expected.bytes.unwrap_or(0), expected.bytes);
         return Ok(());

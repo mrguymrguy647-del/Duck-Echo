@@ -3,11 +3,18 @@
 //! model, and its results come with Save and (only after a pass) Use.
 //!
 //! Nothing here downloads anything or starts a model: the Ear's folder is
-//! a pretend one of the test's own, and so are the graphics cards.
+//! a pretend one of the test's own, and so are the graphics cards. Test
+//! listens with the stub Ear (`ear/stub`), which needs Python: those tests
+//! skip without one, unless `DUCK_ECHO_REQUIRE_PYTHON=1` (as in CI).
+//!
+//! Step 6: Test, Automatic or CPU only, Clear kept answers, Repair, an
+//! install that carries on, the note when an AI assistant wanted to
+//! listen, and the Studio's Ear following the 10-minute rule.
 
 use std::path::{Path, PathBuf};
 
 use duck_echo_tools::ear_cards::Card;
+use duck_echo_tools::ear_home;
 use duck_echo_tools::ear_install::{self, Places};
 use duck_echo_tools::ear_net::megabytes;
 use eframe::egui;
@@ -95,6 +102,9 @@ fn pretend_installed(home: &Path) {
         std::fs::write(file, b"").unwrap();
     }
     std::fs::create_dir_all(places.score_model()).unwrap();
+    for file in &ear_install::manifest().score.files {
+        std::fs::write(places.score_model().join(file), b"pretend").unwrap();
+    }
     std::fs::write(
         places.score_model().join("audio.onnx"),
         vec![0u8; 5_000_000],
@@ -309,5 +319,243 @@ fn remove_asks_first_and_takes_only_the_ears_own_things() {
         std::fs::read_to_string(home.join("my notes.txt")).unwrap(),
         "keep me"
     );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Draw frames until the panel's job is done.
+fn wait_for_the_job(harness: &mut Harness<'static, StudioApp>, what: &str) {
+    let started = std::time::Instant::now();
+    while harness.state().ear.job.is_some() {
+        assert!(started.elapsed().as_secs() < 120, "{what} took too long");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        harness.run_steps(1);
+    }
+    harness.run_steps(3);
+}
+
+/// The stub Ear, if there is a Python to run it.
+fn stub_ear() -> Option<PathBuf> {
+    let stub = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../ear/stub/duck_ear_stub.py");
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    let python = std::env::var_os("DUCK_ECHO_EAR_PYTHON").unwrap_or(python.into());
+    let found = std::process::Command::new(&python)
+        .arg("--version")
+        .output()
+        .is_ok_and(|out| out.status.success());
+    if !found {
+        assert!(
+            std::env::var("DUCK_ECHO_REQUIRE_PYTHON").as_deref() != Ok("1"),
+            "no Python, and DUCK_ECHO_REQUIRE_PYTHON=1"
+        );
+        eprintln!("skipped: no Python for the stub Ear");
+        return None;
+    }
+    Some(stub)
+}
+
+#[test]
+fn test_listens_and_the_studios_ear_stops_after_its_idle_time() {
+    let Some(stub) = stub_ear() else {
+        return;
+    };
+    let dir = folder("test");
+    let home = dir.join("ear");
+    pretend_installed(&home);
+    let mut app = app(&dir, vec![]);
+    // The Studio's Ear keeps the MCP server's rules.
+    assert_eq!(app.ear.ear_idle, duck_echo_tools::ear::EAR_IDLE);
+    app.ear.program = Some(stub);
+    // A short idle time, to see the rule work in a test.
+    app.ear.ear_idle = std::time::Duration::from_millis(700);
+    let mut harness = harness(app);
+    open_settings(&mut harness);
+    harness.get_by_label_contains("The Ear stops 1 second after its last question");
+    harness.get_by_label("It keeps no answers yet.");
+    press(&mut harness, "Test");
+    wait_for_the_job(&mut harness, "the test");
+    let tested = harness.state().ear.tested.clone().expect("tested");
+    assert_eq!(tested.lines.len(), 2);
+    harness.get_by_label_contains("coin: \"a coin pickup\":");
+    harness.get_by_label_contains("night song: \"calm music\":");
+    harness.get_by_label("This is the stub Ear: it does not listen.");
+    assert!(
+        harness.state().ear.ear_running(),
+        "the Ear is kept after Test"
+    );
+    shoot(&mut harness, "20-settings-duck-ear-test");
+    // Nothing is kept by a test, so the next one listens again.
+    assert_eq!(ear_home::answers(&home).0, 0);
+    let started = std::time::Instant::now();
+    while harness.state().ear.ear_running() {
+        assert!(started.elapsed().as_secs() < 10, "the Ear was not stopped");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_device_and_the_kept_answers_are_chosen_in_settings() {
+    let dir = folder("device");
+    let home = dir.join("ear");
+    pretend_installed(&home);
+    for name in ["ab1.json", "ab2.json", "ab3.json"] {
+        std::fs::create_dir_all(home.join("answers/ab")).unwrap();
+        std::fs::write(home.join("answers/ab").join(name), "{}").unwrap();
+    }
+    let mut harness = harness(app(&dir, vec![]));
+    open_settings(&mut harness);
+    harness.get_by_label_contains("It keeps 3 answers");
+    // The MCP server's two rules, in the Studio too.
+    harness.get_by_label_contains(
+        "The Ear stops 10 minutes after its last question; a describe model lets go of the \
+         graphics card after 2 minutes.",
+    );
+    harness.get_by_label_contains("A describe model runs on the graphics card");
+    press(&mut harness, "CPU only");
+    assert_eq!(ear_home::device(&home), ear_home::Device::CpuOnly);
+    harness.get_by_label_contains("also for an AI assistant's Ear");
+    shoot(&mut harness, "21-settings-duck-ear-cpu-only");
+    press(&mut harness, "Automatic");
+    assert_eq!(ear_home::device(&home), ear_home::Device::Automatic);
+    press(&mut harness, "Clear kept answers");
+    harness.get_by_label_contains("3 kept answers were forgotten");
+    assert_eq!(ear_home::answers(&home).0, 0);
+    assert!(home.join("ear.json").exists(), "only the answers go");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_broken_ear_offers_repair_and_says_what_is_missing() {
+    let dir = folder("broken");
+    let home = dir.join("ear");
+    pretend_installed(&home);
+    std::fs::remove_file(Places::new(&home).python()).unwrap();
+    let mut harness = harness(app(&dir, vec![]));
+    open_settings(&mut harness);
+    harness.get_by_label_contains("The Duck Ear is broken.");
+    harness.get_by_label_contains("private Python is missing");
+    shoot(&mut harness, "22-settings-duck-ear-broken");
+    press(&mut harness, "Repair the Duck Ear");
+    harness.get_by_label_contains("to download");
+    harness.get_by_label("Repair");
+    assert!(harness.state().ear.job.is_none(), "it asks first");
+    press(&mut harness, "Not now");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A note in the Ear's folder that an install stopped: how, and who
+/// began it, as `ear install` leaves it.
+fn pretend_stopped(home: &Path, by: &str, stopped: Option<&str>) {
+    std::fs::create_dir_all(home.join("downloads")).unwrap();
+    std::fs::write(home.join("downloads/uv.zip.part"), vec![0u8; 3_000_000]).unwrap();
+    let mut note = json!({"version": 1, "by": by, "started": 1, "beat": 1});
+    if let Some(stopped) = stopped {
+        note["stopped"] = json!(stopped);
+    }
+    std::fs::write(home.join("installing.json"), note.to_string()).unwrap();
+}
+
+#[test]
+fn an_install_the_studio_was_running_when_it_closed_carries_on_by_itself() {
+    let dir = folder("carry-on");
+    let home = dir.join("ear");
+    pretend_stopped(&home, "studio", None);
+    let mut app = app(&dir, vec![]);
+    // Nothing on this machine answers there, so nothing is downloaded.
+    app.ear.uv_url = Some("http://127.0.0.1:9/uv.zip".into());
+    let mut harness = harness(app);
+    harness.run_steps(2);
+    let job = harness.state().ear.job.as_ref().map(|job| job.title);
+    assert_eq!(job, Some("Installing the Duck Ear"));
+    harness.get_by_label_contains("Installing the Duck Ear:");
+    wait_for_the_job(&mut harness, "the install");
+    // It failed here (no internet at that address), and says so; now it
+    // waits for a person.
+    let note = harness.state().ear.note.clone().expect("a note");
+    assert!(note.0, "{note:?}");
+    assert!(matches!(
+        ear_install::state(&home),
+        ear_install::State::Stopped(ear_install::Stopped {
+            ended: ear_install::Ended::Failed(_),
+            ..
+        })
+    ));
+    open_settings(&mut harness);
+    harness.get_by_label_contains("An install of the Duck Ear did not finish");
+    harness.get_by_label("Carry on installing");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn an_install_stopped_by_a_person_or_begun_elsewhere_waits_for_a_person() {
+    let dir = folder("waits");
+    let home = dir.join("ear");
+    for (by, stopped) in [("studio", Some("person")), ("command_line", None)] {
+        pretend_stopped(&home, by, stopped);
+        let mut harness = harness(app(&dir, vec![]));
+        harness.run_steps(3);
+        assert!(harness.state().ear.job.is_none(), "{by}: nothing by itself");
+        open_settings(&mut harness);
+        harness.get_by_label_contains("An install of the Duck Ear did not finish");
+        harness.get_by_label_contains("3 MB is already here");
+        if by == "studio" {
+            shoot(&mut harness, "23-settings-duck-ear-stopped");
+        }
+        press(&mut harness, "Carry on installing");
+        harness.get_by_label_contains("already there and right is kept");
+        harness.get_by_label("Carry on installing");
+        press(&mut harness, "Not now");
+    }
+    // One that runs now, in another program: no buttons.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let note = json!({"version": 1, "by": "command_line", "started": now, "beat": now});
+    std::fs::write(home.join("installing.json"), note.to_string()).unwrap();
+    let mut harness = harness(app(&dir, vec![]));
+    open_settings(&mut harness);
+    harness.get_by_label("The Duck Ear is being installed by duck-echo ear install now.");
+    assert!(harness.query_by_label("Carry on installing").is_none());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn an_assistant_that_wanted_to_listen_gets_a_note_once() {
+    let dir = folder("wanted");
+    let home = dir.join("ear");
+    ear_home::note_wanted(&home, "listen");
+    ear_home::note_wanted(&home, "listen");
+    let mut harness = harness(app(&dir, vec![]));
+    harness.run_steps(3);
+    harness.get_by_label("An AI assistant wanted to listen to a sound.");
+    harness.get_by_label_contains("it asked twice");
+    shoot(&mut harness, "24-assistant-wanted-to-listen");
+    let plan = ear_install::plan(&home).unwrap();
+    let size = megabytes(plan.download_bytes);
+    // Install opens Settings with the question; nothing starts by itself.
+    harness
+        .get_by_label(&format!("Install the Duck Ear (about {size})..."))
+        .click();
+    harness.run_steps(30);
+    assert!(harness.state().settings_open);
+    harness.get_by_label_contains(&format!("about {size} to download"));
+    assert!(harness.state().ear.job.is_none());
+    press(&mut harness, "Not now");
+    harness.state_mut().settings_open = false;
+    harness.run_steps(3);
+    // Not now: the note goes, and stays gone.
+    harness.get_by_label("Not now").click();
+    harness.run_steps(3);
+    let first = ear_home::wanted(&home).unwrap().first;
+    assert_eq!(harness.state().settings.ear_wanted_seen, Some(first));
+    assert!(
+        harness
+            .query_by_label("An AI assistant wanted to listen to a sound.")
+            .is_none()
+    );
+    // Settings still says it, quietly.
+    open_settings(&mut harness);
+    harness.get_by_label_contains("An AI assistant asked to listen twice");
     std::fs::remove_dir_all(&dir).ok();
 }

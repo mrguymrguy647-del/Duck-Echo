@@ -1,7 +1,8 @@
 # The Duck Ear, for real: its score model is converted, the Ear is
 # installed with `duck-echo ear install` on Windows and on Linux (a
 # private Python and all), it listens, a describe model is tried, and the
-# Ear is removed again. And this workflow publishes the score model.
+# Ear is removed again. It is also installed from the published release,
+# as on a person's PC. And this workflow publishes the score model.
 #
 # The score model's release (ear/manifest.toml names it, such as
 # ear-score-v1) is what `duck-echo ear install` downloads. Two ways to
@@ -203,6 +204,78 @@ jobs:
         run: |
           target/release/duck-echo ear remove --yes
           [[ ! -e "$DUCK_ECHO_EAR_HOME/env" && ! -e "$DUCK_ECHO_EAR_HOME/models" ]]
+          target/release/duck-echo ear status | grep -q "not_installed"
+
+  published:
+    # As a person's PC would: the score model from the published release
+    # the manifest names, with nothing pointed elsewhere and no Python set
+    # up first. Skipped (with a note) while that release is not there.
+    name: Install from the published release, test, remove (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      DUCK_ECHO_EAR_HOME: ${{ github.workspace }}/the-ear
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is the release there?
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(grep -E '^release = ' ear/manifest.toml | sed -E 's|.*/([^/"]+)"$|\1|')
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "there=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The release $tag is not published yet: nothing to install from."
+            echo "there=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.release.outputs.there == 'yes'
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.release.outputs.there == 'yes'
+
+      - name: Build duck-echo
+        if: steps.release.outputs.there == 'yes'
+        run: cargo build --release -p duck-echo-cli
+
+      - name: duck-echo ear install, from the release
+        if: steps.release.outputs.there == 'yes'
+        run: |
+          target/release/duck-echo ear install --yes
+          cat "$DUCK_ECHO_EAR_HOME/ear.json"
+          ls "$DUCK_ECHO_EAR_HOME/python"
+
+      - name: It listens, and Test passes
+        if: steps.release.outputs.there == 'yes'
+        run: |
+          target/release/duck-echo listen preset:coin --like "a coin pickup" --like "an explosion" | tee listened.txt
+          grep -q '"a coin pickup": yes' listened.txt
+          grep -q '"an explosion": no' listened.txt
+          target/release/duck-echo ear test
+
+      - name: CPU only, and clearing the kept answers
+        if: steps.release.outputs.there == 'yes'
+        run: |
+          target/release/duck-echo ear device cpu
+          target/release/duck-echo ear status --json | grep -q '"device_choice":"cpu_only"'
+          target/release/duck-echo ear device auto
+          target/release/duck-echo ear clear-answers --yes
+          target/release/duck-echo ear status --json | grep -q '"answers_kept":0'
+
+      - name: duck-echo ear remove
+        if: steps.release.outputs.there == 'yes'
+        run: |
+          target/release/duck-echo ear remove --yes
           target/release/duck-echo ear status | grep -q "not_installed"
 
   publish:

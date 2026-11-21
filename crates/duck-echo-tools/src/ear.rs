@@ -44,6 +44,9 @@ pub const PROGRAM_VARIABLE: &str = "DUCK_ECHO_EAR";
 /// The environment variable naming the Ear's folder (its installed files,
 /// its log and the answer cache).
 pub const HOME_VARIABLE: &str = "DUCK_ECHO_EAR_HOME";
+/// The environment variable that tells the Ear where its describe model
+/// runs (`cpu`, or a device's name); the person's "CPU only" sets it.
+pub const DEVICE_VARIABLE: &str = "DUCK_EAR_DEVICE";
 /// What every answer from the Ear says about itself.
 pub const ADVICE: &str =
     "The Ear's answers come from listening models and can be wrong. Check them against the numbers.";
@@ -63,6 +66,9 @@ pub const MAX_LIKE: usize = 8;
 pub const MAX_TEXT: usize = 500;
 /// How long the Ear (and its score model) stays with no question.
 pub const EAR_IDLE: Duration = Duration::from_secs(10 * 60);
+/// How long the Ear keeps its describe model with no describe question,
+/// in seconds (it is told so in `hello`).
+pub use duck_echo_ear::DESCRIBE_IDLE_SECONDS;
 
 // ---------------------------------------------------------------------
 // Where the Ear is.
@@ -88,6 +94,11 @@ pub struct EarConfig {
     pub describe_model: Option<PathBuf>,
     /// More environment variables for the Ear, each a name and a value.
     pub ear_env: Vec<(String, String)>,
+    /// Note in the Ear's folder when an assistant asked to listen and the
+    /// installed Ear was not there (`wanted.json`, which the Studio shows
+    /// once). True for the command line and the MCP server; false for the
+    /// Studio's own Ear.
+    pub notes_wanted: bool,
 }
 
 impl EarConfig {
@@ -104,6 +115,7 @@ impl EarConfig {
             describe_idle_seconds: duck_echo_ear::DESCRIBE_IDLE_SECONDS,
             describe_model: None,
             ear_env: Vec::new(),
+            notes_wanted: true,
         })
     }
 
@@ -141,6 +153,12 @@ impl EarConfig {
         let mut program = program.env(HOME_VARIABLE, &self.home);
         for (name, value) in &self.ear_env {
             program = program.env(name, value);
+        }
+        // The person's "CPU only", unless the Ear is told otherwise here.
+        let told = std::env::var_os(DEVICE_VARIABLE).is_some()
+            || self.ear_env.iter().any(|(name, _)| name == DEVICE_VARIABLE);
+        if !told && crate::ear_home::device(&self.home) == crate::ear_home::Device::CpuOnly {
+            program = program.env(DEVICE_VARIABLE, "cpu");
         }
         match &self.describe_model {
             Some(folder) => program.env("DUCK_EAR_DESCRIBE_MODEL", folder),
@@ -464,19 +482,6 @@ fn write_whole(path: &Path, text: &str) -> std::io::Result<()> {
     let part = path.with_extension(format!("part{}", std::process::id()));
     std::fs::write(&part, text)?;
     std::fs::rename(&part, path)
-}
-
-/// How many answers the cache holds.
-fn answers_kept(config: &EarConfig) -> usize {
-    let Ok(dirs) = std::fs::read_dir(config.answers()) else {
-        return 0;
-    };
-    dirs.flatten()
-        .filter(|d| d.path().is_dir())
-        .filter_map(|d| std::fs::read_dir(d.path()).ok())
-        .flat_map(|files| files.flatten())
-        .filter(|f| f.path().extension().is_some_and(|e| e == "json"))
-        .count()
 }
 
 // ---------------------------------------------------------------------
@@ -868,6 +873,7 @@ struct Found {
 /// any; and with `closest`, the Ear's own words that fit best. A failure
 /// stops the listening and is reported in the section.
 fn listen_to(
+    tool: &str,
     keeper: &EarKeeper,
     buffer: &AudioBuffer,
     texts: &[String],
@@ -879,11 +885,18 @@ fn listen_to(
     let mut listening = match Listening::begin(keeper) {
         Ok(listening) => listening,
         Err(u) => {
+            let config = keeper.config();
+            if u.reason == duck_echo_ear::Reason::NotInstalled
+                && config.notes_wanted
+                && config.locate().1 == "installed"
+            {
+                crate::ear_home::note_wanted(&config.home, tool);
+            }
             return Ok(Found {
                 section: EarSection::unavailable(&u),
                 likes: Vec::new(),
                 free: None,
-            })
+            });
         }
     };
     let mut section = EarSection::heard_by(&listening.hello, sound.heard);
@@ -1027,7 +1040,7 @@ pub fn add_to_analysis(
             .map(|l| l.wanted.clone())
     });
     let texts: Vec<String> = sounds_like.iter().cloned().collect();
-    let found = listen_to(keeper, buffer, &texts, None, false, false)?;
+    let found = listen_to("analyze", keeper, buffer, &texts, None, false, false)?;
     let mut section = found.section;
     section.sounds_like = found.likes.into_iter().next();
 
@@ -1261,6 +1274,7 @@ pub fn listen(
 
     let keeper = keeper_of(root)?;
     let found = listen_to(
+        "listen",
         &keeper,
         &buffer,
         request.like,
@@ -1272,7 +1286,15 @@ pub fn listen(
     let mut compared = None;
     if let (Some((other_buffer, other_file)), true) = (other, section.error.is_none()) {
         if section.available {
-            let other_found = listen_to(&keeper, &other_buffer, request.like, None, true, false)?;
+            let other_found = listen_to(
+                "listen",
+                &keeper,
+                &other_buffer,
+                request.like,
+                None,
+                true,
+                false,
+            )?;
             match other_found.section.error {
                 Some(error) => section.error = Some(error),
                 None => {
@@ -1402,7 +1424,8 @@ pub fn status(root: &Root) -> Result<Value, ToolError> {
         "found_by": found_by,
         "home": config.home.to_string_lossy(),
         "running": keeper.is_running(),
-        "answers_kept": answers_kept(config),
+        "answers_kept": crate::ear_home::answers(&config.home).0,
+        "device_choice": crate::ear_home::device(&config.home).word(),
         "ear_idle_seconds": config.ear_idle.as_secs(),
         "describe_idle_seconds": config.describe_idle_seconds,
     });
@@ -1467,6 +1490,38 @@ pub fn status(root: &Root) -> Result<Value, ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cpu_only_is_passed_to_the_ear_unless_it_was_told_otherwise() {
+        let home =
+            std::env::temp_dir().join(format!("duck-echo-ear-device-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let config = EarConfig {
+            home: home.clone(),
+            ..EarConfig::from_environment(None).unwrap()
+        };
+        let device_of = |config: &EarConfig| {
+            config
+                .program_for(Path::new("ear.py"))
+                .envs
+                .iter()
+                .find(|(name, _)| name == DEVICE_VARIABLE)
+                .map(|(_, value)| value.to_string_lossy().to_string())
+        };
+        // Automatic: the Ear chooses.
+        if std::env::var_os(DEVICE_VARIABLE).is_none() {
+            assert_eq!(device_of(&config), None);
+            crate::ear_home::choose_device(&home, crate::ear_home::Device::CpuOnly).unwrap();
+            assert_eq!(device_of(&config).as_deref(), Some("cpu"));
+        }
+        // A device named for this Ear wins over the person's choice.
+        let told = EarConfig {
+            ear_env: vec![(DEVICE_VARIABLE.into(), "Vulkan0".into())],
+            ..config.clone()
+        };
+        assert_eq!(device_of(&told).as_deref(), Some("Vulkan0"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn the_two_models_must_agree_for_a_yes_or_a_no() {
