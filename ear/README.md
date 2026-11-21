@@ -38,7 +38,20 @@ private Python and the score model into the Ear's folder
 (`%LOCALAPPDATA%\DuckEcho\ear` on Windows, `~/.local/share/duck-echo/ear`
 on Linux). `duck-echo ear update` brings it up to date and `duck-echo ear
 remove` takes it out again. What it downloads is listed in
-`manifest.toml`.
+`manifest.toml`; the score model comes from the release `ear-score-v1`,
+checked against its `SHA256SUMS`.
+
+An install that stops carries on where it stopped: run it again (or, in
+the Studio, it carries on by itself when the Studio was closed while
+installing). `duck-echo ear test` lets it listen to two sounds, `duck-echo
+ear device cpu` keeps it off the graphics card, and `duck-echo ear
+clear-answers` forgets what it remembered.
+
+Besides the Ear, its folder holds a few small files that every Duck Echo
+program reads: `device.txt` (`cpu` for CPU only), `installing.json`
+(while an install runs, or after one that did not finish) and
+`wanted.json` (an AI assistant asked to listen while the Ear was
+missing; the Studio shows a note once).
 
 ## Running the real Ear from the source
 

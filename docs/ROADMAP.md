@@ -1425,10 +1425,18 @@ Lessons from step 4:
   only a model that reached every bar is offered for use. The workflow
   `Ear` installs it all for real on Windows and Linux and publishes the
   score model.
-  * [ ] Still open: **publish the score model** (Actions > Ear > Run
-    workflow with "Publish the score model" ticked, or push the tag
-    `ear-score-v1`). Until then `ear install` stops at the score model
-    and says so.
+  * [x] **The score model is published** as the release `ear-score-v1`
+    (by the `Ear` workflow, run with "Publish the score model"; 21
+    November 2026). Its six files and `SHA256SUMS` match the manifest
+    (783.7 MB; the manifest says about 784 MB), each file's SHA-256 in
+    `SHA256SUMS` is the one GitHub lists, and `duck-echo ear install`
+    into an empty folder, with nothing pointed elsewhere, installs the
+    Ear from it, private Python and all. The workflow's job "Install from
+    the published release" does the same on clean Windows and Linux
+    machines. (`model.json` and `reference.npy` differ from an earlier
+    conversion's by a few bits of the reference sounds' numbers; the two
+    ONNX models, the tokenizer and the filters are byte for byte the
+    same. An install trusts the release's own `SHA256SUMS`.)
 
 Lessons from step 5:
 
@@ -1470,9 +1478,43 @@ Lessons from step 5:
   test failed there. The test now works the size out as the Studio does.
 * **A shell `rm -rf *` after a `cd` is never worth it.** One was stopped
   by a safety check here; name the folder to delete, in full.
-* [ ] Step 6: the rest of the Studio's Settings > Duck Ear (Test, the
-  device and "CPU only", Clear answers, the note when an assistant
-  wanted to listen).
+* [x] **Step 6: the rest of the Studio's Settings > Duck Ear.** Test
+  (the coin and the Duck Craft night song, heard afresh, with each
+  answer and its time), Use: Automatic or CPU only (kept in the Ear's
+  folder, so every Ear Duck Echo starts follows it), Clear kept answers,
+  Repair for a broken Ear, an install that carries on after the Studio
+  was closed, and the note when an AI assistant wanted to listen while
+  the Ear was missing. The Studio's own Ear keeps the MCP server's two
+  rules (10 minutes; 2 for a describe model). The same work is on the
+  command line: `duck-echo ear test`, `ear device auto|cpu`, `ear
+  clear-answers`; `ear_status` says `device_choice`.
+
+Lessons from step 6:
+
+* **One small file per choice, in the Ear's folder.** `device.txt`,
+  `installing.json` and `wanted.json` are read by whichever Duck Echo
+  starts the Ear or looks: the Studio, the MCP server, the command line.
+  No program has to tell another anything.
+* **"Still running" needs a heartbeat.** A stopped install and a running
+  one look the same on disk; the running one writes the time into
+  `installing.json` every few seconds, and 20 seconds without it means
+  its program was closed.
+* **Carry on by itself only what a person already said yes to.** An
+  install the Studio was running when it closed carries on when it opens
+  again; one stopped with Stop, or begun in a terminal, waits for a
+  button. The note about an assistant never installs anything: its
+  Install button asks first, with the size.
+* **Tests must not touch the person's own Ear.** Only the real Studio
+  (its settings come from a file) looks at the Ear's folder by itself;
+  every other test's Studio leaves it alone, and the Ear's tests name a
+  folder of their own.
+* **A test that installs must not reach the internet.** The Studio's
+  carry-on test points uv's download at a closed port on this machine
+  (`install_from`), so it fails at once and the test sees how a failed
+  install is shown.
+* **Words in a screenshot catch what tests do not.** The first pictures
+  said "It keeps 0 answers (1 MB)" and "stops after 0 minutes"; both
+  are now said in words that fit.
 
 Lessons from step 1, for the next builder:
 

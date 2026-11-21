@@ -1118,12 +1118,11 @@ What you test on Linux:
     score model, installs the Ear for real on Windows and Linux, listens,
     tries a describe model with llama.cpp's real newest build, removes
     the Ear, and publishes the score model as the release the manifest
-    names (`ear-score-v1`). **Until that release is published, `ear
-    install` stops at the score model and says so.**
+    names (`ear-score-v1`, published on 21 November 2026 and checked
+    against the manifest; step 6 added a job that installs from it on
+    clean Windows and Linux machines).
 
-What you test on Windows (after the release `ear-score-v1` is published:
-Actions > Ear > Run workflow with "Publish the score model" ticked, or
-push the tag `ear-score-v1`):
+What you test on Windows:
 - [ ] `duck-echo ear install` on a PC with no Python: it shows the size (about 0.9 GB), asks, installs, and the self-test passes. `duck-echo listen preset:coin --like "a coin pickup"` says yes.
 - [ ] Stop it in the middle of the score model (Ctrl+C); run it again: it carries on from where it stopped, it does not start over.
 - [ ] In the Studio: Settings > Duck Ear shows "Installed", the size on disk and the folder.
@@ -1136,13 +1135,12 @@ push the tag `ear-score-v1`):
 What you test on Linux:
 - [ ] `duck-echo ear install`, `listen`, `ear remove` as on Windows.
 - [ ] On a PC with no graphics card of 16 GB: Settings > Duck Ear says a bigger model needs one, and shows no button; `duck-echo ear try large` says the same.
-- [ ] `duck-echo ear try full --quick` downloads llama.cpp's CPU build and Qwen2.5-Omni-7B and answers the 10 quick sounds (about 15 minutes on 4 cores).
+- [ ] `duck-echo ear try full --quick` downloads llama.cpp's CPU build and Qwen2.5-Omni-7B and answers the 10 quick sounds (about 30 minutes on 4 cores).
 
-### Step 6: the Studio's Settings > Duck Ear
+### Step 6: the Studio's Settings > Duck Ear [done]
 
 (Install with progress and Stop, Update, Remove and "Try a bigger model"
-were built in step 5. What is left for this step: Test, the device and
-"CPU only", Clear answers, and the "an assistant wanted to listen" note.)
+were built in step 5.)
 
 * The box from section 5: sizes, install with progress, stop and carry
   on, Test, device, Remove, Repair, Clear answers, the "an assistant
@@ -1150,14 +1148,56 @@ were built in step 5. What is left for this step: Test, the device and
 * The Studio's Ear follows the same two rules as the MCP server's (10
   minutes for the Ear, 2 for `llama-server`).
 * Screen tests with a fake installer, and pictures in CI.
+* As built (`ear_home.rs`, `ear_test.rs`, `ear_install.rs` in
+  `duck-echo-tools`; `ear_panel.rs` in the Studio):
+  * **Test** lets the Ear listen to the coin preset ("a coin pickup")
+    and the first 30 seconds of the Duck Craft night song ("calm
+    music"), afresh (kept answers are neither used nor filled), and shows
+    each word, match and time, and where it listened. `duck-echo ear
+    test` is the same. A Test that cannot start the Ear offers Repair.
+  * **Use: Automatic / CPU only** is kept as `device.txt` in the Ear's
+    folder; every Ear Duck Echo starts gets `DUCK_EAR_DEVICE=cpu` from it
+    (unless that is set already), the MCP server's too. `duck-echo ear
+    device auto|cpu`; `ear_status` says `device_choice`. (The design's
+    `--ear-device cpu` became this one choice that all front ends read.)
+  * **Clear kept answers** (`duck-echo ear clear-answers`).
+  * **A stopped install, carried on.** `installing.json` says who began
+    an install and how it ended; a running install writes the time into
+    it every 3 seconds. `ear_install::state()` reads installed, broken,
+    stopped, being installed elsewhere, or nothing. An install the Studio
+    was running when it was closed carries on by itself when the Studio
+    opens again; one stopped with Stop, or begun on the command line,
+    waits for "Carry on installing". While an install runs and Settings
+    is closed, a line across the window shows it.
+  * **Repair**: a broken Ear (its Python, its own code or a file of the
+    score model missing) says what is missing, in words, and offers
+    Repair, which is the install again (what is there and right is kept).
+  * **"An AI assistant wanted to listen"**: `listen` and `analyze` write
+    `wanted.json` when the installed Ear is missing (not when a named
+    program is missing, and never for the Studio's own Ear). The Studio
+    shows a line across the window once: "An AI assistant wanted to
+    listen to a sound. That needs the Duck Ear, which is not installed.
+    [Install the Duck Ear (about 912 MB)...] [Not now]". Install opens
+    Settings with the usual question and size; Not now is kept in the
+    Studio's settings, and the note comes back only for a new one (after
+    the Ear was removed). A successful install forgets the note.
+  * **The Studio's own Ear** is made for Test with the MCP server's
+    settings: it stops 10 minutes after its last question, and a describe
+    model lets go of the graphics card after 2 minutes. Settings says so,
+    and whether it is running.
 
 What you test on Windows:
-- [ ] Install Small from Settings; close the Studio halfway; open it: it carries on.
-- [ ] Test shows the coin and the night loop answers.
+- [ ] Settings > Duck Ear > Install; close the Studio while the score model downloads; open it again: a line across the window says it is installing again, and it carries on from where it stopped (it does not download uv or the finished files again).
+- [ ] Press Stop while it installs: it stops and Settings says "An install of the Duck Ear did not finish (it was stopped)" with "Carry on installing"; close and open the Studio: it does not carry on by itself.
+- [ ] Test: the coin says yes to "a coin pickup" and the night song yes to "calm music", each with a time; "Where it listened" is your CPU.
+- [ ] Use: CPU only, then `duck-echo ear device` in a terminal says "CPU only"; set Automatic again.
+- [ ] Clear kept answers: the count goes to "no answers yet".
+- [ ] Rename `%LOCALAPPDATA%\DuckEcho\ear\env` to `env-old` while the Studio is closed; open Settings: it says the Ear's private Python is missing and offers Repair; Repair puts it back (delete `env-old` afterwards).
+- [ ] Remove the Ear; in a terminal, `duck-echo listen preset:coin --like "a coin pickup"` (as an assistant would); open the Studio: the line "An AI assistant wanted to listen to a sound" shows with the size; Not now hides it, and it stays hidden after closing and opening the Studio.
 - [ ] Remove frees the space shown.
 
 What you test on Linux (AppImage):
-- [ ] The same.
+- [ ] The same, with `~/.local/share/duck-echo/ear` for the Ear's folder.
 
 ### Step 7: your ratings, and measuring the Ear
 

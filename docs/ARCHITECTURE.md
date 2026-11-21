@@ -812,7 +812,7 @@ the bridge; `duck-echo-tools` decides what to ask (step 2).
   (`--closest`), and `analyze` never gives it: for short sounds it is
   often wrong (`docs/ear-check.md`).
 
-### Installing the Ear (`ear_install.rs`, `ear_net.rs`, `ear_cards.rs`, `ear_try.rs`)
+### Installing the Ear (`ear_install.rs`, `ear_net.rs`, `ear_cards.rs`, `ear_try.rs`, `ear_home.rs`, `ear_test.rs`)
 
 Only a person starts any of this (the command line's `duck-echo ear
 ...`, or the Studio's Settings > Duck Ear), after seeing the size. None
@@ -847,7 +847,35 @@ of it is a command an AI assistant can run: it is not in
   (tests, CI, a mirror); `DUCK_ECHO_EAR_INSTALL_PYTHON` names a Python
   to use instead of a private one (for building where the private one
   cannot be downloaded).
+* **A stopped install** (`ear_install::state`): `installing.json` is
+  there while an install runs (who began it: the Studio or the command
+  line) and stays when it does not finish (how: stopped by a person, or
+  failed, with why). A running install writes the time into it every 3
+  seconds from a second thread, so 20 seconds without it means its
+  program was closed. `state()` reads installed, broken (what is
+  missing: the Python, the Ear's code, a score model file), stopped,
+  being installed now, or nothing. `install_from` takes uv's address for
+  tests that must not reach the internet.
 * **Remove** deletes only the Ear's own files and folders, by name.
+* **What the Ear's folder keeps besides the Ear** (`ear_home.rs`): the
+  person's device choice (`device.txt`: `cpu` for CPU only; every Ear
+  Duck Echo starts gets `DUCK_EAR_DEVICE=cpu` from it, unless that is
+  set already), the kept answers (counted and cleared here), and
+  `wanted.json`, which `listen` and `analyze` write when an assistant
+  asked and the installed Ear was missing (`EarConfig::notes_wanted`;
+  false for the Studio's own Ear). The Studio reads it and shows a note
+  once. Plain files, so the command line, the MCP server and the Studio
+  never need to talk to each other.
+* **Test** (`ear_test.rs`): the coin preset with "a coin pickup" and the
+  Duck Craft night song with "calm music", asked afresh (no kept answer
+  used or written), with each word, match and time. The Studio's
+  Settings > Duck Ear and `duck-echo ear test` both use it.
+* **The Studio's own Ear**: an `EarKeeper` made for Test with the usual
+  settings, so it keeps the MCP server's two rules (stopped 10 minutes
+  after its last question; a describe model let go after 2). Only the
+  real Studio looks at the person's Ear folder by itself (a test's
+  Studio has settings that are not saved to a file, and leaves it
+  alone).
 * **Graphics cards** (`ear_cards.rs`): the registry's display adapters
   on Windows (`reg query`: name and memory for every maker),
   `nvidia-smi` and the kernel's `mem_info_vram_total` on Linux. Graphics
