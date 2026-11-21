@@ -504,6 +504,26 @@ set is there to show that the driver and the verdict work, and it does.
 (Its times, 34 s to hear a sound and 11 s a question, were taken while
 Duck Echo's tests ran beside it; the times above are the quiet ones.)
 
+The `Ear` workflow ran the same quick set through `duck-echo ear try
+full --quick` on GitHub's machines, with llama.cpp's CPU build b12559
+(downloaded by the Ear itself, from the newest release that had one):
+
+| Measure, on the quick set (CPU) | Linux | Windows |
+|---|---|---|
+| Describe: yes on true texts | 7 of 13 | 7 of 13 |
+| Describe: no on wrong texts | 32 of 39 | 30 of 39 |
+| Verdict: yes on true texts | 5 of 13 | 5 of 13 |
+| Verdict: no on wrong texts | 25 of 39 | 24 of 39 |
+| Verdict: a wrong text said yes | 0 of 39 | 0 of 39 |
+| Same words when asked again | 8 of 8 | 8 of 8 |
+| The whole try (download, load, 52 questions) | 32 minutes | 31 minutes |
+
+Linux gave the build machine's numbers exactly, with another build of
+llama.cpp. On Windows two wrong texts got no clear "no" (both systems
+said yes to 3 of the 39): a describe model asked twice on one PC gives
+the same words, but two systems can differ a little. This is why each
+PC's own check decides whether a model is used there.
+
 ### Measuring on a PC with a graphics card
 
 **The simple way, once the Duck Ear is installed** (step 5): in Duck Echo
