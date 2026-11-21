@@ -1,6 +1,11 @@
 # Phase 4 design: the Duck Ear
 
-Status: **approved**, with questions 1 to 8 as recommended and three
+Status: **done** (21 November 2026): steps 1 to 6 and 8 are built; step
+7 (ratings) was put off, unchanged, to the roadmap's Later list. Large
+(on a graphics card of 16 GB or more) is still to be measured on the
+person's PC. The rest of this note is as it was when it was approved.
+
+Approved, with questions 1 to 8 as recommended and three
 changes, written in below: the same question gets the same answer (a
 cache), `llama-server` stops after 2 minutes with no describe question,
 and the Ear ships with scores only if no describe model passes its test.
@@ -1227,7 +1232,15 @@ What you test on Windows:
 What you test on Linux:
 - [ ] The same.
 
-### Step 8: the guide, playtest 5, the roadmap
+### Step 8: the guide, playtest 5, the roadmap [done]
+
+As built: the guide's chapter "Listening with the Ear" and its test
+(`agent_guide.rs`), `docs/ear-check.md` as the guide page `ear_check`,
+and playtest 5 in `playtest/playtest-5/` (`REVIEW.md`). The playtest
+changed from section 8's plan on request: with the real Ear (scores
+only), the agent improved `preset:jump` and two sounds it chose where
+the Ear was unsure (the footstep and the missile), one change at a time,
+and judged two tunes' mood. Its eleven confusions were fixed.
 
 * `AGENT_GUIDE.md`: the chapter "Listening with the Ear" (section 6),
   with what the Ear is good and weak at from `docs/ear-check.md`, and its

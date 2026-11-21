@@ -1,0 +1,19 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "missile_c3.wav",
+  "duration_seconds": 0.9486621315192744,
+  "frames": 41836,
+  "sample_rate": 44100,
+  "channels": 1,
+  "loudness_lufs": -17.0,
+  "loudness_method": "bs1770_gated",
+  "peak_dbfs": -6.152788,
+  "leading_silence_seconds": 0.0004761904761904762,
+  "hit_seconds": 0.317,
+  "loops": false,
+  "format": "wav",
+  "seed": 5,
+  "recipe_hash": "sha256:564bef9e07d54667c848e7bb3848c75d412e2b82ecd3b5075ab1778ddc8b5042",
+  "file_sha256": "sha256:cfb5d8be87d27724f9538cc8b89eafb417f138de1356399e3c50b65e9ec86c25"
+}

@@ -702,6 +702,12 @@ pub struct EarSection {
 }
 
 impl EarSection {
+    /// True when this Ear has no describe model: its description (and any
+    /// free question) says it is not available.
+    fn description_unavailable(&self) -> bool {
+        matches!(self.description, Some(Said::Not(_)))
+    }
+
     fn unavailable(u: &Unavailable) -> EarSection {
         EarSection {
             available: false,
@@ -1110,7 +1116,8 @@ pub struct Compared {
     pub other: f64,
     /// Which sound it fits more: the file's name, or `about the same`.
     pub more_like: String,
-    /// By how much (0 when about the same).
+    /// By how much the two matches differ (under 0.05 is "about the
+    /// same").
     pub by: f64,
 }
 
@@ -1320,11 +1327,9 @@ pub fn listen(
                                     this: this.matched,
                                     other: that.matched,
                                     more_like,
-                                    by: if by.abs() < SAME_WITHIN {
-                                        0.0
-                                    } else {
-                                        by.abs()
-                                    },
+                                    // Kept even when about the same, so the
+                                    // way it moved still shows.
+                                    by: by.abs(),
                                 }
                             })
                             .collect(),
@@ -1343,7 +1348,7 @@ pub fn listen(
             question: question.to_string(),
             text,
         });
-    let summary = listen_summary(&section, &found.likes, compared.as_deref());
+    let summary = listen_summary(&section, &found.likes, compared.as_deref(), request.ask);
     Ok(Listened {
         ok: true,
         file,
@@ -1359,6 +1364,7 @@ fn listen_summary(
     section: &EarSection,
     likes: &[LikeAnswer],
     compared: Option<&[Compared]>,
+    asked: Option<&str>,
 ) -> String {
     if !section.available || section.error.is_some() {
         let mut words = section.summary_words();
@@ -1389,14 +1395,20 @@ fn listen_summary(
         ));
     }
     for c in compared.into_iter().flatten() {
-        parts.push(if c.by == 0.0 {
-            format!("both about the same for \"{}\"", c.text)
+        parts.push(if c.more_like == "about the same" {
+            format!(
+                "both about the same for \"{}\" ({:.2} against {:.2})",
+                c.text, c.this, c.other
+            )
         } else {
             format!(
                 "{} is more like \"{}\" (by {:.2})",
                 c.more_like, c.text, c.by
             )
         });
+    }
+    if asked.is_some() && section.description_unavailable() {
+        parts.push("the question was not answered (scores only: no describe model)".to_string());
     }
     if parts.is_empty() {
         parts.push("heard".to_string());
@@ -1490,6 +1502,59 @@ pub fn status(root: &Root) -> Result<Value, ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_question_a_scores_only_ear_cannot_answer_is_said_in_the_summary() {
+        let hello: Hello = serde_json::from_value(json!({
+            "protocol": 1, "ear_version": "0.4.0", "capabilities": ["score"],
+            "device": "cpu", "models": [{"role": "score", "name": "m", "revision": "r", "loaded": false}],
+        }))
+        .unwrap();
+        let mut section = EarSection::heard_by(
+            &hello,
+            Heard {
+                from_seconds: 0.0,
+                to_seconds: 1.0,
+            },
+        );
+        section.description = Some(Said::Not(NotAsked {
+            available: false,
+            reason: "no describe model".into(),
+        }));
+        let like = LikeAnswer {
+            text: "calm music".into(),
+            matched: 0.9,
+            rank: Some(1),
+            of: Some(50),
+            answer: None,
+            reason: None,
+            verdict: "yes".into(),
+            from: vec!["score".into()],
+        };
+        let words = listen_summary(
+            &section,
+            std::slice::from_ref(&like),
+            None,
+            Some("Is it calm?"),
+        );
+        assert!(
+            words.contains("the question was not answered (scores only"),
+            "{words}"
+        );
+        // About the same: the summary still gives both matches.
+        let compared = Compared {
+            text: "calm music".into(),
+            this: 0.91,
+            other: 0.89,
+            more_like: "about the same".into(),
+            by: 0.02,
+        };
+        let words = listen_summary(&section, &[like], Some(&[compared]), None);
+        assert!(
+            words.contains("both about the same for \"calm music\" (0.91 against 0.89)"),
+            "{words}"
+        );
+    }
 
     #[test]
     fn cpu_only_is_passed_to_the_ear_unless_it_was_told_otherwise() {

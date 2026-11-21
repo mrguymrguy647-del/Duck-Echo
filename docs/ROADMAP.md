@@ -1223,7 +1223,7 @@ to do, for whoever next touches `mix_check` and `game_send`:
 * One argument name for "the file" across tools (`path`, `file` and
   `cues` today), with the old names still accepted.
 
-## Phase 4: Duck Ear
+## Phase 4: Duck Ear [done, but step 7 (ratings) put off]
 
 What Phase 4 should start with (from playtest 4: the agent made a whole
 tune, sent it and checked the mix by numbers alone, and said that nobody
@@ -1233,7 +1233,7 @@ stub `duck-ear`, with the missing-program, timeout and broken-line tests,
 come before any model. Then the `ear` section in `analyze`, and only then
 real listening models.
 
-### 14. Duck Ear bridge (`duck-echo-ear`) [started: steps 1 to 5 of docs/phase4-design.md done]
+### 14. Duck Ear bridge (`duck-echo-ear`) [done: steps 1 to 6 and 8 of docs/phase4-design.md; step 7, ratings, put off to Later]
 
 * The JSON Lines protocol from `ARCHITECTURE.md`, with a stub Python
   `duck-ear` that answers `hello` and `describe` with fixed text, so the
@@ -1515,6 +1515,53 @@ Lessons from step 6:
 * **Words in a screenshot catch what tests do not.** The first pictures
   said "It keeps 0 answers (1 MB)" and "stops after 0 minutes"; both
   are now said in words that fit.
+* [ ] Step 7: ratings. **Put off** (21 November 2026), unchanged, to the
+  Later list below. Nothing in Phase 4 needs it.
+* [x] **Step 8: the guide, playtest 5, the roadmap.** `AGENT_GUIDE.md`
+  has the chapter "Listening with the Ear" (a person installs it;
+  `listen`, `analyze` with `ear: true`, `expect.sounds_like`; compare
+  versions, the Ear is a compass and not a judge; what it is good and
+  weak at; scores only), checked by `agent_guide.rs`, and
+  `docs/ear-check.md` is the guide page `ear_check`. Playtest 5
+  (`playtest/playtest-5/`): a fresh agent with the real Ear (scores only)
+  improved `preset:jump`, the footstep and the missile one change at a
+  time and judged two tunes' mood; 157 calls, none failed. On its own
+  words the Ear went from 0.90 to 0.93 (jump), unsure 0.48 to yes 0.88
+  (footstep) and unsure 0.35 to unsure 0.47 (missile). Eleven confusions
+  were fixed (`playtest/playtest-5/REVIEW.md`), and `blind/` has the
+  before and after pairs to listen to without knowing which is which.
+
+Lessons from Phase 4 as a whole:
+
+* **The Ear is a compass, not a judge.** In playtest 5 its comparisons
+  were what helped: which of two versions fits a text better, and the
+  gap to an opposite text. Its single answers were weak: a yes to
+  opposites ("a heavy jump" and "a soft, bouncy jump" both yes), every
+  mood yes on a whole song, a missile it never named. The guide teaches
+  the comparison, and the numbers stay the judge.
+* **The numbers caught what the Ear missed.** A change it liked put an
+  octave jump into the jump's tail; the pitch track showed it, and the
+  agent undid it. Keep the rule: a change stays only when the Ear and the
+  numbers agree.
+* **Measure on our own sounds before choosing a model.** LAION-CLAP beat
+  the model the design expected to win, on Duck Echo's own test set
+  (98% of pairs against 88%). And no describe model reached its bars on
+  the CPU, so the Ear ships with scores only, as agreed, rather than with
+  a model that says yes too easily.
+* **Say what is not there.** The playtest's biggest confusion was a tool
+  description promising a describe model the Ear does not have. Every
+  description, summary and guide line now says what a scores-only Ear
+  does and does not answer.
+* **Only a person installs, and every program reads the same folder.**
+  The Ear's folder holds the choices (`device.txt`), the state of an
+  install (`installing.json`) and an assistant's wish (`wanted.json`),
+  so the command line, the MCP server and the Studio agree without
+  talking to each other; an agent can only pass the wish on.
+* **Still to do on a person's PC:** Large (Qwen3-Omni-30B-A3B, 19.9 GB)
+  has not been measured; it needs a graphics card of 16 GB or more (the
+  person's RTX 4090, 24 GB). Settings > Duck Ear > "Try a bigger model"
+  measures it and saves the two files to send. Full on a graphics card
+  is unmeasured too. Ratings (step 7) wait in Later.
 
 Lessons from step 1, for the next builder:
 
@@ -1533,6 +1580,17 @@ Lessons from step 1, for the next builder:
   x86_64-pc-windows-gnu`: it needs no Windows linker to check.
 
 ## Phase 5: voices from math only
+
+What Phase 5 should start with (from playtest 5: the agent could hear
+nothing itself, and the Ear helped only by comparing two versions on
+words): write `docs/phase5-design.md` first, as for Phases 3 and 4, and
+start with what can be checked without ears. A voice's vowels are
+formants, so the first step is a formant layer whose vowels Duck
+Echo's own analysis can tell apart (formant peaks in `peaks`, a vowel
+check like `note_check`), deterministic as every render, before any
+phrase or "voice" words. The Ear is a second opinion only: test whether
+it tells "a robot voice" from "a synth pad" on the first renders before
+relying on it, and never ask it whether a voice sounds like a person.
 
 * Formant synthesis (see "Voice (roadmap Phase 5)" in `ARCHITECTURE.md`):
   gibberish and robot voices first, invented natural voices later.

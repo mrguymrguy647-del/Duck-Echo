@@ -281,11 +281,16 @@ fn the_listening_chapter_says_what_was_measured_and_its_calls_work() {
         "`expect.sounds_like`",
         "Scores only, for now.",
         "Naming short, plain sounds.",
-        "Calm against tense music.",
+        "Music's mood.",
+        "may say yes to every mood",
+        "topic: \"ear_check\"",
         "Silence",
     ] {
         assert!(text.contains(words), "the chapter does not say: {words}");
     }
+    // The report it points to is a guide page an agent can read.
+    let page = duck_echo_tools::guide::page("ear_check", "topic").unwrap();
+    assert!(page.starts_with("# "), "{}", &page[..40]);
     // Its numbers are the measured ones.
     let check = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/ear-check.md"),
@@ -298,8 +303,12 @@ fn the_listening_chapter_says_what_was_measured_and_its_calls_work() {
             "| Soft and harsh | soft and harsh versions told apart | 75% | 3 of 3 |",
         ),
         (
-            "\"calm music\" above\n  \"fast exciting music\"",
+            "\"calm music\" above \"fast\n  exciting music\"",
             "gives the tense loop \"calm music\" (0.57) above\n  \"fast exciting music\" (0.56)",
+        ),
+        (
+            "`yes` from a match of\n0.66, `no` below 0.34",
+            "| LAION-CLAP | 0.662 | 0.338 |",
         ),
     ] {
         assert!(text.contains(guide_says), "{guide_says}");

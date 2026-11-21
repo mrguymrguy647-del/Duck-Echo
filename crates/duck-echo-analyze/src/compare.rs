@@ -180,6 +180,9 @@ fn correlate(a: &[f32], b: &[f32], sample_rate: u32) -> Option<Correlation> {
     })
 }
 
+/// The longest attack that `compare`'s summary talks about, in seconds.
+const MAX_ATTACK_WORDS: f64 = 1.0;
+
 fn summarize(
     identical: bool,
     d: &Delta,
@@ -228,7 +231,13 @@ fn summarize(
             }
         ));
     }
-    if let Some(t) = d.attack_seconds.filter(|t| t.abs() >= 0.005) {
+    // Attack is the time to the loudest moment: it means something for a
+    // one-shot sound, not for a song whose loudest moment can come at any
+    // bar (playtest 5 got "attack 20027 ms faster" for two songs).
+    let one_shots = [a, b]
+        .iter()
+        .all(|x| x.attack_seconds.is_some_and(|t| t <= MAX_ATTACK_WORDS));
+    if let Some(t) = d.attack_seconds.filter(|t| one_shots && t.abs() >= 0.005) {
         parts.push(format!(
             "attack {:.0} ms {}",
             t.abs() * 1000.0,

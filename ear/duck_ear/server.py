@@ -75,7 +75,11 @@ class Ear:
         folder = ear_describe.model_folder(home)
         info = ear_describe.read_info(folder)
         if info is None:
-            return None, "%s (looked in %s; ear/tools/get_describe_model.py gets one)" % (SCORES_ONLY, folder)
+            # Said to agents: only a person can try a bigger model.
+            return None, (
+                "%s. Ask with texts in `like`. (Only a person can try a bigger model: "
+                "Duck Echo Studio, Settings > Duck Ear, on a PC with a big graphics card; "
+                "it looked in %s.)" % (SCORES_ONLY, folder))
         program = ear_describe.server_program(home)
         if program is None:
             return None, (

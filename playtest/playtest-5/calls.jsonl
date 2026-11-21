@@ -1,3 +1,157 @@
 {"time": 1795264332.0, "seconds": 0.0, "tool": "get_guide", "arguments": {}, "is_error": false}
 {"time": 1795264335.9, "seconds": 0.2, "tool": "ear_status", "arguments": {}, "is_error": false}
 {"time": 1795264336.1, "seconds": 0.0, "tool": "list_presets", "arguments": {}, "is_error": false}
+{"time": 1795264339.9, "seconds": 0.0, "tool": "get_preset", "arguments": {"name": "jump"}, "is_error": false}
+{"time": 1795264344.0, "seconds": 0.7, "tool": "create", "arguments": {"path": "playtest-5/sfx/jump.toml", "from": "preset:jump"}, "is_error": false}
+{"time": 1795264344.7, "seconds": 0.1, "tool": "render", "arguments": {"path": "playtest-5/sfx/jump.toml", "output": "playtest-5/sfx/jump_before.wav"}, "is_error": false}
+{"time": 1795264347.8, "seconds": 4.1, "tool": "listen", "arguments": {"path": "playtest-5/sfx/jump_before.wav", "like": ["a light, springy jump in a cartoon platform game", "a laser shot", "a short beep"]}, "is_error": false}
+{"time": 1795264356.8, "seconds": 4.4, "tool": "listen", "arguments": {"path": "playtest-5/sfx/jump_before.wav", "like": ["a jump in a platform game", "a character jumping", "a soft, bouncy jump", "a cartoon boing", "a heavy jump", "a rising whistle"]}, "is_error": false}
+{"time": 1795264369.8, "seconds": 4.0, "tool": "listen", "arguments": {"path": "preset:footstep", "like": ["a single footstep on a hard floor"]}, "is_error": false}
+{"time": 1795264373.8, "seconds": 3.9, "tool": "listen", "arguments": {"path": "preset:land", "like": ["a character landing on the ground after a jump"]}, "is_error": false}
+{"time": 1795264377.8, "seconds": 3.9, "tool": "listen", "arguments": {"path": "preset:low_health", "like": ["a slow heartbeat warning of low health"]}, "is_error": false}
+{"time": 1795264381.7, "seconds": 3.8, "tool": "listen", "arguments": {"path": "preset:warning_beep", "like": ["three short warning beeps"]}, "is_error": false}
+{"time": 1795264385.6, "seconds": 4.3, "tool": "listen", "arguments": {"path": "preset:ui_hover", "like": ["a soft tick when hovering over a menu button"]}, "is_error": false}
+{"time": 1795264389.9, "seconds": 4.0, "tool": "listen", "arguments": {"path": "preset:punch", "like": ["a punch hitting a body"]}, "is_error": false}
+{"time": 1795264393.9, "seconds": 4.4, "tool": "listen", "arguments": {"path": "preset:metal_clang", "like": ["a metal pipe struck, ringing"]}, "is_error": false}
+{"time": 1795264398.4, "seconds": 4.1, "tool": "listen", "arguments": {"path": "preset:menu_open", "like": ["a soft upward swish as a menu opens"]}, "is_error": false}
+{"time": 1795264402.5, "seconds": 4.2, "tool": "listen", "arguments": {"path": "preset:gem", "like": ["a sparkly gem pickup"]}, "is_error": false}
+{"time": 1795264410.9, "seconds": 4.4, "tool": "listen", "arguments": {"path": "preset:coin", "like": ["a classic coin pickup in a platform game"]}, "is_error": false}
+{"time": 1795264415.4, "seconds": 4.0, "tool": "listen", "arguments": {"path": "preset:thud", "like": ["a heavy door slamming shut"]}, "is_error": false}
+{"time": 1795264419.4, "seconds": 4.0, "tool": "listen", "arguments": {"path": "preset:ui_click", "like": ["a short crisp click of a button"]}, "is_error": false}
+{"time": 1795264423.4, "seconds": 4.3, "tool": "listen", "arguments": {"path": "preset:engine_hum", "like": ["a steady low engine hum"]}, "is_error": false}
+{"time": 1795264427.7, "seconds": 4.3, "tool": "listen", "arguments": {"path": "preset:wind", "like": ["a gust of wind"]}, "is_error": false}
+{"time": 1795264432.1, "seconds": 4.1, "tool": "listen", "arguments": {"path": "preset:hit", "like": ["a character taking damage"]}, "is_error": false}
+{"time": 1795264436.2, "seconds": 4.3, "tool": "listen", "arguments": {"path": "preset:ui_error", "like": ["a low buzz when an action is refused"]}, "is_error": false}
+{"time": 1795264440.6, "seconds": 4.4, "tool": "listen", "arguments": {"path": "preset:explosion", "like": ["an explosion"]}, "is_error": false}
+{"time": 1795264445.1, "seconds": 4.4, "tool": "listen", "arguments": {"path": "preset:laser", "like": ["a retro laser shot"]}, "is_error": false}
+{"time": 1795264449.5, "seconds": 4.3, "tool": "listen", "arguments": {"path": "preset:charge_up", "like": ["energy charging up before a shot"]}, "is_error": false}
+{"time": 1795264459.7, "seconds": 4.1, "tool": "listen", "arguments": {"path": "preset:powerup", "like": ["a rising power-up chime"]}, "is_error": false}
+{"time": 1795264463.8, "seconds": 3.9, "tool": "listen", "arguments": {"path": "preset:missile", "like": ["a missile launching with a whoosh"]}, "is_error": false}
+{"time": 1795264467.8, "seconds": 4.2, "tool": "listen", "arguments": {"path": "preset:shotgun", "like": ["a shotgun blast"]}, "is_error": false}
+{"time": 1795264472.1, "seconds": 4.3, "tool": "listen", "arguments": {"path": "preset:extra_life", "like": ["a triumphant extra life jingle"]}, "is_error": false}
+{"time": 1795264476.4, "seconds": 4.0, "tool": "listen", "arguments": {"path": "preset:blaster", "like": ["a punchy retro blaster shot"]}, "is_error": false}
+{"time": 1795264480.5, "seconds": 4.1, "tool": "listen", "arguments": {"path": "preset:alarm", "like": ["a repeating two-tone alarm"]}, "is_error": false}
+{"time": 1795264484.6, "seconds": 4.0, "tool": "listen", "arguments": {"path": "preset:ui_confirm", "like": ["two rising notes confirming a choice"]}, "is_error": false}
+{"time": 1795264488.6, "seconds": 3.8, "tool": "listen", "arguments": {"path": "preset:ui_cancel", "like": ["two falling notes for cancel"]}, "is_error": false}
+{"time": 1795264492.5, "seconds": 3.9, "tool": "listen", "arguments": {"path": "preset:key_pickup", "like": ["picking up a key"]}, "is_error": false}
+{"time": 1795264496.4, "seconds": 4.2, "tool": "listen", "arguments": {"path": "preset:big_explosion", "like": ["a huge explosion with a long rumble"]}, "is_error": false}
+{"time": 1795264520.0, "seconds": 0.0, "tool": "edit", "arguments": {"path": "playtest-5/sfx/jump.toml", "ops": [{"path": "master.normalize", "remove": true}, {"path": "master.normalize_peak_db", "remove": true}, {"path": "master.normalize_lufs", "value": -20}]}, "is_error": false}
+{"time": 1795264520.1, "seconds": 0.1, "tool": "analyze", "arguments": {"path": "playtest-5/sfx/jump.toml"}, "is_error": false}
+{"time": 1795264531.1, "seconds": 5.0, "tool": "listen", "arguments": {"path": "playtest-5/sfx/jump.toml", "like": ["a light, springy jump in a cartoon platform game", "a heavy jump"], "compare_with": "playtest-5/sfx/jump_before.wav"}, "is_error": false}
+{"time": 1795264544.0, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/jump.toml", "path": "layers[0].pitch.end", "value": 990}, "is_error": false}
+{"time": 1795264544.1, "seconds": 0.1, "tool": "render", "arguments": {"path": "playtest-5/sfx/jump.toml", "output": "playtest-5/sfx/work/jump_c1.wav"}, "is_error": false}
+{"time": 1795264544.2, "seconds": 0.1, "tool": "compare", "arguments": {"a": "playtest-5/sfx/jump_before.wav", "b": "playtest-5/sfx/work/jump_c1.wav"}, "is_error": false}
+{"time": 1795264544.3, "seconds": 4.5, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/jump_c1.wav", "like": ["a light, springy jump in a cartoon platform game", "a heavy jump"], "compare_with": "playtest-5/sfx/jump_before.wav"}, "is_error": false}
+{"time": 1795264554.3, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/jump.toml", "path": "layers[0].pitch.sweep_time", "value": 0.12}, "is_error": false}
+{"time": 1795264554.3, "seconds": 0.1, "tool": "render", "arguments": {"path": "playtest-5/sfx/jump.toml", "output": "playtest-5/sfx/work/jump_c2.wav"}, "is_error": false}
+{"time": 1795264554.4, "seconds": 0.1, "tool": "compare", "arguments": {"a": "playtest-5/sfx/jump_before.wav", "b": "playtest-5/sfx/work/jump_c2.wav"}, "is_error": false}
+{"time": 1795264554.6, "seconds": 4.4, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/jump_c2.wav", "like": ["a light, springy jump in a cartoon platform game", "a heavy jump"], "compare_with": "playtest-5/sfx/jump_before.wav"}, "is_error": false}
+{"time": 1795264566.9, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/jump.toml", "path": "layers[0].envelope.decay", "value": 0.15}, "is_error": false}
+{"time": 1795264567.0, "seconds": 0.0, "tool": "render", "arguments": {"path": "playtest-5/sfx/jump.toml", "output": "playtest-5/sfx/work/jump_c3.wav"}, "is_error": false}
+{"time": 1795264567.0, "seconds": 0.1, "tool": "compare", "arguments": {"a": "playtest-5/sfx/jump_before.wav", "b": "playtest-5/sfx/work/jump_c3.wav"}, "is_error": false}
+{"time": 1795264567.2, "seconds": 4.8, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/jump_c3.wav", "like": ["a light, springy jump in a cartoon platform game", "a heavy jump"], "compare_with": "playtest-5/sfx/jump_before.wav"}, "is_error": false}
+{"time": 1795264577.7, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/jump.toml", "path": "layers[0].duty", "value": 0.5}, "is_error": false}
+{"time": 1795264577.8, "seconds": 0.0, "tool": "render", "arguments": {"path": "playtest-5/sfx/jump.toml", "output": "playtest-5/sfx/work/jump_c4.wav"}, "is_error": false}
+{"time": 1795264577.9, "seconds": 0.1, "tool": "compare", "arguments": {"a": "playtest-5/sfx/jump_before.wav", "b": "playtest-5/sfx/work/jump_c4.wav"}, "is_error": false}
+{"time": 1795264578.1, "seconds": 4.3, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/jump_c4.wav", "like": ["a light, springy jump in a cartoon platform game", "a heavy jump"], "compare_with": "playtest-5/sfx/jump_before.wav"}, "is_error": false}
+{"time": 1795264585.7, "seconds": 0.0, "tool": "edit_history", "arguments": {"limit": 5}, "is_error": false}
+{"time": 1795264585.8, "seconds": 0.0, "tool": "edit_undo", "arguments": {}, "is_error": false}
+{"time": 1795264591.6, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/jump.toml", "path": "layers[0].filter.resonance", "value": 3}, "is_error": false}
+{"time": 1795264591.7, "seconds": 0.1, "tool": "render", "arguments": {"path": "playtest-5/sfx/jump.toml", "output": "playtest-5/sfx/work/jump_c5.wav"}, "is_error": false}
+{"time": 1795264591.8, "seconds": 0.1, "tool": "compare", "arguments": {"a": "playtest-5/sfx/jump_before.wav", "b": "playtest-5/sfx/work/jump_c5.wav"}, "is_error": false}
+{"time": 1795264591.9, "seconds": 4.6, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/jump_c5.wav", "like": ["a light, springy jump in a cartoon platform game", "a heavy jump"], "compare_with": "playtest-5/sfx/jump_before.wav"}, "is_error": false}
+{"time": 1795264604.1, "seconds": 0.0, "tool": "edit_undo", "arguments": {}, "is_error": false}
+{"time": 1795264604.2, "seconds": 0.1, "tool": "render", "arguments": {"path": "playtest-5/sfx/jump.toml", "output": "playtest-5/sfx/jump_after.wav", "picture": true}, "is_error": false}
+{"time": 1795264604.4, "seconds": 0.1, "tool": "compare", "arguments": {"a": "playtest-5/sfx/jump_before.wav", "b": "playtest-5/sfx/jump_after.wav"}, "is_error": false}
+{"time": 1795264604.5, "seconds": 0.2, "tool": "listen", "arguments": {"path": "playtest-5/sfx/jump_after.wav", "like": ["a light, springy jump in a cartoon platform game", "a heavy jump"], "compare_with": "playtest-5/sfx/jump_before.wav"}, "is_error": false}
+{"time": 1795264629.6, "seconds": 0.0, "tool": "get_preset", "arguments": {"name": "footstep"}, "is_error": false}
+{"time": 1795264634.7, "seconds": 0.0, "tool": "create", "arguments": {"path": "playtest-5/sfx/footstep.toml", "from": "preset:footstep"}, "is_error": false}
+{"time": 1795264634.8, "seconds": 0.1, "tool": "render", "arguments": {"path": "playtest-5/sfx/footstep.toml", "output": "playtest-5/sfx/footstep_before.wav", "per_layer": true}, "is_error": false}
+{"time": 1795264634.9, "seconds": 4.4, "tool": "listen", "arguments": {"path": "playtest-5/sfx/footstep_before.wav", "like": ["a single footstep on a hard floor", "a footstep", "a hand clap", "a knock on a door", "a short burst of static noise", "a shoe stepping on a wooden floor"]}, "is_error": false}
+{"time": 1795264644.8, "seconds": 0.0, "tool": "edit", "arguments": {"path": "playtest-5/sfx/footstep.toml", "ops": [{"path": "master.normalize", "remove": true}, {"path": "master.normalize_peak_db", "remove": true}, {"path": "master.normalize_lufs", "value": -20}]}, "is_error": false}
+{"time": 1795264644.9, "seconds": 0.0, "tool": "render", "arguments": {"path": "playtest-5/sfx/footstep.toml", "output": "playtest-5/sfx/work/footstep_c0.wav"}, "is_error": false}
+{"time": 1795264644.9, "seconds": 0.0, "tool": "compare", "arguments": {"a": "playtest-5/sfx/footstep_before.wav", "b": "playtest-5/sfx/work/footstep_c0.wav"}, "is_error": false}
+{"time": 1795264645.0, "seconds": 4.6, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/footstep_c0.wav", "like": ["a single footstep on a hard floor", "a hand clap"], "compare_with": "playtest-5/sfx/footstep_before.wav"}, "is_error": false}
+{"time": 1795264654.1, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/footstep.toml", "path": "layers[1].volume", "value": 1.5}, "is_error": false}
+{"time": 1795264654.2, "seconds": 0.0, "tool": "render", "arguments": {"path": "playtest-5/sfx/footstep.toml", "output": "playtest-5/sfx/work/footstep_c1.wav"}, "is_error": false}
+{"time": 1795264654.2, "seconds": 0.0, "tool": "compare", "arguments": {"a": "playtest-5/sfx/footstep_before.wav", "b": "playtest-5/sfx/work/footstep_c1.wav"}, "is_error": false}
+{"time": 1795264654.3, "seconds": 4.3, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/footstep_c1.wav", "like": ["a single footstep on a hard floor", "a hand clap"], "compare_with": "playtest-5/sfx/footstep_before.wav"}, "is_error": false}
+{"time": 1795264663.8, "seconds": 0.0, "tool": "edit_undo", "arguments": {}, "is_error": false}
+{"time": 1795264663.8, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/footstep.toml", "path": "layers[0].filter.cutoff", "value": 500}, "is_error": false}
+{"time": 1795264663.9, "seconds": 0.0, "tool": "render", "arguments": {"path": "playtest-5/sfx/footstep.toml", "output": "playtest-5/sfx/work/footstep_c2.wav"}, "is_error": false}
+{"time": 1795264664.0, "seconds": 0.0, "tool": "compare", "arguments": {"a": "playtest-5/sfx/footstep_before.wav", "b": "playtest-5/sfx/work/footstep_c2.wav"}, "is_error": false}
+{"time": 1795264664.0, "seconds": 4.3, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/footstep_c2.wav", "like": ["a single footstep on a hard floor", "a hand clap"], "compare_with": "playtest-5/sfx/footstep_before.wav"}, "is_error": false}
+{"time": 1795264672.4, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/footstep.toml", "path": "layers[0].envelope.decay", "value": 0.09}, "is_error": false}
+{"time": 1795264672.5, "seconds": 0.0, "tool": "render", "arguments": {"path": "playtest-5/sfx/footstep.toml", "output": "playtest-5/sfx/work/footstep_c3.wav"}, "is_error": false}
+{"time": 1795264672.5, "seconds": 0.0, "tool": "compare", "arguments": {"a": "playtest-5/sfx/footstep_before.wav", "b": "playtest-5/sfx/work/footstep_c3.wav"}, "is_error": false}
+{"time": 1795264672.6, "seconds": 5.0, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/footstep_c3.wav", "like": ["a single footstep on a hard floor", "a hand clap"], "compare_with": "playtest-5/sfx/footstep_before.wav"}, "is_error": false}
+{"time": 1795264682.1, "seconds": 0.0, "tool": "edit_undo", "arguments": {}, "is_error": false}
+{"time": 1795264682.2, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/footstep.toml", "path": "layers[0].envelope.decay", "value": 0.035}, "is_error": false}
+{"time": 1795264682.3, "seconds": 0.0, "tool": "render", "arguments": {"path": "playtest-5/sfx/footstep.toml", "output": "playtest-5/sfx/work/footstep_c4.wav"}, "is_error": false}
+{"time": 1795264682.3, "seconds": 0.0, "tool": "compare", "arguments": {"a": "playtest-5/sfx/footstep_before.wav", "b": "playtest-5/sfx/work/footstep_c4.wav"}, "is_error": false}
+{"time": 1795264682.4, "seconds": 4.6, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/footstep_c4.wav", "like": ["a single footstep on a hard floor", "a hand clap"], "compare_with": "playtest-5/sfx/footstep_before.wav"}, "is_error": false}
+{"time": 1795264693.9, "seconds": 4.3, "tool": "listen", "arguments": {"path": "preset:footstep", "seed": 1, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264698.3, "seconds": 4.0, "tool": "listen", "arguments": {"path": "playtest-5/sfx/footstep.toml", "seed": 1, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264702.3, "seconds": 4.2, "tool": "listen", "arguments": {"path": "preset:footstep", "seed": 2, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264706.6, "seconds": 4.6, "tool": "listen", "arguments": {"path": "playtest-5/sfx/footstep.toml", "seed": 2, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264711.3, "seconds": 4.3, "tool": "listen", "arguments": {"path": "preset:footstep", "seed": 3, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264715.6, "seconds": 4.2, "tool": "listen", "arguments": {"path": "playtest-5/sfx/footstep.toml", "seed": 3, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264719.8, "seconds": 4.2, "tool": "listen", "arguments": {"path": "preset:footstep", "seed": 4, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264724.0, "seconds": 5.1, "tool": "listen", "arguments": {"path": "playtest-5/sfx/footstep.toml", "seed": 4, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264729.2, "seconds": 5.0, "tool": "listen", "arguments": {"path": "preset:footstep", "seed": 5, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264734.2, "seconds": 4.7, "tool": "listen", "arguments": {"path": "playtest-5/sfx/footstep.toml", "seed": 5, "quick": true, "like": ["a single footstep on a hard floor", "a hand clap"]}, "is_error": false}
+{"time": 1795264744.2, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/footstep.toml", "path": "layers[1].volume", "value": 1.2}, "is_error": false}
+{"time": 1795264744.3, "seconds": 0.0, "tool": "render", "arguments": {"path": "playtest-5/sfx/footstep.toml", "output": "playtest-5/sfx/work/footstep_c5.wav"}, "is_error": false}
+{"time": 1795264744.3, "seconds": 0.0, "tool": "compare", "arguments": {"a": "playtest-5/sfx/footstep_before.wav", "b": "playtest-5/sfx/work/footstep_c5.wav"}, "is_error": false}
+{"time": 1795264744.4, "seconds": 5.0, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/footstep_c5.wav", "like": ["a single footstep on a hard floor", "a hand clap"], "compare_with": "playtest-5/sfx/footstep_before.wav"}, "is_error": false}
+{"time": 1795264749.5, "seconds": 0.2, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/footstep_c5.wav", "like": ["a single footstep on a hard floor", "a hand clap"], "compare_with": "playtest-5/sfx/work/footstep_c4.wav"}, "is_error": false}
+{"time": 1795264756.9, "seconds": 5.3, "tool": "listen", "arguments": {"path": "playtest-5/sfx/footstep_after.wav", "like": ["a single footstep on a hard floor", "a hand clap", "a short burst of static noise"], "compare_with": "playtest-5/sfx/footstep_before.wav"}, "is_error": false}
+{"time": 1795264780.8, "seconds": 0.0, "tool": "get_preset", "arguments": {"name": "missile"}, "is_error": false}
+{"time": 1795264785.9, "seconds": 0.0, "tool": "create", "arguments": {"path": "playtest-5/sfx/missile.toml", "from": "preset:missile"}, "is_error": false}
+{"time": 1795264785.9, "seconds": 0.4, "tool": "render", "arguments": {"path": "playtest-5/sfx/missile.toml", "output": "playtest-5/sfx/missile_before.wav", "per_layer": true}, "is_error": false}
+{"time": 1795264786.4, "seconds": 5.3, "tool": "listen", "arguments": {"path": "playtest-5/sfx/missile_before.wav", "like": ["a missile launching with a whoosh", "a rocket taking off", "a whoosh", "wind blowing", "a jet engine", "an explosion", "rushing air rising in pitch"]}, "is_error": false}
+{"time": 1795264798.6, "seconds": 0.0, "tool": "edit", "arguments": {"path": "playtest-5/sfx/missile.toml", "ops": [{"path": "master.normalize", "remove": true}, {"path": "master.normalize_peak_db", "remove": true}, {"path": "master.normalize_lufs", "value": -17}]}, "is_error": false}
+{"time": 1795264798.6, "seconds": 0.1, "tool": "render", "arguments": {"path": "playtest-5/sfx/missile.toml", "output": "playtest-5/sfx/work/missile_c0.wav"}, "is_error": false}
+{"time": 1795264798.8, "seconds": 0.2, "tool": "compare", "arguments": {"a": "playtest-5/sfx/missile_before.wav", "b": "playtest-5/sfx/work/missile_c0.wav"}, "is_error": false}
+{"time": 1795264799.0, "seconds": 5.1, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/missile_c0.wav", "like": ["a missile launching with a whoosh", "a rocket taking off", "a low rumble"], "compare_with": "playtest-5/sfx/missile_before.wav"}, "is_error": false}
+{"time": 1795264809.3, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/missile.toml", "path": "layers[1].volume", "value": 0.2}, "is_error": false}
+{"time": 1795264809.4, "seconds": 0.2, "tool": "render", "arguments": {"path": "playtest-5/sfx/missile.toml", "output": "playtest-5/sfx/work/missile_c1.wav"}, "is_error": false}
+{"time": 1795264809.6, "seconds": 0.3, "tool": "compare", "arguments": {"a": "playtest-5/sfx/missile_before.wav", "b": "playtest-5/sfx/work/missile_c1.wav"}, "is_error": false}
+{"time": 1795264809.9, "seconds": 5.1, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/missile_c1.wav", "like": ["a missile launching with a whoosh", "a rocket taking off", "a low rumble"], "compare_with": "playtest-5/sfx/missile_before.wav"}, "is_error": false}
+{"time": 1795264818.9, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/missile.toml", "path": "layers[0].envelope.hold", "value": 0.6}, "is_error": false}
+{"time": 1795264819.0, "seconds": 0.2, "tool": "render", "arguments": {"path": "playtest-5/sfx/missile.toml", "output": "playtest-5/sfx/work/missile_c2.wav"}, "is_error": false}
+{"time": 1795264819.2, "seconds": 0.3, "tool": "compare", "arguments": {"a": "playtest-5/sfx/missile_before.wav", "b": "playtest-5/sfx/work/missile_c2.wav"}, "is_error": false}
+{"time": 1795264819.6, "seconds": 5.4, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/missile_c2.wav", "like": ["a missile launching with a whoosh", "a rocket taking off", "a low rumble"], "compare_with": "playtest-5/sfx/missile_before.wav"}, "is_error": false}
+{"time": 1795264829.9, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/missile.toml", "path": "layers[0].filter.resonance", "value": 1}, "is_error": false}
+{"time": 1795264830.0, "seconds": 0.2, "tool": "render", "arguments": {"path": "playtest-5/sfx/missile.toml", "output": "playtest-5/sfx/work/missile_c3.wav"}, "is_error": false}
+{"time": 1795264830.3, "seconds": 0.4, "tool": "compare", "arguments": {"a": "playtest-5/sfx/missile_before.wav", "b": "playtest-5/sfx/work/missile_c3.wav"}, "is_error": false}
+{"time": 1795264830.7, "seconds": 5.3, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/missile_c3.wav", "like": ["a missile launching with a whoosh", "a rocket taking off", "a low rumble"], "compare_with": "playtest-5/sfx/missile_before.wav"}, "is_error": false}
+{"time": 1795264841.0, "seconds": 0.0, "tool": "edit_undo", "arguments": {}, "is_error": false}
+{"time": 1795264841.0, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/missile.toml", "path": "layers[0].filter.cutoff_end", "value": 1500}, "is_error": false}
+{"time": 1795264841.1, "seconds": 0.1, "tool": "render", "arguments": {"path": "playtest-5/sfx/missile.toml", "output": "playtest-5/sfx/work/missile_c4.wav"}, "is_error": false}
+{"time": 1795264841.3, "seconds": 0.3, "tool": "compare", "arguments": {"a": "playtest-5/sfx/missile_before.wav", "b": "playtest-5/sfx/work/missile_c4.wav"}, "is_error": false}
+{"time": 1795264841.6, "seconds": 5.0, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/missile_c4.wav", "like": ["a missile launching with a whoosh", "a rocket taking off", "a low rumble"], "compare_with": "playtest-5/sfx/missile_before.wav"}, "is_error": false}
+{"time": 1795264853.3, "seconds": 0.0, "tool": "edit_undo", "arguments": {}, "is_error": false}
+{"time": 1795264853.4, "seconds": 0.0, "tool": "sound_set", "arguments": {"file": "playtest-5/sfx/missile.toml", "path": "layers[0].envelope.decay", "value": 0.5}, "is_error": false}
+{"time": 1795264853.5, "seconds": 0.2, "tool": "render", "arguments": {"path": "playtest-5/sfx/missile.toml", "output": "playtest-5/sfx/work/missile_c5.wav"}, "is_error": false}
+{"time": 1795264853.7, "seconds": 0.3, "tool": "compare", "arguments": {"a": "playtest-5/sfx/missile_before.wav", "b": "playtest-5/sfx/work/missile_c5.wav"}, "is_error": false}
+{"time": 1795264854.0, "seconds": 4.8, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/missile_c5.wav", "like": ["a missile launching with a whoosh", "a rocket taking off", "a low rumble"], "compare_with": "playtest-5/sfx/missile_before.wav"}, "is_error": false}
+{"time": 1795264858.9, "seconds": 4.4, "tool": "listen", "arguments": {"path": "playtest-5/sfx/work/missile_c5.wav", "like": ["a missile launching with a whoosh"], "compare_with": "playtest-5/sfx/work/missile_c2.wav"}, "is_error": false}
+{"time": 1795264871.2, "seconds": 0.0, "tool": "edit_undo", "arguments": {}, "is_error": false}
+{"time": 1795264871.3, "seconds": 0.4, "tool": "render", "arguments": {"path": "playtest-5/sfx/missile.toml", "output": "playtest-5/sfx/missile_after.wav", "per_layer": true, "picture": true}, "is_error": false}
+{"time": 1795264871.8, "seconds": 0.3, "tool": "compare", "arguments": {"a": "playtest-5/sfx/missile_before.wav", "b": "playtest-5/sfx/missile_after.wav"}, "is_error": false}
+{"time": 1795264872.1, "seconds": 5.0, "tool": "listen", "arguments": {"path": "playtest-5/sfx/missile_after.wav", "like": ["a missile launching with a whoosh", "a rocket taking off", "a whoosh", "rushing air rising in pitch"], "compare_with": "playtest-5/sfx/missile_before.wav"}, "is_error": false}
+{"time": 1795264891.8, "seconds": 0.0, "tool": "create", "arguments": {"path": "playtest-5/music/duck_craft_day.toml", "from": "example:duck_craft_day"}, "is_error": false}
+{"time": 1795264891.9, "seconds": 0.0, "tool": "create", "arguments": {"path": "playtest-5/music/duck_craft_night.toml", "from": "example:duck_craft_night"}, "is_error": false}
+{"time": 1795264902.6, "seconds": 17.5, "tool": "render", "arguments": {"path": "playtest-5/music/duck_craft_day.toml", "output": "playtest-5/music/duck_craft_day.ogg", "per_track": true}, "is_error": false}
+{"time": 1795264920.2, "seconds": 19.8, "tool": "render", "arguments": {"path": "playtest-5/music/duck_craft_night.toml", "output": "playtest-5/music/duck_craft_night.ogg", "per_track": true}, "is_error": false}
+{"time": 1795264946.2, "seconds": 6.3, "tool": "listen", "arguments": {"path": "playtest-5/music/duck_craft_day.ogg", "like": ["calm, peaceful music", "tense, suspenseful music", "happy, cheerful music", "sad, melancholy music", "bright daytime music", "dark night-time music"], "compare_with": "playtest-5/music/duck_craft_night.ogg"}, "is_error": false}
+{"time": 1795264958.0, "seconds": 5.7, "tool": "listen", "arguments": {"path": "playtest-5/music/duck_craft_night.ogg", "like": ["calm", "tense", "happy", "sad", "relaxing", "scary", "a cheerful tune", "a gloomy tune"], "compare_with": "playtest-5/music/duck_craft_day.ogg"}, "is_error": false}
+{"time": 1795264963.7, "seconds": 4.6, "tool": "listen", "arguments": {"path": "playtest-5/music/duck_craft_night.ogg", "ask": "Is this tune calm or tense, happy or sad?"}, "is_error": false}
+{"time": 1795264977.4, "seconds": 0.0, "tool": "get_guide", "arguments": {"topic": "analysis"}, "is_error": false}
+{"time": 1795264977.4, "seconds": 6.2, "tool": "compare", "arguments": {"a": "playtest-5/music/duck_craft_day.ogg", "b": "playtest-5/music/duck_craft_night.ogg"}, "is_error": false}
+{"time": 1795264988.8, "seconds": 0.0, "tool": "get_guide", "arguments": {"topic": "song_spec"}, "is_error": false}
+{"time": 1795264988.8, "seconds": 17.4, "tool": "analyze", "arguments": {"path": "playtest-5/music/duck_craft_night.toml", "notes": true}, "is_error": false}
+{"time": 1795265011.7, "seconds": 14.7, "tool": "analyze", "arguments": {"path": "playtest-5/music/duck_craft_day.toml", "notes": true}, "is_error": false}
+{"time": 1795265026.4, "seconds": 16.7, "tool": "analyze", "arguments": {"path": "playtest-5/music/duck_craft_night.toml", "notes": true}, "is_error": false}
+{"time": 1795265102.3, "seconds": 0.0, "tool": "list_files", "arguments": {"path": "playtest-5", "recursive": true}, "is_error": false}

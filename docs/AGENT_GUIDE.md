@@ -87,8 +87,12 @@ always be to level it by loudness instead. These are the `ops` of one
 ]
 ```
 
-Use the target of the category. From then on, every render comes out at
-that loudness, whatever you change. If the target cannot be reached
+Use the target of the category. This setup is not one of your changes:
+it should not change how the sound sounds, only keep it level later.
+From then on, every render comes out at that loudness, whatever you
+change. So making one layer louder makes the others quieter, and a low
+layer counts for less in loudness than a bright one: to bring up a
+quiet low layer, also turn the bright one down. If the target cannot be reached
 without the peak going over -1 dBFS, the render says so in `warnings`.
 Then make the sound less spiky (a longer attack, less resonance) or
 accept it quieter. Within 0.5 LU of the target is fine; a game player
@@ -175,8 +179,8 @@ often wrong. For the coin preset its first three words were "speech",
 "footsteps on gravel" and "birds", with "coin pickup" fourth. A sound
 of a third of a second gives the model little to go on, and it has
 probably heard far more recordings of speech and birds than game sounds. The
-measured results are in `docs/ear-check.md`, and "Listening with the
-Ear" below says how to use it.
+measured results are the guide page `ear_check`, and "Listening with
+the Ear" below says how to use it.
 
 That growl uses an **audio-rate LFO**: `volume` and `pitch` may move up to
 2000 times a second (cutoff and duty up to 50). At 20 to 150 a second a
@@ -536,17 +540,23 @@ one to eight texts in `like`:
 ```
 
 Each `like` answer has a `match` (0 to 1: how much better the text fits
-this sound than it usually fits Duck Echo's sounds), a `verdict` (`yes`,
-`no` or `unsure`) and a `rank` among the Ear's own words. The `summary`
-says it in one line. The first question starts the Ear (a few seconds);
+this sound than it usually fits Duck Echo's sounds), a `verdict` and a
+`rank` among the Ear's own words. The verdict is `yes` from a match of
+0.66, `no` below 0.34, and `unsure` in between. The `summary` says it in
+one line. The first question starts the Ear (a few seconds);
 the same question about the same sound is answered at once from the
 Ear's kept answers (`cached: true`).
 
 **Compare versions; that is what it is best at.** Render the old one to
 a second file first (`sfx/jump_before.wav`), change one thing, and ask
-with `compare_with` on the same text. `compared` says which file it
-`more_like`s and `by` how much; under 0.05 is "about the same", so do
-not chase it. Keep a change only when the Ear and the numbers agree:
+with `compare_with` on the same text. `compared` says which file it is
+`more_like` and `by` how much; under 0.05 is "about the same", so do
+not chase it. After a change you keep, render the new version to that
+file again, so the next change is compared with the last one you kept.
+Ask about the opposite too (`"a soft jump"` and `"a harsh jump"`): the
+Ear says yes to many texts that only share a word with the sound, so a
+change helps when the gap between the two grows, even if your own text
+hardly moves. Keep a change only when the Ear and the numbers agree:
 the match went up and nothing got worse (no clipping, loudness kept,
 the length you wanted). If the Ear likes a version that the numbers say
 is broken, the numbers win.
@@ -556,8 +566,8 @@ analysis, and checks `expect.sounds_like` (see "Say what it should
 measure"): the line passes on a yes, fails on a no, and stays "not
 checked" when the Ear is missing or unsure. It never changes a number.
 
-**What it is good at** (measured on Duck Echo's test set,
-`docs/ear-check.md`):
+**What it is good at** (measured on Duck Echo's test set: `get_guide`
+with `topic: "ear_check"` has the whole report):
 
 * Which of two versions fits a text better: right 209 times in 214.
 * Soft against harsh: right every time (3 of 3).
@@ -569,9 +579,14 @@ checked" when the Ear is missing or unsure. It never changes a number.
   the coin were each beaten by a wrong text at least once. Do not ask
   "what is this?"; ask about two or three texts and compare their
   matches, and do not trust one `match` alone.
-* **Calm against tense music.** It gave a tense loop "calm music" above
-  "fast exciting music". For a tune's mood, trust Duck Echo's own
-  numbers instead: tempo, key, loudness, how many notes per beat.
+* **Music's mood.** It gave a tense loop "calm music" above "fast
+  exciting music", and on a whole song it may say yes to every mood at
+  once (calm, tense, sad and happy). Only the difference between two
+  songs on one text means anything. For a tune's mood, trust what the
+  song says and the numbers: its `tempo` and notes (in the song file;
+  `analyze` gives them under `song`), the scale its notes use (major or
+  minor), how high the melody is, and `spectral_centroid_hz` (darker is
+  lower) and `loudness_lufs` from the analysis.
 * **Yes and no.** About one answer in ten is wrong in each direction,
   and about one in seven is `unsure`. A single yes is a hint.
 
@@ -601,6 +616,8 @@ file again and retry.
 * `song_spec`: every song field.
 * `analysis`: every analysis field and how it is measured.
 * `instruments` and `presets`: what each one is.
+* `ear_check`: how the Duck Ear was measured, and what it gets right and
+  wrong.
 
 Also `get_schema` (every recipe field with its `minimum` and `maximum`;
 `kind: "song"` for songs),
