@@ -175,7 +175,8 @@ often wrong. For the coin preset its first three words were "speech",
 "footsteps on gravel" and "birds", with "coin pickup" fourth. A sound
 of a third of a second gives the model little to go on, and it has
 probably heard far more recordings of speech and birds than game sounds. The
-measured results are in `docs/ear-check.md`.
+measured results are in `docs/ear-check.md`, and "Listening with the
+Ear" below says how to use it.
 
 That growl uses an **audio-rate LFO**: `volume` and `pitch` may move up to
 2000 times a second (cutoff and duty up to 50). At 20 to 150 a second a
@@ -512,6 +513,73 @@ files are read from the Duck Forge folder. Fix until `overs` is empty and
 nothing is `buried`: change the volume in the game's code, or the sound's
 loudness in its recipe and send it again. Duck Forge's own synthesizer
 sounds are listed in `not_mixed`.
+
+## Listening with the Ear
+
+The Duck Ear is an optional program on the person's PC that listens to a
+sound with a model and says how well words fit it. Use it as a
+**compass, not a judge**: it points you towards the words you mean, and
+the numbers decide. Its answers are advice and can be wrong.
+
+**Is it there?** `ear_status`. With `available: false` and `reason:
+"not_installed"`, you cannot install it, and you never try: only a
+person installs the Ear. Tell them it is one button in Duck Echo
+Studio (Settings > Duck Ear, about 0.9 GB to download) or `duck-echo ear
+install` in a terminal. Everything else in this guide works without it.
+
+**Ask about the words you mean.** `listen` with the sound as `path` and
+one to eight texts in `like`:
+
+```json
+{"path": "sfx/jump.toml", "like": ["a soft jump", "a harsh jump"]}
+{"path": "sfx/jump.toml", "like": ["a soft jump"], "compare_with": "sfx/jump_before.wav"}
+```
+
+Each `like` answer has a `match` (0 to 1: how much better the text fits
+this sound than it usually fits Duck Echo's sounds), a `verdict` (`yes`,
+`no` or `unsure`) and a `rank` among the Ear's own words. The `summary`
+says it in one line. The first question starts the Ear (a few seconds);
+the same question about the same sound is answered at once from the
+Ear's kept answers (`cached: true`).
+
+**Compare versions; that is what it is best at.** Render the old one to
+a second file first (`sfx/jump_before.wav`), change one thing, and ask
+with `compare_with` on the same text. `compared` says which file it
+`more_like`s and `by` how much; under 0.05 is "about the same", so do
+not chase it. Keep a change only when the Ear and the numbers agree:
+the match went up and nothing got worse (no clipping, loudness kept,
+the length you wanted). If the Ear likes a version that the numbers say
+is broken, the numbers win.
+
+**`analyze` with `ear: true`** adds the same `ear` section to an
+analysis, and checks `expect.sounds_like` (see "Say what it should
+measure"): the line passes on a yes, fails on a no, and stays "not
+checked" when the Ear is missing or unsure. It never changes a number.
+
+**What it is good at** (measured on Duck Echo's test set,
+`docs/ear-check.md`):
+
+* Which of two versions fits a text better: right 209 times in 214.
+* Soft against harsh: right every time (3 of 3).
+* Silence: a silent sound matches "silence" and nothing else.
+
+**What it is weak at:**
+
+* **Naming short, plain sounds.** A footstep, a jump, a warning beep and
+  the coin were each beaten by a wrong text at least once. Do not ask
+  "what is this?"; ask about two or three texts and compare their
+  matches, and do not trust one `match` alone.
+* **Calm against tense music.** It gave a tense loop "calm music" above
+  "fast exciting music". For a tune's mood, trust Duck Echo's own
+  numbers instead: tempo, key, loudness, how many notes per beat.
+* **Yes and no.** About one answer in ten is wrong in each direction,
+  and about one in seven is `unsure`. A single yes is a hint.
+
+**Scores only, for now.** The Ear has a score model only: no describe
+model has passed Duck Echo's listening test yet. So `ask` (a free
+question) and `description` say they are not available, and every
+verdict comes from the score alone (`from: ["score"]`). Ask with texts,
+not questions.
 
 ## Undo, and working beside a person
 

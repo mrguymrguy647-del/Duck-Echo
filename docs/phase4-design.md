@@ -35,7 +35,8 @@ every time.
   it to, and never again until you ask for an update.
 * You can **rate sounds** (thumbs up or down) in the Studio, so we can
   measure how often the Ear agrees with you, and later teach it your
-  taste.
+  taste. (**Put off**: step 7 was moved to the roadmap's Later list on
+  21 November 2026. Nothing else in Phase 4 needs ratings.)
 
 ```
    agent / person
@@ -98,9 +99,9 @@ Ear is **started once and kept**, not started for every question.
 * **The command line** (`duck-echo listen`, `duck-echo analyze --ear`)
   starts the Ear, asks, and stops it. Slow for many calls, but simple; an
   agent that listens a lot uses the MCP server.
-* The Studio starts its Ear for Settings > Duck Ear > Test and for
-  measuring your ratings (section 7). Your ratings themselves never need
-  the Ear.
+* The Studio starts its Ear for Settings > Duck Ear > Test (and, once
+  ratings are built, for measuring them: section 7, put off). Your
+  ratings themselves never need the Ear.
 * A new crate, **`crates/duck-echo-ear`**, does only this: start the
   program, speak the protocol, keep time, stop it. It knows nothing about
   recipes. `duck-echo-tools` uses it, so the CLI, the MCP server and the
@@ -637,7 +638,8 @@ Several walls, because one is not enough:
 │ Use: (•) Automatic  ( ) CPU only                                     │
 │ [ Test ]  coin: "a coin pickup": yes (0.86), 0.4 s;                  │
 │           night loop: "calm music": yes, 6.1 s                       │
-│ Your ratings: 34 sounds rated.        [ Measure how often it agrees ]│
+│ (Your ratings: 34 sounds rated. [ Measure how often it agrees ]:     │
+│  put off with step 7.)                                               │
 │ [ Check for an Ear update ]                          [ Remove (7.4 GB) ] │
 ```
 
@@ -778,7 +780,13 @@ know whether to plan with the Ear.
 * What the Ear is good and weak at, from the test set (section 8), in one
   table, so agents know where to trust it.
 
-## 7. Your ratings [Studio, `duck-echo-tools`]
+## 7. Your ratings [Studio, `duck-echo-tools`] [put off]
+
+**Put off (21 November 2026).** Step 7, which builds this section, was
+moved unchanged to the roadmap's Later list. Nothing in Phase 4 needs
+ratings: the Ear, its install, Settings > Duck Ear, the guide and
+playtest 5 all work without them. The design below stays as it is, for
+when it is built.
 
 ### Rating a sound in the Studio
 
@@ -937,8 +945,9 @@ three sounds that are wrong on purpose and the words they should match:
 3. A "calm" loop that is fast and busy.
 
 It may change each at most three rounds. Then **you** listen, without
-being told which is which, to the before and after of each (in the
-Studio, in random order) and rate them. The Ear helped if:
+being told which is which, to the before and after of each (in random
+order: a folder of A and B files and a key, no ratings needed) and say
+which you prefer. The Ear helped if:
 
 * you prefer the after version in at least 2 of 3;
 * the agent's notes show it used the Ear's reasons, not only its scores;
@@ -1199,7 +1208,10 @@ What you test on Windows:
 What you test on Linux (AppImage):
 - [ ] The same, with `~/.local/share/duck-echo/ear` for the Ear's folder.
 
-### Step 7: your ratings, and measuring the Ear
+### Step 7: your ratings, and measuring the Ear [put off]
+
+Put off on 21 November 2026, unchanged: it is in the roadmap's Later
+list. Nothing in Phase 4 needs it.
 
 * Thumbs and the word on the sound and song screens; `ratings/`;
   `ratings_list`; `ear_agreement` and its line in Settings.
@@ -1224,10 +1236,10 @@ What you test on Linux:
 * `ROADMAP.md`: Phase 4 ticked off with lessons; this design marked done.
 
 What you test on Windows:
-- [ ] Blind-rate playtest 5's before and after pairs in the Studio.
+- [ ] Listen blind to playtest 5's before and after pairs (`playtest/playtest-5/blind/`, A and B in random order; the key is in its README) and say which you prefer.
 
 What you test on Linux:
-- [ ] Run playtest 5's agent part with the Small Ear only, and read its notes.
+- [ ] Run playtest 5's agent part with the installed Ear (scores only), and read its notes.
 
 ## 10. Risks (and what we do about each)
 

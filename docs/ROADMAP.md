@@ -1543,6 +1543,26 @@ Lessons from step 1, for the next builder:
 
 ## Later
 
+* **Ratings (Phase 4's step 7, put off on 21 November 2026, unchanged).**
+  The design is `docs/phase4-design.md` section 7. Nothing in Phase 4
+  needs it.
+
+  ### Step 7: your ratings, and measuring the Ear
+
+  * Thumbs and the word on the sound and song screens; `ratings/`;
+    `ratings_list`; `ear_agreement` and its line in Settings.
+  * Tests: a rating's line and its stored sound; the last rating wins; the
+    measure on made-up ratings gives the right counts, range and "always
+    yes" line; agents have no way to write a rating.
+
+  What you test on Windows:
+  - [ ] Rate five sounds; `ratings/ratings.jsonl` has five lines and the sounds are stored.
+  - [ ] Change a recipe: the thumbs are empty again.
+  - [ ] "Measure" with fewer than 20 ratings says how many more are needed.
+
+  What you test on Linux:
+  - [ ] The same.
+
 * **15. Sample layers:** `source = "sample"` with `[layers.sample]` (`path`,
   `hash`, `start`, `loop`), playback rate from the pitch curve; a missing
   or changed file is an error at `layers[n].sample.path`.
