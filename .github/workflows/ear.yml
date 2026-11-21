@@ -267,10 +267,10 @@ jobs:
         if: steps.release.outputs.there == 'yes'
         run: |
           target/release/duck-echo ear device cpu
-          target/release/duck-echo ear status --json | grep -q '"device_choice":"cpu_only"'
+          target/release/duck-echo ear status --json | grep -Eq '"device_choice": *"cpu_only"'
           target/release/duck-echo ear device auto
           target/release/duck-echo ear clear-answers --yes
-          target/release/duck-echo ear status --json | grep -q '"answers_kept":0'
+          target/release/duck-echo ear status --json | grep -Eq '"answers_kept": *0[,}]?$|"answers_kept": *0,'
 
       - name: duck-echo ear remove
         if: steps.release.outputs.there == 'yes'
