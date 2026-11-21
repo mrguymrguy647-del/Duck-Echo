@@ -1223,7 +1223,7 @@ to do, for whoever next touches `mix_check` and `game_send`:
 * One argument name for "the file" across tools (`path`, `file` and
   `cues` today), with the old names still accepted.
 
-## Phase 4: Duck Ear
+## Phase 4: Duck Ear [done, but step 7 (ratings) put off]
 
 What Phase 4 should start with (from playtest 4: the agent made a whole
 tune, sent it and checked the mix by numbers alone, and said that nobody
@@ -1233,7 +1233,7 @@ stub `duck-ear`, with the missing-program, timeout and broken-line tests,
 come before any model. Then the `ear` section in `analyze`, and only then
 real listening models.
 
-### 14. Duck Ear bridge (`duck-echo-ear`)
+### 14. Duck Ear bridge (`duck-echo-ear`) [done: steps 1 to 6 and 8 of docs/phase4-design.md; step 7, ratings, put off to Later]
 
 * The JSON Lines protocol from `ARCHITECTURE.md`, with a stub Python
   `duck-ear` that answers `hello` and `describe` with fixed text, so the
@@ -1243,8 +1243,354 @@ real listening models.
   Ear is available, and `ear: {available: false}` otherwise.
 * Accept: tests for handshake, timeout, missing program and a broken line;
   the app never waits on the Ear longer than a set timeout.
+* The plan, in eight steps: `docs/phase4-design.md` section 9.
+* [x] **Step 1: the bridge and the stub.** `crates/duck-echo-ear` (the
+  protocol, the timeout table, three threads, stopping the Ear with every
+  program it started: a process group on Linux, a job object on Windows),
+  `ear/stub/duck_ear_stub.py`, and `fake-ear`, a test program that breaks
+  the protocol in 15 ways. 30 tests; CI runs them on Linux and Windows,
+  with Python required, and again on Linux with no network.
+* [x] **Step 2: what agents get, with the stub.** `analyze` with `ear: true`
+  (`--ear` on the command line) adds an `ear` section and checks
+  `expect.sounds_like`; `listen` and `ear_status` (commands, so the MCP
+  server and `duck-echo do` have them; `duck-echo listen` and `duck-echo
+  ear status` too); songs have `expect`; the MCP server keeps one Ear
+  (`--ear-program`), stopped after 10 minutes with no question, and the Ear lets
+  go of its describe model after 2 (Duck Echo sends `load` before every
+  describe question); the sounds heard are deleted at once; the answer
+  cache gives the same question the identical answer without starting
+  the Ear. The chime example has a `sounds_like` line.
+
+Lessons from step 2:
+
+* **A cached answer must be found without starting the Ear**, or the
+  cache saves nothing. The key needs the models' revisions, which only the
+  Ear knows; so the last `hello` was kept beside the answers with its
+  program's size and time. (Step 3 undid this: see its lessons.)
+* **Keep the Ear's own time, not the wall clock, in an answer** (`seconds`
+  is the sum of the Ear's own times): then a cached answer is identical
+  to the first, apart from `cached`.
+* **A line that was not checked is `pass: null`, never `false`.**
+  `ExpectLine::pass` became `Option<bool>`; the summary names the line
+  instead ("expect: sounds_like not checked", or "expect: all 2 met
+  (sounds_like not checked)").
+* **One flag, two meanings, is a trap**: `analyze --ear` asks the Ear, so
+  the program is named `--ear-program` everywhere (the MCP server,
+  `listen`, `ear status`). Step 2 first spelled it three ways; the
+  server's old `--ear PROGRAM` (and `--ear PROGRAM` on `listen` and `ear
+  status`) still work, with a note on stderr naming the new spelling.
+* **The build folder fills the disk.** A full workspace test with the
+  incremental cache grew `target/` past the session's space;
+  `CARGO_INCREMENTAL=0` and removing `target/debug/incremental` fixed it.
+* [x] **Step 3: the real Ear, part 1: the score model.** `ear/duck_ear/`,
+  a Python package (numpy, ONNX Runtime, tokenizers; no PyTorch): reading
+  WAVs, resampling and the mel spectrogram in numpy, the score model, the
+  word list (about 100 words), "scores you can read", and a guard that
+  refuses the network. `ear/convert/convert_clap.py` converts CLAP2-S and
+  LAION-CLAP to ONNX and checks them against the originals (closeness
+  0.999999 and 0.999664 on 43 sounds; 1.0 on texts). `ear/testset/`
+  (41 sounds) and `duck-echo ear check`, which measures a model and
+  suggests its yes and no lines. Both measured; **LAION-CLAP chosen**
+  (pairs 98% against 88%, the rest level); lines yes from 0.662, no
+  below 0.338. Results and weak spots: `docs/ear-check.md`. The Ear's
+  Python tests run in CI on Linux and Windows, and with no network.
+
+Lessons from step 3:
+
+* **Measure, don't trust the leaderboard.** The design guessed CLAP2-S
+  from its authors' numbers; on Duck Echo's sounds LAION-CLAP told pairs
+  apart far better. Keep both in the converter, so the next model can be
+  measured the same way.
+* **Raw closeness is not a score.** A softmax over the word list gave
+  0.00 for everything, and both models put "music" close to every sound,
+  silence too. A z-score against Duck Echo's own sounds (the presets and
+  examples, saved with the model) made `match` readable; silence is
+  caught before the model (peak below -60 dBFS).
+* **Never reuse a remembered `hello`.** Step 2 kept the last hello so a
+  cached answer could be found without starting the Ear. When the same
+  program was pointed at another model folder, it gave the other model's
+  cached answers. Now Duck Echo always greets the Ear first (it starts in
+  about a second; the models load only when needed), and the Ear's
+  revision includes its word list and a hash of its calibration. A test
+  changes the stub's model under the same program and checks the cache
+  misses.
+* **Exporting to ONNX can change the model you still hold.** Checking
+  LAION-CLAP against the model that had just been traced gave closeness
+  0.28; loading a fresh original for the check gave 0.9997. Check
+  against a clean copy.
+* **The exporter drops inputs a graph does not use**, and freezes shapes
+  it traces. CLAP2's position codes (RoPE) became an input, so any length
+  works; the Ear feeds a graph only the inputs it has.
+* **Downloads**: Hugging Face's newer download service was blocked here;
+  `HF_HUB_DISABLE_XET=1` uses the plain one. PyTorch's CPU wheels and
+  torchvision must come from the same index, or torchvision fails to load.
+* **Tune the lines on one set, say so.** The lines were chosen on the
+  test set they are measured on; `docs/ear-check.md` says that, and a
+  leave-one-out check gave the same kind-of-sound score.
+* [x] **Step 4: the real Ear, part 2: the describe model.** `duck-ear`
+  starts and stops `llama-server` (`ear/duck_ear/describe.py`): this PC
+  only, evidence first in two turns, temperature 0 and seed 42, the
+  graphics card let go after 2 minutes, a fall back to the CPU. Three
+  sizes (`catalog.py`): Small (scores only), Full (Qwen2.5-Omni-7B),
+  Large (Qwen3-Omni-30B-A3B, offered only with a graphics card of 16 GB
+  or more); `ear/tools/get_describe_model.py` downloads one for a
+  person. `duck-echo ear check --part describe` measures a describe
+  model. **Measured on the CPU, no describe model passed** (yes on true
+  texts: Qwen2.5-Omni-7B 45%, Gemma 4 E4B 34%, Gemma 4 E2B 13%; the bar
+  is 80%), so **the Ear ships with scores only**, as agreed.
+  `closest` is now left out of answers unless asked for.
+  * [ ] Still open: every time on a graphics card, and Large
+    altogether (it was downloaded and its SHA-256 matches, but the
+    build machine's 15 GB of memory could not load its 19.9 GB). One
+    command per size does it on the person's PC:
+    `ear/tools/measure_describe_model.py full` and `... large`
+    (`docs/ear-check.md`, "Measuring on a PC with a graphics card"). Step 4's checklist runs `ear check` with Full and Large
+    on a PC with a big card; its two `ear-check.md` files go into
+    `docs/ear-check.md` and decide whether a describe model is offered
+    to big cards.
+
+Lessons from step 4:
+
+* **Ask what is heard before asking the question.** Asked "does this
+  sound like a coin?" straight away, a model heard a coin in an
+  explosion. Two turns (first "What do you hear?", then the question)
+  stopped that. Even one word about the sound's maker ("made with a
+  synthesizer") changed what the model heard, so the first question says
+  nothing.
+* **These models say no, not yes.** The research warned of yes-sayers;
+  with evidence first, all three were no-sayers on our short synthesizer
+  sounds. Count yes on true texts and no on wrong texts apart, always.
+* **A model can fail its bar and still help.** With Qwen2.5-Omni-7B
+  beside the score model, the verdict never said yes to a wrong text
+  (the score alone did 13 times of 137), at the cost of most true
+  yeses. `docs/ear-check.md` has that table; it is the case for offering
+  Full as an extra check, if someone wants to make it.
+* **"No yes to silence" is too weak a test.** Every model passed it, and
+  every model described a sound in pure silence ("a high-pitched
+  electronic tone", "a low hum"). The Ear's own silence guard stays, and
+  the next test set should ask for a yes to "silence".
+* **Keep what the model worked out for a sound.** Qwen2.5-Omni-7B pads
+  every sound to 30 seconds: 32 s on 4 CPU cores to hear a coin.
+  `llama-server` keeps that (`cache_prompt`), so the next question about
+  the same sound takes 8 s. The answers stayed the same words, run after
+  run, with it on.
+* **A forced answer shape makes some models think.** Gemma 4 thought for
+  hundreds of words before a JSON answer, even with thinking switched
+  off, and ran out of words. A model's settings can say `plain_answers`;
+  the Ear then reads "Yes, ..." itself.
+* **Name the graphics card.** By default `llama-server` spreads a model
+  over every device it finds, a processor's built-in graphics too. The
+  Ear passes `--device` with one card, and does not count graphics that
+  share the PC's memory as a card.
+* **The design's first choice for Small could not run in the Ear.**
+  MiDashengLM-0.6B's GGUF needs its makers' own fork of llama.cpp. Asked
+  with PyTorch instead, it turned out to write captions (good for music,
+  a lottery for sound effects) and not to answer yes or no at all. Check
+  that a model runs in the chosen program, and does the job asked of it,
+  before planning around it.
+* **Say "I could not check" instead of "it cannot".** The first report
+  said llama.cpp cannot run MiDashengLM, from a search of one source
+  tree; the model's own page named the fork. Look at the model's page
+  before writing that something is impossible.
+* **A test that copies a program and runs it can meet "Text file
+  busy".** Linux will not run a file that any program holds open for
+  writing, and another test's child, started in that moment, holds it.
+  The bridge's "folder with spaces and accents" test failed once in CI
+  that way; it now waits and tries again.
+* **Measure where the hardware is.** A describe model takes an hour on
+  the build machine's CPU and minutes on a graphics card, and Large does
+  not fit the build machine at all. `ear/tools/measure_describe_model.py`
+  makes the measurement one command on the person's PC, and writes the
+  two files to send back; `--quick` (10 sounds) shows it works first.
+* **A killed Ear leaves `llama-server` behind** unless its whole process
+  group (Linux) or job (Windows) is stopped, as Duck Echo does. Tests
+  must stop the Ear politely (close its stdin), or they leave pretend
+  servers running.
+* **GitHub was blocked on the build machine.** `llama-server` was built
+  from the llama.cpp source inside the `llama-cpp-python` package on
+  PyPI (commit `a956a85`). People will use llama.cpp's own release
+  builds, which were not tried here.
+* [x] **Step 5: installing the Ear.** `duck-echo ear install`, `ear
+  update`, `ear remove` and the Studio's Settings > Duck Ear install the
+  Ear with scores only: uv from PyPI, the Ear's own code built into Duck
+  Echo, a private Python and the locked packages with `uv sync --frozen`,
+  the score model from a Duck Echo release (checked against its
+  `SHA256SUMS`), a self-test, then `ear.json`. Downloads use the
+  system's `curl`, carry on where they stopped, and are refused if their
+  SHA-256 is wrong. On a PC with a graphics card of 16 GB or more,
+  Settings offers **"Try a bigger model (Large, 19.9 GB)"** (`duck-echo
+  ear try large`): after asking it downloads llama.cpp and the model,
+  runs the full describe check, shows the results and saves
+  `ear-check.json` and `ear-check.md`; it never switches the Ear, and
+  only a model that reached every bar is offered for use. The workflow
+  `Ear` installs it all for real on Windows and Linux and publishes the
+  score model.
+  * [x] **The score model is published** as the release `ear-score-v1`
+    (by the `Ear` workflow, run with "Publish the score model"; 21
+    November 2026). Its six files and `SHA256SUMS` match the manifest
+    (783.7 MB; the manifest says about 784 MB), each file's SHA-256 in
+    `SHA256SUMS` is the one GitHub lists, and `duck-echo ear install`
+    into an empty folder, with nothing pointed elsewhere, installs the
+    Ear from it, private Python and all. The workflow's job "Install from
+    the published release" does the same on clean Windows and Linux
+    machines. (`model.json` and `reference.npy` differ from an earlier
+    conversion's by a few bits of the reference sounds' numbers; the two
+    ONNX models, the tokenizer and the filters are byte for byte the
+    same. An install trusts the release's own `SHA256SUMS`.)
+
+Lessons from step 5:
+
+* **Build the Ear's code into Duck Echo.** No download, no build step,
+  no launcher to make: the files are written into the Ear's folder and
+  run by its own Python, and "update" is "install again". `uv sync
+  --frozen --no-install-project` then installs only locked packages,
+  each checked by its hash.
+* **uv is on PyPI.** Its wheel is a zip file with the program inside,
+  with a SHA-256 in PyPI's own list: no need for GitHub to get it.
+* **A release cannot be pinned before it exists.** The score model is
+  made by a workflow, so its hashes are in the release's `SHA256SUMS`,
+  not in the manifest: the same trust as the Studio's own update.
+* **Offer by the hardware, before downloading anything.** The graphics
+  card's memory is read from the registry (Windows) or `nvidia-smi` and
+  the kernel (Linux), so "Try a bigger model" can be shown or hidden
+  without llama.cpp. Once llama.cpp is there, its own list of devices is
+  checked before the 19.9 GB download.
+* **Trying is not choosing.** The try keeps its results beside the model
+  and writes nothing the Ear reads; only `use_model` does, and it refuses
+  a model that did not pass on this PC, or was only asked the quick set.
+* **Which bars count for "passed".** A describe model must reach its own
+  bars (yes on true texts, no on wrong texts, silence, noise, the same
+  words twice). The verdict's measures are shown but do not count: they
+  also depend on the score model, which says yes to 77% of true texts by
+  itself.
+* **Test the installer where the systems are.** GitHub was blocked on
+  the build machine, so the private Python (which uv fetches from
+  GitHub) and llama.cpp's real release list could not be tried there.
+  The `Ear` workflow does the whole install, a try and a removal on
+  GitHub's Windows and Linux machines.
+* **The newest release is not always the newest build.** The first run
+  of that workflow failed on both systems: llama.cpp's newest release,
+  `v1.0.0`, holds no programs, only a note naming the nightly build it
+  was made from. The Ear now reads the newest ten releases and takes the
+  first one that holds a file for this PC.
+* **A size in a test is one system's size.** "About 912 MB" is Linux's
+  download; uv's file for Windows is a different size, so the Studio's
+  test failed there. The test now works the size out as the Studio does.
+* **A shell `rm -rf *` after a `cd` is never worth it.** One was stopped
+  by a safety check here; name the folder to delete, in full.
+* [x] **Step 6: the rest of the Studio's Settings > Duck Ear.** Test
+  (the coin and the Duck Craft night song, heard afresh, with each
+  answer and its time), Use: Automatic or CPU only (kept in the Ear's
+  folder, so every Ear Duck Echo starts follows it), Clear kept answers,
+  Repair for a broken Ear, an install that carries on after the Studio
+  was closed, and the note when an AI assistant wanted to listen while
+  the Ear was missing. The Studio's own Ear keeps the MCP server's two
+  rules (10 minutes; 2 for a describe model). The same work is on the
+  command line: `duck-echo ear test`, `ear device auto|cpu`, `ear
+  clear-answers`; `ear_status` says `device_choice`.
+
+Lessons from step 6:
+
+* **One small file per choice, in the Ear's folder.** `device.txt`,
+  `installing.json` and `wanted.json` are read by whichever Duck Echo
+  starts the Ear or looks: the Studio, the MCP server, the command line.
+  No program has to tell another anything.
+* **"Still running" needs a heartbeat.** A stopped install and a running
+  one look the same on disk; the running one writes the time into
+  `installing.json` every few seconds, and 20 seconds without it means
+  its program was closed.
+* **Carry on by itself only what a person already said yes to.** An
+  install the Studio was running when it closed carries on when it opens
+  again; one stopped with Stop, or begun in a terminal, waits for a
+  button. The note about an assistant never installs anything: its
+  Install button asks first, with the size.
+* **Tests must not touch the person's own Ear.** Only the real Studio
+  (its settings come from a file) looks at the Ear's folder by itself;
+  every other test's Studio leaves it alone, and the Ear's tests name a
+  folder of their own.
+* **A test that installs must not reach the internet.** The Studio's
+  carry-on test points uv's download at a closed port on this machine
+  (`install_from`), so it fails at once and the test sees how a failed
+  install is shown.
+* **Words in a screenshot catch what tests do not.** The first pictures
+  said "It keeps 0 answers (1 MB)" and "stops after 0 minutes"; both
+  are now said in words that fit.
+* [ ] Step 7: ratings. **Put off** (21 November 2026), unchanged, to the
+  Later list below. Nothing in Phase 4 needs it.
+* [x] **Step 8: the guide, playtest 5, the roadmap.** `AGENT_GUIDE.md`
+  has the chapter "Listening with the Ear" (a person installs it;
+  `listen`, `analyze` with `ear: true`, `expect.sounds_like`; compare
+  versions, the Ear is a compass and not a judge; what it is good and
+  weak at; scores only), checked by `agent_guide.rs`, and
+  `docs/ear-check.md` is the guide page `ear_check`. Playtest 5
+  (`playtest/playtest-5/`): a fresh agent with the real Ear (scores only)
+  improved `preset:jump`, the footstep and the missile one change at a
+  time and judged two tunes' mood; 157 calls, none failed. On its own
+  words the Ear went from 0.90 to 0.93 (jump), unsure 0.48 to yes 0.88
+  (footstep) and unsure 0.35 to unsure 0.47 (missile). Eleven confusions
+  were fixed (`playtest/playtest-5/REVIEW.md`), and `blind/` has the
+  before and after pairs to listen to without knowing which is which.
+
+Lessons from Phase 4 as a whole:
+
+* **The Ear is a compass, not a judge.** In playtest 5 its comparisons
+  were what helped: which of two versions fits a text better, and the
+  gap to an opposite text. Its single answers were weak: a yes to
+  opposites ("a heavy jump" and "a soft, bouncy jump" both yes), every
+  mood yes on a whole song, a missile it never named. The guide teaches
+  the comparison, and the numbers stay the judge.
+* **The numbers caught what the Ear missed.** A change it liked put an
+  octave jump into the jump's tail; the pitch track showed it, and the
+  agent undid it. Keep the rule: a change stays only when the Ear and the
+  numbers agree.
+* **Measure on our own sounds before choosing a model.** LAION-CLAP beat
+  the model the design expected to win, on Duck Echo's own test set
+  (98% of pairs against 88%). And no describe model reached its bars on
+  the CPU, so the Ear ships with scores only, as agreed, rather than with
+  a model that says yes too easily.
+* **Say what is not there.** The playtest's biggest confusion was a tool
+  description promising a describe model the Ear does not have. Every
+  description, summary and guide line now says what a scores-only Ear
+  does and does not answer.
+* **Only a person installs, and every program reads the same folder.**
+  The Ear's folder holds the choices (`device.txt`), the state of an
+  install (`installing.json`) and an assistant's wish (`wanted.json`),
+  so the command line, the MCP server and the Studio agree without
+  talking to each other; an agent can only pass the wish on.
+* **Still to do on a person's PC:** Large (Qwen3-Omni-30B-A3B, 19.9 GB)
+  has not been measured; it needs a graphics card of 16 GB or more (the
+  person's RTX 4090, 24 GB). Settings > Duck Ear > "Try a bigger model"
+  measures it and saves the two files to send. Full on a graphics card
+  is unmeasured too. Ratings (step 7) wait in Later.
+
+Lessons from step 1, for the next builder:
+
+* **Test that a test can fail.** The "stops what it started" test was run
+  once with the group kill switched off: it failed ("the child outlived
+  stop()"), so it really checks it.
+* **Everything the Ear starts must not hold its pipes.** If a program the
+  Ear starts (later, `llama-server`) inherits the Ear's stdout or stderr,
+  the bridge's readers would not see the pipes close when the Ear dies.
+  The real Ear must start `llama-server` with its own stdout and stderr
+  (a file or nothing), as `fake-ear child` does.
+* **The workspace forbids `unsafe`**, so `duck-echo-ear` sets its own lints
+  (`deny`, the same otherwise) and only `windows_job.rs` allows it. Check
+  Windows code here with `rustup target add x86_64-pc-windows-gnu` and
+  `cargo clippy -p duck-echo-ear --all-targets --target
+  x86_64-pc-windows-gnu`: it needs no Windows linker to check.
 
 ## Phase 5: voices from math only
+
+What Phase 5 should start with (from playtest 5: the agent could hear
+nothing itself, and the Ear helped only by comparing two versions on
+words): write `docs/phase5-design.md` first, as for Phases 3 and 4, and
+start with what can be checked without ears. A voice's vowels are
+formants, so the first step is a formant layer whose vowels Duck
+Echo's own analysis can tell apart (formant peaks in `peaks`, a vowel
+check like `note_check`), deterministic as every render, before any
+phrase or "voice" words. The Ear is a second opinion only: test whether
+it tells "a robot voice" from "a synth pad" on the first renders before
+relying on it, and never ask it whether a voice sounds like a person.
 
 * Formant synthesis (see "Voice (roadmap Phase 5)" in `ARCHITECTURE.md`):
   gibberish and robot voices first, invented natural voices later.
@@ -1254,6 +1600,26 @@ real listening models.
   vowels an analysis can tell apart; every render deterministic.
 
 ## Later
+
+* **Ratings (Phase 4's step 7, put off on 21 November 2026, unchanged).**
+  The design is `docs/phase4-design.md` section 7. Nothing in Phase 4
+  needs it.
+
+  ### Step 7: your ratings, and measuring the Ear
+
+  * Thumbs and the word on the sound and song screens; `ratings/`;
+    `ratings_list`; `ear_agreement` and its line in Settings.
+  * Tests: a rating's line and its stored sound; the last rating wins; the
+    measure on made-up ratings gives the right counts, range and "always
+    yes" line; agents have no way to write a rating.
+
+  What you test on Windows:
+  - [ ] Rate five sounds; `ratings/ratings.jsonl` has five lines and the sounds are stored.
+  - [ ] Change a recipe: the thumbs are empty again.
+  - [ ] "Measure" with fewer than 20 ratings says how many more are needed.
+
+  What you test on Linux:
+  - [ ] The same.
 
 * **15. Sample layers:** `source = "sample"` with `[layers.sample]` (`path`,
   `hash`, `start`, `loop`), playback rate from the pitch curve; a missing

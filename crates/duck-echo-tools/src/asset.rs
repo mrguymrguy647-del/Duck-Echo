@@ -208,32 +208,106 @@ pub fn file_sha256(path: &Path) -> Result<String, ToolError> {
 }
 
 /// SHA-256 of `bytes`, as 64 lowercase hex digits (FIPS 180-4). Written
-/// here so the tools need no hashing crate for one hash per render.
+/// here so the tools need no hashing crate.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
-        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
-        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
-        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
-        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
-        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-        0xc67178f2,
-    ];
-    let mut h: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-        0x5be0cd19,
-    ];
-    let mut message = bytes.to_vec();
-    let bit_len = (bytes.len() as u64).wrapping_mul(8);
-    message.push(0x80);
-    while message.len() % 64 != 56 {
-        message.push(0);
+    let mut hash = Sha256::new();
+    hash.update(bytes);
+    hash.finish()
+}
+
+/// SHA-256 of the file at `path`, read a piece at a time (a model file is
+/// far too big to hold in memory), as 64 lowercase hex digits.
+pub fn sha256_of_file(path: &Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hash = Sha256::new();
+    let mut piece = vec![0u8; 1 << 20];
+    loop {
+        let read = file.read(&mut piece)?;
+        if read == 0 {
+            return Ok(hash.finish());
+        }
+        hash.update(&piece[..read]);
     }
-    message.extend_from_slice(&bit_len.to_be_bytes());
-    for block in message.chunks_exact(64) {
+}
+
+/// SHA-256, a piece at a time.
+pub struct Sha256 {
+    h: [u32; 8],
+    /// Bytes that do not fill a 64-byte block yet.
+    waiting: Vec<u8>,
+    /// How many bytes came in all.
+    length: u64,
+}
+
+impl Default for Sha256 {
+    fn default() -> Sha256 {
+        Sha256::new()
+    }
+}
+
+impl Sha256 {
+    /// A new hash, with nothing in it.
+    pub fn new() -> Sha256 {
+        Sha256 {
+            h: [
+                0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+                0x5be0cd19,
+            ],
+            waiting: Vec::with_capacity(64),
+            length: 0,
+        }
+    }
+
+    /// Add `bytes`.
+    pub fn update(&mut self, mut bytes: &[u8]) {
+        self.length = self.length.wrapping_add(bytes.len() as u64);
+        if !self.waiting.is_empty() {
+            let take = (64 - self.waiting.len()).min(bytes.len());
+            self.waiting.extend_from_slice(&bytes[..take]);
+            bytes = &bytes[take..];
+            if self.waiting.len() < 64 {
+                return;
+            }
+            let block: [u8; 64] = self.waiting[..].try_into().expect("64 bytes");
+            self.block(&block);
+            self.waiting.clear();
+        }
+        let mut blocks = bytes.chunks_exact(64);
+        for block in &mut blocks {
+            self.block(block.try_into().expect("64 bytes"));
+        }
+        self.waiting.extend_from_slice(blocks.remainder());
+    }
+
+    /// The hash of everything added, as 64 lowercase hex digits.
+    pub fn finish(mut self) -> String {
+        let bit_len = self.length.wrapping_mul(8);
+        let mut end = std::mem::take(&mut self.waiting);
+        end.push(0x80);
+        while end.len() % 64 != 56 {
+            end.push(0);
+        }
+        end.extend_from_slice(&bit_len.to_be_bytes());
+        for block in end.chunks_exact(64) {
+            self.block(block.try_into().expect("64 bytes"));
+        }
+        self.h.iter().map(|x| format!("{x:08x}")).collect()
+    }
+
+    fn block(&mut self, block: &[u8; 64]) {
+        const K: [u32; 64] = [
+            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+            0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+            0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+            0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+            0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+            0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+            0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+            0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+            0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+            0xc67178f2,
+        ];
         let mut w = [0u32; 64];
         for (i, word) in block.chunks_exact(4).enumerate() {
             w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
@@ -246,7 +320,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
                 .wrapping_add(w[i - 7])
                 .wrapping_add(s1);
         }
-        let mut v = h;
+        let mut v = self.h;
         for i in 0..64 {
             let s1 = v[4].rotate_right(6) ^ v[4].rotate_right(11) ^ v[4].rotate_right(25);
             let ch = (v[4] & v[5]) ^ (!v[4] & v[6]);
@@ -269,16 +343,31 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
                 v[6],
             ];
         }
-        for (a, b) in h.iter_mut().zip(v) {
+        for (a, b) in self.h.iter_mut().zip(v) {
             *a = a.wrapping_add(b);
         }
     }
-    h.iter().map(|x| format!("{x:08x}")).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sha256_in_pieces_is_the_same_as_in_one_go() {
+        let bytes: Vec<u8> = (0..10_000u32).map(|i| (i * 31 % 251) as u8).collect();
+        for piece in [1, 7, 63, 64, 65, 1000] {
+            let mut hash = Sha256::new();
+            for part in bytes.chunks(piece) {
+                hash.update(part);
+            }
+            assert_eq!(hash.finish(), sha256_hex(&bytes), "pieces of {piece}");
+        }
+        let file = std::env::temp_dir().join(format!("duck-echo-sha-{}", std::process::id()));
+        std::fs::write(&file, &bytes).unwrap();
+        assert_eq!(sha256_of_file(&file).unwrap(), sha256_hex(&bytes));
+        let _ = std::fs::remove_file(&file);
+    }
 
     #[test]
     fn sha256_matches_the_standard_test_vectors() {

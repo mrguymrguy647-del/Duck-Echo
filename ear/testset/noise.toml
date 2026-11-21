@@ -1,0 +1,12 @@
+# One second of steady white noise. Made for the Ear's test set: it is not
+# any game sound, and a model that hears a coin in it is not listening.
+version = 0
+name = "noise"
+description = "One second of white noise."
+
+[master]
+normalize_lufs = -20
+
+[[layers]]
+source = "noise"
+envelope = { attack = 0.01, hold = 1.0, decay = 0.01 }

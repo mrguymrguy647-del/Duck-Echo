@@ -15,6 +15,7 @@ const RECIPE_SPEC: &str = include_str!("../../../docs/RECIPE_SPEC.md");
 const ANALYSIS: &str = include_str!("../../../docs/ANALYSIS.md");
 const INSTRUMENTS: &str = include_str!("../../../instruments/README.md");
 const PRESETS: &str = include_str!("../../../presets/README.md");
+const EAR_CHECK: &str = include_str!("../../../docs/ear-check.md");
 
 /// The heading in `RECIPE_SPEC.md` where the song part starts, and the one
 /// after it, where the recipe part goes on.
@@ -37,6 +38,7 @@ pub const TOPICS: &[Topic] = &[
     Topic { name: "analysis", about: "Every analysis field and how it is measured." },
     Topic { name: "instruments", about: "The built-in instruments and the drum kit." },
     Topic { name: "presets", about: "The presets, their categories and loudness targets." },
+    Topic { name: "ear_check", about: "How the Duck Ear was measured: what it gets right and wrong, with every number." },
 ];
 
 /// The two parts of `RECIPE_SPEC.md`: recipes (everything but the songs
@@ -62,6 +64,7 @@ pub fn page(topic: &str, key: &str) -> Result<String, ToolError> {
         "analysis" => ANALYSIS.to_string(),
         "instruments" => INSTRUMENTS.to_string(),
         "presets" => PRESETS.to_string(),
+        "ear_check" => EAR_CHECK.to_string(),
         other => {
             let names: Vec<String> = TOPICS.iter().map(|t| t.name.to_string()).collect();
             let mut issue = Issue::error(

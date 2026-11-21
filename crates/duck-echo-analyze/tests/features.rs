@@ -413,3 +413,23 @@ fn analysis_adds_energy_and_onsets() {
     assert_eq!(v["energy_over_time"]["rms_dbfs"][3], -9.0);
     assert!(v["onsets"][0]["time_seconds"].as_f64().unwrap() < 0.001);
 }
+
+#[test]
+fn compare_speaks_of_attack_only_for_one_shot_sounds() {
+    // Two tunes whose loudest moment comes late: "attack 1000 ms faster"
+    // would mean nothing (playtest 5 got "attack 20027 ms faster").
+    let rising = |seconds: f32| -> Vec<f32> {
+        let n = (seconds * 44_100.0) as usize;
+        sine(440.0, seconds, 0.5)
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s * i as f32 / n as f32)
+            .collect()
+    };
+    let c = compare(mono(&rising(3.0)), mono(&rising(2.0)));
+    assert!(
+        c.delta.attack_seconds.is_some(),
+        "the number is still there"
+    );
+    assert!(!c.summary.contains("attack"), "{}", c.summary);
+}

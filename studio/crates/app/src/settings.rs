@@ -38,6 +38,10 @@ pub struct Settings {
     /// The game each file was last sent to, by the file's full path, so
     /// Send to game offers it first.
     pub last_game: std::collections::BTreeMap<String, String>,
+    /// The note "An AI assistant wanted to listen" was answered with Not
+    /// now: when that note was first noted (it shows again only for a new
+    /// note, after the Ear was removed).
+    pub ear_wanted_seen: Option<u64>,
 }
 
 impl Default for Settings {
@@ -50,6 +54,7 @@ impl Default for Settings {
             asked_about_app_menu: false,
             duck_forge_folder: None,
             last_game: std::collections::BTreeMap::new(),
+            ear_wanted_seen: None,
         }
     }
 }
@@ -201,6 +206,7 @@ mod tests {
             asked_about_app_menu: true,
             duck_forge_folder: Some(PathBuf::from("/games/Duck Forge")),
             last_game: [("/music/step.toml".to_string(), "duck_craft".to_string())].into(),
+            ear_wanted_seen: Some(1_700_000_000),
         };
         settings.save();
         let text = std::fs::read_to_string(&file).unwrap();

@@ -1,0 +1,19 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "footstep_c4.wav",
+  "duration_seconds": 0.03968253968253968,
+  "frames": 1750,
+  "sample_rate": 44100,
+  "channels": 1,
+  "loudness_lufs": -20.000015,
+  "loudness_method": "k_weighted_ungated",
+  "peak_dbfs": -8.298501,
+  "leading_silence_seconds": 0.00006802721088435374,
+  "hit_seconds": 0.011,
+  "loops": false,
+  "format": "wav",
+  "seed": 8,
+  "recipe_hash": "sha256:73da3cfcf3cd494da3f22d4792b16b08bffe9c21af3763e1e535a737e896f30f",
+  "file_sha256": "sha256:1369cbb1b40d176451d8e6b5ef1152f511cc3abae0500150ee7673614929b9e4"
+}

@@ -2,6 +2,10 @@
 # names, with a short room. Shows note-name pitches and a release tail.
 version = 0
 name = "chime"
+# What it should sound like, in words. Only the Duck Ear can check this
+# line (`duck-echo analyze examples/recipes/chime.toml --ear`); without
+# the Ear it is listed as not checked, never as failed.
+expect = { sounds_like = "a soft, gentle menu chime" }
 
 [master]
 trim_silence = true

@@ -11,6 +11,7 @@ duck-echo-core = { workspace = true }
 duck-echo-audio = { workspace = true, features = ["wav", "ogg"] }
 duck-echo-synth = { workspace = true }
 duck-echo-analyze = { workspace = true }
+duck-echo-ear = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -18,6 +19,8 @@ toml = { workspace = true }
 # Changes the values inside a TOML file's text, so the comments, blank
 # lines and layout a person wrote survive every command.
 toml_edit = { workspace = true }
+# Unpacks the zip files the Duck Ear's installer downloads.
+miniz_oxide = { workspace = true }
 
 [dev-dependencies]
 duck-echo-audio = { workspace = true, features = ["wav", "ogg"] }

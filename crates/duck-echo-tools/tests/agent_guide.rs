@@ -95,8 +95,8 @@ fn the_levelling_edit_works_on_a_preset_as_the_guide_says() {
     let json_blocks = blocks("json");
     assert_eq!(
         json_blocks.len(),
-        2,
-        "the levelling edit, and the game_send examples"
+        3,
+        "the levelling edit, the game_send examples and the listen examples"
     );
     // The game_send examples: each line is a valid call.
     for line in json_blocks[1].lines().filter(|l| !l.trim().is_empty()) {
@@ -253,5 +253,139 @@ fn the_send_to_a_game_chapter_works_as_it_says() {
     for name in ["thud", "theme_day", "step"] {
         assert!(text.contains(&format!("\"{name}\"")), "{name}: {text}");
     }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The text of one chapter (from its `## ` heading to the next).
+fn chapter(title: &str) -> String {
+    let text = guide();
+    let start = text
+        .find(&format!("## {title}\n"))
+        .unwrap_or_else(|| panic!("no chapter {title}"));
+    let rest = &text[start + 3..];
+    let end = rest.find("\n## ").map(|e| e + 1).unwrap_or(rest.len());
+    rest[..end].to_string()
+}
+
+#[test]
+fn the_listening_chapter_says_what_was_measured_and_its_calls_work() {
+    use duck_echo_tools::ear::{EarConfig, EarKeeper};
+    let text = chapter("Listening with the Ear");
+    // What the chapter must say, in its own words.
+    for words in [
+        "compass, not a judge",
+        "only a\nperson installs the Ear",
+        "`ear_status`",
+        "`compare_with`",
+        "`ear: true`",
+        "`expect.sounds_like`",
+        "Scores only, for now.",
+        "Naming short, plain sounds.",
+        "Music's mood.",
+        "may say yes to every mood",
+        "topic: \"ear_check\"",
+        "Silence",
+    ] {
+        assert!(text.contains(words), "the chapter does not say: {words}");
+    }
+    // The report it points to is a guide page an agent can read.
+    let page = duck_echo_tools::guide::page("ear_check", "topic").unwrap();
+    assert!(page.starts_with("# "), "{}", &page[..40]);
+    // Its numbers are the measured ones.
+    let check = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/ear-check.md"),
+    )
+    .unwrap();
+    for (guide_says, check_says) in [
+        ("209 times in 214", "209 of 214"),
+        (
+            "(3 of 3)",
+            "| Soft and harsh | soft and harsh versions told apart | 75% | 3 of 3 |",
+        ),
+        (
+            "\"calm music\" above \"fast\n  exciting music\"",
+            "gives the tense loop \"calm music\" (0.57) above\n  \"fast exciting music\" (0.56)",
+        ),
+        (
+            "`yes` from a match of\n0.66, `no` below 0.34",
+            "| LAION-CLAP | 0.662 | 0.338 |",
+        ),
+    ] {
+        assert!(text.contains(guide_says), "{guide_says}");
+        assert!(check.contains(check_says), "ear-check.md: {check_says}");
+    }
+
+    // Its listen calls work as it says, with the stub Ear.
+    let stub = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ear/stub/duck_ear_stub.py");
+    let program = duck_echo_ear::Program::new(&stub);
+    let python = std::process::Command::new(&program.command)
+        .arg("--version")
+        .output()
+        .is_ok_and(|out| out.status.success());
+    if !python {
+        assert!(
+            std::env::var("DUCK_ECHO_REQUIRE_PYTHON").as_deref() != Ok("1"),
+            "no Python, and DUCK_ECHO_REQUIRE_PYTHON=1"
+        );
+        eprintln!("skipped the listen calls: no Python for the stub Ear");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("duck-echo-guide-ear-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sfx")).unwrap();
+    std::fs::write(
+        dir.join("sfx/jump.toml"),
+        presets::get("jump").unwrap().source,
+    )
+    .unwrap();
+    let keeper = EarKeeper::new(EarConfig {
+        program: Some(stub),
+        home: dir.join("ear-home"),
+        ..EarConfig::from_environment(None).unwrap()
+    });
+    let root = duck_echo_tools::root::Root::new(&dir)
+        .unwrap()
+        .with_ear(keeper.clone());
+    let project = duck_echo_tools::project::Project::new(&root);
+    let run = |name: &str, args: &serde_json::Value| {
+        duck_echo_tools::commands::parse(name, args, "arguments.")
+            .and_then(|c| {
+                duck_echo_tools::commands::run(
+                    &project,
+                    c,
+                    duck_echo_tools::history::Who::Agent,
+                    None,
+                    "arguments.",
+                )
+            })
+            .unwrap_or_else(|e| panic!("{name} {args}: {}", e.into_report()))
+    };
+    // "Render the old one to a second file first".
+    let before = duck_echo_tools::load_audio(&dir.join("sfx/jump.toml")).unwrap();
+    let wav = duck_echo_audio::encode_wav(&before, duck_echo_audio::WavFormat::Pcm16).unwrap();
+    std::fs::write(dir.join("sfx/jump_before.wav"), wav).unwrap();
+    let calls: Vec<serde_json::Value> = blocks("json")[2]
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(calls.len(), 2, "a listen and a comparison");
+    let listened = run("listen", &calls[0]);
+    for like in listened["like"].as_array().unwrap() {
+        for field in ["match", "verdict", "rank"] {
+            assert!(!like[field].is_null(), "{field}: {listened}");
+        }
+    }
+    assert!(listened["summary"].is_string());
+    let compared = run("listen", &calls[1]);
+    let first = &compared["compared"][0];
+    assert!(
+        first["more_like"].is_string() && first["by"].is_number(),
+        "{compared}"
+    );
+    // The same question again is answered from the kept answers.
+    let again = run("listen", &calls[0]);
+    assert_eq!(again["ear"]["cached"], true, "{again}");
+    keeper.stop();
     std::fs::remove_dir_all(&dir).ok();
 }

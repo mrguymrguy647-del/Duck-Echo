@@ -1,0 +1,113 @@
+# Everything the Duck Ear's installer downloads, with its address, size
+# and SHA-256. Built into Duck Echo (crates/duck-echo-tools/src/ear_install.rs),
+# so `duck-echo ear install` and the Studio's Settings > Duck Ear use the
+# same list. A test checks that the describe models here are the same as
+# in ear/duck_ear/catalog.py.
+
+version = 1
+
+# The private Python that uv installs into the Ear's folder.
+python = "3.12"
+
+# ---- uv: installs Python and the Ear's packages ------------------------
+#
+# The wheel from PyPI, which is a zip file with the uv program inside.
+
+[uv]
+version = "0.13.9"
+
+[uv.windows-x86_64]
+url = "https://files.pythonhosted.org/packages/dd/ef/ceeabf3631117f7354787d9fb1ffe943899e59ed4b887a696ed547e47e76/uv-0.13.9-py3-none-win_amd64.whl"
+bytes = 15662317
+sha256 = "6a44b2ed8111d2f60d2b92627c5dccda3f7ed7570b18ce115e569cd68c28246b"
+inside = "uv-0.13.9.data/scripts/uv.exe"
+
+[uv.linux-x86_64]
+url = "https://files.pythonhosted.org/packages/3d/aa/26d64642d808de4a652579ef950d7cd2d37f080a8babf9c67c6b75fc4c3f/uv-0.13.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+bytes = 17606939
+sha256 = "d7f459fe4fd247d830351c75686d3996ace3c6f3f728eb0e85a30b7ada0cef19"
+inside = "uv-0.13.9.data/scripts/uv"
+
+# ---- The score model ---------------------------------------------------
+#
+# LAION-CLAP, converted to ONNX by ear/convert/convert_clap.py and
+# published with a Duck Echo release (the workflow .github/workflows/ear.yml
+# makes that release). Each file is checked against the release's
+# SHA256SUMS, as the Studio checks its own updates.
+
+[score]
+name = "laion-clap-general"
+revision = "ada0c23a36c4e8582805bb38fec3905903f18b41"
+release = "https://github.com/mrguymrguy647-del/Duck-Echo/releases/download/ear-score-v1"
+sums = "SHA256SUMS"
+files = ["model.json", "audio.onnx", "text.onnx", "mel_filters.npy", "tokenizer.json", "reference.npy"]
+# About this much to download (the exact sizes come with the release).
+bytes = 784000000
+
+# ---- llama.cpp: runs a describe model ----------------------------------
+#
+# Only downloaded to try a describe model (the Ear ships with scores
+# only). From GitHub's list of releases, newest first: the newest one
+# that holds a file for this PC (llama.cpp's `v1.0.0` holds none, only a
+# note naming a nightly build). The file is the one whose name ends as
+# written here (`.zip` or `.tar.gz`), checked against the SHA-256 that
+# list gives.
+
+[llama]
+releases = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+# About this much to download.
+bytes = 60000000
+
+[llama.windows-x86_64]
+vulkan = "bin-win-vulkan-x64"
+cpu = "bin-win-cpu-x64"
+
+[llama.linux-x86_64]
+vulkan = "bin-ubuntu-vulkan-x64"
+cpu = "bin-ubuntu-x64"
+
+# ---- Describe models ---------------------------------------------------
+#
+# From Hugging Face, each at one pinned revision. None has passed Duck
+# Echo's listening test (docs/ear-check.md): they are here to be tried.
+
+[[describe]]
+name = "qwen2.5-omni-7b"
+size = "full"
+repo = "ggml-org/Qwen2.5-Omni-7B-GGUF"
+revision = "89b785438c8901d4635e42f50480ba5985a1bbf1"
+licence = "Apache-2.0"
+listening_test = "did not pass (CPU): yes to 45% of true texts (bar 80%), no to 90% of wrong texts"
+context = 4096
+sample_rate = 16000
+
+[describe.model]
+name = "Qwen2.5-Omni-7B-Q4_K_M.gguf"
+bytes = 4683072384
+sha256 = "09883dff531dc56923a041c9c99c7c779e26ffde32caa83adeeb7502ec3b50fe"
+
+[describe.mmproj]
+name = "mmproj-Qwen2.5-Omni-7B-Q8_0.gguf"
+bytes = 1548488480
+sha256 = "4a7bc5478a2ec8c5d186d63532eb22e75b79ba75ec3c0ce821676157318ef4ad"
+
+[[describe]]
+name = "qwen3-omni-30b-a3b"
+size = "large"
+needs_card_mb = 16000
+repo = "ggml-org/Qwen3-Omni-30B-A3B-Instruct-GGUF"
+revision = "6e35a28f4a19b18730f8949b0c579c6429649ab8"
+licence = "Apache-2.0"
+listening_test = "not measured yet: it needs a graphics card with 16 GB or more"
+context = 4096
+sample_rate = 16000
+
+[describe.model]
+name = "Qwen3-Omni-30B-A3B-Instruct-Q4_K_M.gguf"
+bytes = 18557053952
+sha256 = "d9e2876556e7873e02c0359f832432ee2d67ab7dd0cee3efe0f77fd7a1f4dd85"
+
+[describe.mmproj]
+name = "mmproj-Qwen3-Omni-30B-A3B-Instruct-Q8_0.gguf"
+bytes = 1325020128
+sha256 = "1104376db833f1e89c84834144ac3863340c2cd1ddaeddb39cb0247fb5c20c8d"

@@ -1,0 +1,53 @@
+# A tense loop: fast drums with a driving hat, a pounding low bass on one
+# note and sharp minor stabs, at 168 BPM. Made for the Ear's test set: the
+# tense half of a calm/tense pair.
+version = 0
+name = "tense_loop"
+description = "Tense, fast, driving music with drums."
+tempo = 168
+bars = 4
+loop = true
+
+[master]
+normalize_lufs = -16
+
+[patterns.beat]
+notes = [
+  { beat = 0, note = "kick" }, { beat = 0.5, note = "hat", velocity = 0.6 },
+  { beat = 1, note = "snare" }, { beat = 1.5, note = "hat", velocity = 0.6 },
+  { beat = 1.75, note = "kick", velocity = 0.8 },
+  { beat = 2, note = "kick" }, { beat = 2.5, note = "hat", velocity = 0.6 },
+  { beat = 3, note = "snare" }, { beat = 3.5, note = "hat", velocity = 0.6 },
+  { beat = 3.75, note = "snare", velocity = 0.7 },
+]
+
+[patterns.pound]
+notes = [
+  { beat = 0, note = "D2", length = 0.4 }, { beat = 0.5, note = "D2", length = 0.4 },
+  { beat = 1, note = "D2", length = 0.4 }, { beat = 1.5, note = "D2", length = 0.4 },
+  { beat = 2, note = "D2", length = 0.4 }, { beat = 2.5, note = "D2", length = 0.4 },
+  { beat = 3, note = "D#2", length = 0.4 }, { beat = 3.5, note = "D2", length = 0.4 },
+]
+
+[patterns.stabs]
+notes = [
+  { beat = 0, note = "D5", length = 0.25 }, { beat = 0.75, note = "F5", length = 0.25 },
+  { beat = 1.5, note = "G#5", length = 0.25 }, { beat = 2.25, note = "A5", length = 0.25 },
+  { beat = 3, note = "D6", length = 0.25 },
+]
+
+[[tracks]]
+name = "drums"
+instrument = "drums"
+play = [{ pattern = "beat", bars = [1, 2, 3, 4] }]
+
+[[tracks]]
+name = "bass"
+instrument = "bass"
+play = [{ pattern = "pound", bars = [1, 2, 3, 4] }]
+
+[[tracks]]
+name = "stabs"
+instrument = "chip_lead"
+volume = 0.6
+play = [{ pattern = "stabs", bars = [1, 2, 3, 4] }]

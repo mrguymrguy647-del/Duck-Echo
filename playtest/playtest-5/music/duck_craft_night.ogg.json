@@ -1,0 +1,20 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "duck_craft_night.ogg",
+  "duration_seconds": 22.857142857142858,
+  "frames": 1008000,
+  "sample_rate": 44100,
+  "channels": 2,
+  "loudness_lufs": -18.041359,
+  "loudness_method": "bs1770_gated",
+  "peak_dbfs": -4.681582,
+  "leading_silence_seconds": 0.0,
+  "hit_seconds": 0.014,
+  "loops": true,
+  "format": "ogg",
+  "quality": 4.0,
+  "seed": 0,
+  "recipe_hash": "sha256:f8a57651da6833d8d5710ab75fbe2ccfc979054c1a1893d78eb7a9b4b0ecd71f",
+  "file_sha256": "sha256:5bbd3df7bd81778bca6e6b9051afdd5a739afd4931eca99490cefa83129a25e7"
+}

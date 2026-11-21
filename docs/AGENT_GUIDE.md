@@ -87,8 +87,12 @@ always be to level it by loudness instead. These are the `ops` of one
 ]
 ```
 
-Use the target of the category. From then on, every render comes out at
-that loudness, whatever you change. If the target cannot be reached
+Use the target of the category. This setup is not one of your changes:
+it should not change how the sound sounds, only keep it level later.
+From then on, every render comes out at that loudness, whatever you
+change. So making one layer louder makes the others quieter, and a low
+layer counts for less in loudness than a bright one: to bring up a
+quiet low layer, also turn the bright one down. If the target cannot be reached
 without the peak going over -1 dBFS, the render says so in `warnings`.
 Then make the sound less spiky (a longer attack, less resonance) or
 accept it quieter. Within 0.5 LU of the target is fine; a game player
@@ -160,7 +164,23 @@ The answer's `expect` lists each line with what was wanted and what was
 measured, and the summary ends with "expect: all 2 met" or "EXPECT: 1 of
 2 met (roughness is low, wanted high)". Lines: `roughness`, `sharpness`,
 `boom`, `movement` (`low`, `medium` or `high`), and `loudness_lufs`,
-`peak_dbfs`, `duration_seconds` as `[lowest, highest]`.
+`peak_dbfs`, `duration_seconds` as `[lowest, highest]`. A song takes the
+same table. `sounds_like` (words, such as `"a soft coin pickup"`) is
+checked only by the Duck Ear, an optional listening program
+(`analyze` with `ear: true`); without it the line says "not checked" and
+never fails. The Ear's answers are advice, not truth.
+
+Ask the Ear about the words *you* mean: `listen` with `like` (one or
+more texts), or `expect.sounds_like`. Comparing two sounds on one text
+(`compare_with`) is what it does best. Do not ask it to name a sound:
+its own list of the words that fit best (`closest`) is left out unless
+you ask for it with `closest: true`, because for short sounds it is
+often wrong. For the coin preset its first three words were "speech",
+"footsteps on gravel" and "birds", with "coin pickup" fourth. A sound
+of a third of a second gives the model little to go on, and it has
+probably heard far more recordings of speech and birds than game sounds. The
+measured results are the guide page `ear_check`, and "Listening with
+the Ear" below says how to use it.
 
 That growl uses an **audio-rate LFO**: `volume` and `pitch` may move up to
 2000 times a second (cutoff and duty up to 50). At 20 to 150 a second a
@@ -498,6 +518,84 @@ nothing is `buried`: change the volume in the game's code, or the sound's
 loudness in its recipe and send it again. Duck Forge's own synthesizer
 sounds are listed in `not_mixed`.
 
+## Listening with the Ear
+
+The Duck Ear is an optional program on the person's PC that listens to a
+sound with a model and says how well words fit it. Use it as a
+**compass, not a judge**: it points you towards the words you mean, and
+the numbers decide. Its answers are advice and can be wrong.
+
+**Is it there?** `ear_status`. With `available: false` and `reason:
+"not_installed"`, you cannot install it, and you never try: only a
+person installs the Ear. Tell them it is one button in Duck Echo
+Studio (Settings > Duck Ear, about 0.9 GB to download) or `duck-echo ear
+install` in a terminal. Everything else in this guide works without it.
+
+**Ask about the words you mean.** `listen` with the sound as `path` and
+one to eight texts in `like`:
+
+```json
+{"path": "sfx/jump.toml", "like": ["a soft jump", "a harsh jump"]}
+{"path": "sfx/jump.toml", "like": ["a soft jump"], "compare_with": "sfx/jump_before.wav"}
+```
+
+Each `like` answer has a `match` (0 to 1: how much better the text fits
+this sound than it usually fits Duck Echo's sounds), a `verdict` and a
+`rank` among the Ear's own words. The verdict is `yes` from a match of
+0.66, `no` below 0.34, and `unsure` in between. The `summary` says it in
+one line. The first question starts the Ear (a few seconds);
+the same question about the same sound is answered at once from the
+Ear's kept answers (`cached: true`).
+
+**Compare versions; that is what it is best at.** Render the old one to
+a second file first (`sfx/jump_before.wav`), change one thing, and ask
+with `compare_with` on the same text. `compared` says which file it is
+`more_like` and `by` how much; under 0.05 is "about the same", so do
+not chase it. After a change you keep, render the new version to that
+file again, so the next change is compared with the last one you kept.
+Ask about the opposite too (`"a soft jump"` and `"a harsh jump"`): the
+Ear says yes to many texts that only share a word with the sound, so a
+change helps when the gap between the two grows, even if your own text
+hardly moves. Keep a change only when the Ear and the numbers agree:
+the match went up and nothing got worse (no clipping, loudness kept,
+the length you wanted). If the Ear likes a version that the numbers say
+is broken, the numbers win.
+
+**`analyze` with `ear: true`** adds the same `ear` section to an
+analysis, and checks `expect.sounds_like` (see "Say what it should
+measure"): the line passes on a yes, fails on a no, and stays "not
+checked" when the Ear is missing or unsure. It never changes a number.
+
+**What it is good at** (measured on Duck Echo's test set: `get_guide`
+with `topic: "ear_check"` has the whole report):
+
+* Which of two versions fits a text better: right 209 times in 214.
+* Soft against harsh: right every time (3 of 3).
+* Silence: a silent sound matches "silence" and nothing else.
+
+**What it is weak at:**
+
+* **Naming short, plain sounds.** A footstep, a jump, a warning beep and
+  the coin were each beaten by a wrong text at least once. Do not ask
+  "what is this?"; ask about two or three texts and compare their
+  matches, and do not trust one `match` alone.
+* **Music's mood.** It gave a tense loop "calm music" above "fast
+  exciting music", and on a whole song it may say yes to every mood at
+  once (calm, tense, sad and happy). Only the difference between two
+  songs on one text means anything. For a tune's mood, trust what the
+  song says and the numbers: its `tempo` and notes (in the song file;
+  `analyze` gives them under `song`), the scale its notes use (major or
+  minor), how high the melody is, and `spectral_centroid_hz` (darker is
+  lower) and `loudness_lufs` from the analysis.
+* **Yes and no.** About one answer in ten is wrong in each direction,
+  and about one in seven is `unsure`. A single yes is a hint.
+
+**Scores only, for now.** The Ear has a score model only: no describe
+model has passed Duck Echo's listening test yet. So `ask` (a free
+question) and `description` say they are not available, and every
+verdict comes from the score alone (`from: ["score"]`). Ask with texts,
+not questions.
+
 ## Undo, and working beside a person
 
 Every change you make to a file of the project (`create`, `edit`, and
@@ -518,6 +616,8 @@ file again and retry.
 * `song_spec`: every song field.
 * `analysis`: every analysis field and how it is measured.
 * `instruments` and `presets`: what each one is.
+* `ear_check`: how the Duck Ear was measured, and what it gets right and
+  wrong.
 
 Also `get_schema` (every recipe field with its `minimum` and `maximum`;
 `kind: "song"` for songs),

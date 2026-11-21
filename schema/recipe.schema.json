@@ -810,6 +810,13 @@
             }
           ],
           "description": "Energy around 2 to 5 kHz (harsh, piercing)."
+        },
+        "sounds_like": {
+          "description": "What it should sound like, in words, such as `\"a soft coin\npickup\"` (1 to 200 characters). Only the Duck Ear can check this\nline (`analyze` with `ear: true`); without it, the line is listed as\nnot checked, never as failed.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"

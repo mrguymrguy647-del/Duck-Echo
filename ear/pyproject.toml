@@ -1,0 +1,27 @@
+[project]
+name = "duck-ear"
+version = "0.4.0"
+description = "The Duck Ear: listens to a sound with models on this PC, for Duck Echo"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+requires-python = ">=3.10"
+# No PyTorch: the models run in ONNX Runtime, the audio is prepared with
+# numpy, and the text is cut into tokens by the tokenizers library.
+dependencies = [
+    "numpy>=1.26",
+    "onnxruntime>=1.18",
+    "tokenizers>=0.19",
+]
+
+[project.scripts]
+duck-ear = "duck_ear.server:main"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["duck_ear"]
+
+[tool.uv]
+# The converter has its own project (convert/), with PyTorch.

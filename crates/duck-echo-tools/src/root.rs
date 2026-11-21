@@ -51,6 +51,9 @@ pub struct Root {
     /// Where Duck Echo keeps this project's Undo history and recycle bin,
     /// when not in the project itself (see [`Root::own_dir`]).
     own: Option<PathBuf>,
+    /// The one Duck Ear this program keeps (the MCP server's), if any.
+    /// Without it, each command that listens starts its own.
+    ear: Option<std::sync::Arc<crate::ear::EarKeeper>>,
 }
 
 fn refuse(key: &str, arg: &str, why: impl std::fmt::Display) -> ToolError {
@@ -94,6 +97,7 @@ impl Root {
             dir,
             duck_forge: None,
             own: None,
+            ear: None,
         })
     }
 
@@ -131,6 +135,18 @@ impl Root {
     /// The Duck Forge folder, if one was given.
     pub fn duck_forge(&self) -> Option<&crate::forge::DuckForge> {
         self.duck_forge.as_ref()
+    }
+
+    /// The same root, keeping one Duck Ear for every command that listens
+    /// (the MCP server does this, so the Ear is started once).
+    pub fn with_ear(mut self, keeper: std::sync::Arc<crate::ear::EarKeeper>) -> Self {
+        self.ear = Some(keeper);
+        self
+    }
+
+    /// The Duck Ear this root keeps, if any.
+    pub fn ear(&self) -> Option<&std::sync::Arc<crate::ear::EarKeeper>> {
+        self.ear.as_ref()
     }
 
     /// The root directory.

@@ -810,6 +810,13 @@
             }
           ],
           "description": "Energy around 2 to 5 kHz (harsh, piercing)."
+        },
+        "sounds_like": {
+          "description": "What it should sound like, in words, such as `\"a soft coin\npickup\"` (1 to 200 characters). Only the Duck Ear can check this\nline (`analyze` with `ear: true`); without it, the line is listed as\nnot checked, never as failed.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -2104,6 +2111,17 @@
         "$ref": "#/$defs/Effect"
       },
       "type": "array"
+    },
+    "expect": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Expect"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What the song should measure and sound like, the same table as in a\nrecipe: `analyze` reports pass or fail for each line. Not used by\nthe renderer. For example `expect = { sounds_like = \"a calm, warm\ntune\", loudness_lufs = [-19, -17] }`."
     },
     "instruments": {
       "additionalProperties": {

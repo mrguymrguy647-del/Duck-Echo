@@ -32,6 +32,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The Duck Ear's tests run its stub, a Python program.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The real Ear's own tests (ear/tests), without its models: reading
+      # WAVs, resampling, the protocol, the network guard. Its three
+      # libraries only; no PyTorch.
+      - name: The Duck Ear's Python tests
+        run: |
+          python -m pip install --quiet "numpy>=1.26" "onnxruntime>=1.18" "tokenizers>=0.19"
+          python -m unittest discover -s ear/tests -v
+
       - name: Formatting
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
@@ -41,6 +54,25 @@ jobs:
 
       - name: All tests
         run: cargo test --workspace
+        env:
+          # The Ear's stub tests fail, rather than skip, without Python.
+          DUCK_ECHO_REQUIRE_PYTHON: "1"
+
+      # The Ear must work with no network at all (docs/phase4-design.md,
+      # section 5): its tests run again in a network namespace that has
+      # none, not even the loopback's way out.
+      - name: The Ear's tests with no network (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo test -p duck-echo-ear --no-run
+          sudo unshare --net -- sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" \
+            DUCK_ECHO_REQUIRE_PYTHON=1 cargo test --offline -p duck-echo-ear
+          # The Ear talks to its own llama-server over this PC's loopback
+          # (127.0.0.1), which every PC has: bring it up in the namespace.
+          # There is still no way out.
+          sudo unshare --net -- bash -c \
+            'ip link set lo up && sudo -u "$0" env "PATH=$1" "HOME=$2" python -m unittest discover -s ear/tests' \
+            "$USER" "$PATH" "$HOME"
 
       - name: Render every example and preset, and hash each WAV
         run: |

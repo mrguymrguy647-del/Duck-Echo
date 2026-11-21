@@ -150,6 +150,11 @@ to keep their level in mono.
 | `duck-echo variations <recipe> [--count N] [--variation V] [-o dir] [--json]` | Render seeds 1..N and print one analysis summary each, to pick a variant by its numbers. |
 | `duck-echo set-check <set.toml or folder> [-o out] [--json]` | Render a set of sounds and write a table, a contact sheet of their pictures and a loudness report per tag (`do set_check`). See `examples/film`. |
 | `duck-echo mix <cues.json> [--length S] [--sections '[...]'] [--base DIR] [-o out] [--json]` | Mix a cue list (the `log.json` of a Duck Forge headless run, placed and panned as the game does, or a list with times in seconds) and report every moment over full volume with the volumes that fix it, the loudness each second and per section, buried cues, and a picture with each cue marked (`do mix_check`). |
+| `duck-echo listen <file> [--like TEXT]... [--ask Q] [--compare-with F] [--quick] [--closest] [--ear-program P] [--json]` | Ask the Duck Ear (an optional program that listens with models on this PC) about a sound: a description, and for each `--like` a match, a yes or no and a verdict. `--closest` adds the Ear's own words that fit best (off by default: often wrong for short sounds). Its answers are advice. `analyze --ear` adds the same `ear` section to an analysis and checks `expect.sounds_like`. `duck-echo ear status` says whether the Ear is there and what it can do (`do listen`, `do ear_status`). |
+| `duck-echo ear install [--yes]`, `ear update`, `ear remove` | Install the Duck Ear on this PC (scores only: about 0.9 GB to download, into its own folder, with its own private Python), bring it up to date, or remove it. Each shows what it will do and asks first. Only a person runs these: an AI assistant cannot. Duck Echo Studio has the same in Settings > Duck Ear. |
+| `duck-echo ear test`, `ear device [auto\|cpu]`, `ear clear-answers [--yes]` | Let the installed Ear listen to a coin and the Duck Craft night song and say what it heard and how long it took; choose whether its describe model may use a graphics card (`cpu` never does; every Duck Echo program follows the choice); forget its kept answers. The same as Test, Use and Clear kept answers in the Studio's Settings > Duck Ear. |
+| `duck-echo ear try large [--quick] [--yes] [--out DIR]`, `ear use large\|none` | On a PC with a graphics card of 16 GB or more: download a bigger describe model (19.9 GB) and llama.cpp after asking, measure it on Duck Echo's test set, and save `ear-check.json` and `ear-check.md`. It never becomes the Ear's model by itself: `ear use large` accepts it only after it reached every bar on this PC. |
+| `duck-echo ear check [--testset FILE] [--out DIR] [--part score\|describe\|all] [--fresh] [--ear-program P] [--json]` | Measure the Ear on a test set with known answers (`ear/testset/testset.toml`): how often it tells the right text and the right sound, and the yes and no lines it suggests; with a describe model, also its yes and no answers, the verdict of both models, and its times. Writes `ear-check.json` and `ear-check.md`; the results so far are in `docs/ear-check.md`. |
 | `duck-echo send <file> --game G [--name N] [--variants N] [--format wav\|ogg] [--quality Q] [--duck-forge DIR] [--json]` | Send a sound (as WAV), a song (as OGG) or numbered variants into a Duck Forge game: the sound and its facts file into the game's `assets`, the recipe into its `art`. Sending again with no change writes nothing. The Duck Forge folder is `--duck-forge` or `DUCK_ECHO_DUCK_FORGE`; `duck-echo do game_list` lists the games (`do game_send`). |
 | `duck-echo guide [topic]` | The agent guide, or a reference page: `recipe_spec`, `song_spec`, `analysis`, `instruments`, `presets`. Built into the program. |
 | `duck-echo schema [song\|set]` | The JSON Schema for recipes, songs or sound sets, with descriptions and defaults. |
@@ -271,7 +276,10 @@ Claude Desktop, in `claude_desktop_config.json` (absolute paths):
 To let the agent send sounds into your Duck Forge games (`game_list`,
 `game_send`), add `"--duck-forge", "/path/to/Duck Forge"` to `args`: the
 folder whose `Cargo.toml` names `duckforge`. The agent can then write
-only into each game's `assets` and `art` folders.
+only into each game's `assets` and `art` folders. `"--ear-program",
+"/path/to/duck-ear"` names the Duck Ear for `listen` and `analyze` with
+`ear: true` (without it, `DUCK_ECHO_EAR` or the installed Ear); the server
+keeps one Ear and stops it after 10 minutes with no question.
 
 A typical agent loop: `list_presets`, `get_preset`, `create` a file from it,
 `edit` fields by path (`master.normalize_lufs` to the preset's

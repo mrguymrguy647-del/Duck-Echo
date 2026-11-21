@@ -125,7 +125,7 @@ fn expect_lines_pass_or_fail_against_the_analysis() {
     assert!(!e.pass);
     assert_eq!(e.met, 3);
     let line = e.lines.iter().find(|l| l.what == "roughness").unwrap();
-    assert!(!line.pass && line.got.as_deref().unwrap().starts_with("low"));
+    assert!(line.pass == Some(false) && line.got.as_deref().unwrap().starts_with("low"));
     assert!(
         m.analysis
             .summary

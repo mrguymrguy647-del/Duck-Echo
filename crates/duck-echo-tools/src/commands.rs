@@ -413,6 +413,73 @@ pub struct MixCheckArgs {
     pub out: Option<String>,
 }
 
+/// What `listen` hears and asks the Duck Ear.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListenArgs {
+    /// The sound: a WAV or OGG file, a recipe or song file of the project,
+    /// or `preset:NAME`. Or give `recipe` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// A recipe or song as a JSON object, instead of `path`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<Value>,
+    /// Render with this seed instead of the recipe's or song's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+    /// Hear only these, at their level in the mix: layer numbers for a
+    /// recipe, track names for a song.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solo: Option<Vec<Selector>>,
+    /// Hear all but these: layer numbers for a recipe, track names for a
+    /// song.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mute: Option<Vec<Selector>>,
+    /// Up to 8 texts to match, such as `["a soft coin pickup", "a harsh
+    /// alarm"]`. Each gets `match`, `rank`, `answer`, `reason` and a
+    /// `verdict` (`yes`, `no` or `unsure`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub like: Option<Vec<String>>,
+    /// One free question, such as "Is this tune calm? What makes it tense,
+    /// if anything?". The answer is the describe model's words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask: Option<String>,
+    /// A second sound (a path, as `path`), scored against the same texts
+    /// of `like`: is this one more like them than that one?
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compare_with: Option<String>,
+    /// The score model only: about a second, no description and no
+    /// answers. Default false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quick: Option<bool>,
+    /// Also list the Ear's own words that fit the sound best
+    /// (`ear.closest`). Default false: for short sounds they are often
+    /// wrong (a coin's first words were "speech" and "birds"), so ask
+    /// about the texts you mean with `like` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closest: Option<bool>,
+}
+
+/// A layer (by number) or a track (by name).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Selector {
+    /// A layer's number, from 0.
+    Number(u64),
+    /// A track's name (or a number written as text).
+    Name(String),
+}
+
+impl Selector {
+    /// As the measuring options take it: text.
+    pub fn text(&self) -> String {
+        match self {
+            Selector::Number(n) => n.to_string(),
+            Selector::Name(name) => name.clone(),
+        }
+    }
+}
+
 /// A sound, song or set of variants to send into a Duck Forge game.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -512,6 +579,10 @@ pub enum Command {
     GameSend(GameSendArgs),
     #[serde(rename = "mix_check")]
     MixCheck(MixCheckArgs),
+    #[serde(rename = "listen")]
+    Listen(ListenArgs),
+    #[serde(rename = "ear_status")]
+    EarStatus(NoArgs),
     #[serde(rename = "edit_undo")]
     EditUndo(NoArgs),
     #[serde(rename = "edit_redo")]
@@ -587,6 +658,10 @@ pub const TABLE: &[Entry] = &[
         description: "Send a sound (as WAV), a song (as OGG) or `variants` numbered variants into a Duck Forge game, by its name. It writes only into the game's assets folder (the sound and its facts file, which names the recipe and the sound file's SHA-256) and art folder (a copy of the recipe), each file whole. Sending again with no change writes nothing: that is decided from the game's own files (the facts' recipe_hash, format and quality, and the sound file still matching its facts), never from this computer's encoding, so a game folder from another computer stays unchanged. If only the recipe's text changed (a comment), only its copy is written. Not an Undo step: it writes into the game, not the project." },
     Entry { name: "set_check", changes_files: false, schema: schema_of::<SetCheckArgs>,
         description: "Render a set of sounds (a folder, or a set file naming sounds, folders and presets with a loudness target per tag) and check them side by side. Writes into `out`: every WAV with its facts file; `<name>.table.csv` (name, length, LUFS, peak, clipping, how it ends or how its loop joins, summary); `<name>.sheet.png`, a contact sheet of every sound's picture with its name, problems in red; and `<name>.check.json`, all of it plus the loudness report per tag (each sound against its target, with the change that fixes it). A sound that does not render is a row with its error. Writes reports, not recipes, so it is not an Undo step." },
+    Entry { name: "listen", changes_files: false, schema: schema_of::<ListenArgs>,
+        description: "Ask the Duck Ear, an optional program that listens with models on this PC, about a sound: for each text of `like` a `match` (0 to 1: how much more it fits than the Ear's other words) and a `verdict` (yes, no or unsure). The Ear ships with a score model only: with no describe model (`ear_status` says so), there is no description, no `answer` or `reason` per text, and `ask` is not answered, so ask with texts. With a describe model, it also gives a description and its own yes or no with a reason per text, and the verdict needs both models to agree. `ask` asks one free question; `compare_with` scores a second sound against the same texts (the most reliable use: did the change help?); `quick` uses the score model only; `closest: true` adds the Ear's own words that fit best (off by default: often wrong for short sounds). The Ear is advice and can be wrong: the numbers of analyze win for what they measure. The same question about the same sound gets the identical answer from the Ear's answer cache (`cached: true`). Without the Ear, `ear.available` is false with the reason and what to do. Changes no file." },
+    Entry { name: "ear_status", changes_files: false, schema: schema_of::<NoArgs>,
+        description: "Is the Duck Ear there, and what can it do: its program and folder, its version, its models, the device it uses (cpu or a graphics card), whether it is a stub that does not listen, how many answers it keeps, and the last error. Says hello to the Ear but loads no model. Call it once to know whether to plan with the Ear." },
     Entry { name: "mix_check", changes_files: false, schema: schema_of::<MixCheckArgs>,
         description: "Mix a cue list (Duck Forge's log.json as a headless run writes it, or a plain list with times in seconds) at 44.1 kHz stereo, placed and panned as the game does, and check it: every moment over full volume with the sounds behind it and volumes that fix it, the short-term loudness each second, the loudness of each section, and every cue buried more than 15 dB under what plays with it (with the volume that lifts it). Writes `<name>.mix.wav` (to listen to), `<name>.mix.json` (the report) and `<name>.mix.png` (the mix's level over time with a marker and a name for each cue). Not an Undo step." },
     Entry { name: "song_set", changes_files: true, schema: schema_of::<SetArgs>,
@@ -1005,6 +1080,27 @@ pub fn run(
             let checked = crate::mix::check(project.root(), &request, prefix)?;
             return Ok(serde_json::to_value(checked).expect("serializes"));
         }
+        Command::Listen(a) => {
+            let like = a.like.clone().unwrap_or_default();
+            let texts = |s: &Option<Vec<Selector>>| -> Vec<String> {
+                s.iter().flatten().map(Selector::text).collect()
+            };
+            let request = crate::ear::ListenRequest {
+                path: a.path.as_deref(),
+                recipe: a.recipe.as_ref(),
+                seed: a.seed,
+                solo: texts(&a.solo),
+                mute: texts(&a.mute),
+                like: &like,
+                ask: a.ask.as_deref(),
+                compare_with: a.compare_with.as_deref(),
+                quick: a.quick.unwrap_or(false),
+                closest: a.closest.unwrap_or(false),
+            };
+            let listened = crate::ear::listen(project.root(), &request, prefix)?;
+            return Ok(serde_json::to_value(listened).expect("serializes"));
+        }
+        Command::EarStatus(_) => return crate::ear::status(project.root()),
         Command::EditUndo(_) => project.undo(by)?,
         Command::EditRedo(_) => project.redo(by)?,
         Command::EditHistory(a) => {
@@ -1709,7 +1805,7 @@ mod tests {
         for c in sample {
             assert!(entry(&c.name()).is_some(), "{}", c.name());
         }
-        assert_eq!(TABLE.len(), 35);
+        assert_eq!(TABLE.len(), 37);
     }
 
     #[test]

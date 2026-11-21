@@ -10,3 +10,12 @@
 # The MCP server's Undo history for the playtest root: it is the
 # server's own, not a result.
 /playtest/.duck-echo/
+
+# The Duck Ear's Python environments, the converter's sounds and models,
+# and ear check's output: made on each PC, never committed.
+/ear/.venv/
+/ear/convert/.venv/
+__pycache__/
+/ear-sounds/
+/ear-models/
+/ear-check/

@@ -50,8 +50,11 @@ crates/
                            checking OGG music (`ogg`), `expect`
                            lines, the variant export (`variants`), the
                            sound-set check (`sets`), the mix check from
-                           a cue list (`mix`) and sending sounds into a
-                           Duck Forge game (`forge`).
+                           a cue list (`mix`), sending sounds into a
+                           Duck Forge game (`forge`) and asking the Duck
+                           Ear (`ear`: one kept Ear, the answer cache,
+                           `listen`, `ear_status`, `analyze` with
+                           `ear: true`).
   duck-echo-live/          the realtime mixer for playing through speakers:
                            a pool of 32 voice slots, two lock-free queues,
                            fades and clipping, and the background song
@@ -60,7 +63,11 @@ crates/
   duck-echo-cli/           the `duck-echo` binary and the end-to-end tests.
   duck-echo-mcp/           the `duck-echo-mcp` binary: the agent tools as an MCP
                            server over stdio.
-  duck-echo-ear/           (planned) bridge to the Python Duck Ear process.
+  duck-echo-ear/           the bridge to the Duck Ear (Phase 4): starts it,
+                           speaks its JSON Lines protocol, keeps time,
+                           stops it with everything it started. Knows
+                           nothing about recipes. `fake-ear`, a test
+                           program that breaks the protocol on purpose.
 studio/                    Duck Echo Studio, a workspace of its own (Rust
                            1.95 for egui; the libraries above need 1.87):
   crates/app/              DuckEchoStudio: the window, Home (home.rs, with
@@ -86,6 +93,17 @@ studio/                    Duck Echo Studio, a workspace of its own (Rust
                            READ ME FIRST.txt, linux/ (AppRun, the menu entry,
                            make-appimage.sh).
 docs/                      this file, RECIPE_SPEC.md, ANALYSIS.md, ROADMAP.md
+ear/stub/                  the stub Duck Ear (Python, standard library only):
+                           the protocol with no models, for tests
+ear/duck_ear/              the real Duck Ear (Python: numpy, ONNX Runtime,
+                           tokenizers), with its tests in ear/tests/
+ear/tools/                 get_describe_model.py: a person downloads a
+                           describe model with it, checked by SHA-256;
+                           measure_describe_model.py: downloads and
+                           measures one, in one command
+ear/convert/               converts the score models to ONNX and checks
+                           them (PyTorch; run once, by builders)
+ear/testset/               sounds with known answers, for `ear check`
 examples/recipes/          the example recipes (TOML, plus coin.json)
 examples/songs/            the example songs
 examples/film/             a sound set and a cue list to check (set-check, mix)
@@ -109,7 +127,7 @@ cli ──> tools ──> synth ──> core
  └────> core, synth, analyze, audio (directly, for render and validate)
 mcp ──> tools (and core, audio)
 live ──> synth, core, audio (and rtrb; tools only in its tests)
-ear (planned) ──> core, audio, analyze
+ear ──> nothing of Duck Echo's (serde_json; windows-sys on Windows)
 ```
 
 `core` never depends on anything audio-related; `synth` and `analyze` never
@@ -470,7 +488,7 @@ a song works too: the tools tell the two apart by looking inside.
 | `create` | `path`, and `recipe` or `from`, optional `overwrite` | `{ok, path, kind, warnings}` (`kind` is `recipe` or `song`; with `from`, also `from`). Validates first; writes TOML or JSON by extension; refuses to replace a file unless `overwrite` is true. `from` (`preset:NAME`, `instrument:NAME` or a file) runs the `file_copy_from` command: the copy is named after its file, its description says what it was copied from, and a TOML copy keeps its comments. One Undo step either way. |
 | `edit` | recipe, `ops`, optional `write` | `{ok, recipe, warnings, written, path}`. Each op is `{path, value}` or `{path, remove: true}`, with paths as in error messages; an index equal to the length appends. Edits apply to the document as written (defaults stay implicit), and a file is rewritten only when the result is valid. Comments are not kept. |
 | `render` | recipe, `output`, optional `seed`, `format`, extras | Same as `duck-echo render --json`: `{ok, output, seed, warnings, analysis, asset, asset_file}`, plus `heard_layers`, `layers` and `picture` when asked. `warnings` adds a render warning when `normalize_lufs` hit the peak ceiling. A song adds `song` (`tempo`, `beats_per_bar`, `bars`, `loop`, `song_frames`, `seconds_per_bar`, `tracks`, `notes`), `heard_tracks` and `tracks` when asked, for a loop `loop_seam` (`seam_step`, `largest_step`, `clean`), and with `per_track` or `notes` the `note_check`. Every render also writes `<output>.json` (`asset::AssetInfo`: length, loudness, peak, leading silence, `hit_seconds`, `loops`, `recipe_hash` as the SHA-256 of the document's JSON data), and the Studio's Export does the same. |
-| `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. For a song also `song`, `loop_seam` and always `note_check` (the notes written next to the notes heard; `notes: true` lists every note). |
+| `analyze` | `path` (WAV, recipe or preset) or `recipe`, extras, `ear` | The `Analysis` (see `ANALYSIS.md`), plus `warnings` (recipes only, when there are any), `heard_layers`, `layers` and `picture` when asked. For a song also `song`, `loop_seam` and always `note_check` (the notes written next to the notes heard; `notes: true` lists every note). With `expect`, its lines checked. With `ear: true`, the Duck Ear's `ear` section (see "Duck Ear bridge"). |
 | `compare` | `a`, `b`: each a path or a recipe object | The `Comparison`. |
 | `variations` | recipe (not a song), optional `count`, `variation`, `output_dir` | `{variation, seeds_matter, note, renders: [{seed, output, summary, analysis}]}`. |
 | the commands | see below | One tool per command (`sound_set`, `song_add_note`, `edit_undo`...), with the command's name and arguments. |
@@ -688,27 +706,277 @@ first text exactly (`crates/duck-echo-mcp/tests/shared_undo.rs`). The
 MCP `create` and `edit` tools save through the same path, so they are
 steps too.
 
-## Duck Ear bridge (design)
+## Duck Ear bridge
 
-The Duck Ear is a Python process running audio-understanding models. It is
-optional: every feature of Duck Echo works without it, and tools that can use
-it say so in their output rather than failing.
+The Duck Ear is a separate program that listens with machine-learning
+models (Phase 4; the plan is `docs/phase4-design.md`). It is optional:
+every feature of Duck Echo works without it, a render never waits for it,
+and nothing in core, synth or analyze knows it exists. `duck-echo-ear` is
+the bridge; `duck-echo-tools` decides what to ask (step 2).
 
-* **Transport**: the Rust side spawns `duck-ear` (a Python entry point) as a
-  child process and speaks JSON Lines over stdin/stdout. One request per
-  line, one response per line, matched by `id`. stderr is logging.
-* **Handshake**: the first message is `{"id":0,"method":"hello"}`; the reply
-  lists `capabilities` (for example `describe`, `tag`, `similarity`,
-  `transcribe`) and model versions. Unknown capabilities are ignored.
-* **Requests**: `{"id":1,"method":"describe","params":{"wav":"/abs/path.wav"}}`
-  with files passed by path, never inline bytes, so large audio never crosses
-  the pipe. Responses are `{"id":1,"result":{...}}` or
-  `{"id":1,"error":{"code":"...","message":"..."}}`.
-* **Absence**: if the binary is missing, fails the handshake or times out,
-  the bridge reports `ear: {"available": false, "reason": "..."}` and the
-  app carries on. Nothing in core, synth or analyze knows the Ear exists.
-* **Determinism**: Ear outputs are descriptions, never audio, so they do not
-  affect renders.
+* **Transport**: the bridge starts the Ear as a child process and speaks
+  JSON Lines over its stdin and stdout: one request per line, one answer
+  per line, matched by `id`. stderr is the Ear's log; the bridge keeps its
+  last 64 KB and can write it to `ear.log` (started again past 1 MB). A
+  `.py` Ear is run by Python (`DUCK_ECHO_EAR_PYTHON`, else `python3`, or
+  `python` on Windows).
+* **Three threads** (writer, reader, log reader), so the Ear can never
+  stop Duck Echo by filling a pipe, and every wait has a deadline. The
+  reader keeps at most 1 MB of a line: a longer line is a broken answer.
+* **Messages**: `{"id":1,"method":"score","params":{...}}` in;
+  `{"id":1,"result":{...}}`, `{"id":1,"error":{"code","message"}}` or
+  `{"id":1,"progress":{"message","done"}}` out. Progress never gives a
+  request more time. Sounds go by path, never as bytes. Inside protocol
+  version 1 an answer's unknown fields are skipped (a newer Ear may add
+  some); recipes and tool calls stay strict.
+* **Handshake**: `hello` with `{"protocol": 1, "describe_idle_seconds":
+  120}`; the answer (`protocol::Hello`) names the Ear's version, its
+  capabilities (`score`, `describe`, `ask`), its device and its models
+  with their revisions, and `stub: true` for the stub.
+* **Timeouts**: one table (`times::Times`): 20 s for `hello`, 60 s and
+  180 s for `load` (score, describe), 15 s for `score`, 60 s for `describe`
+  and `ask` on a graphics card and 240 s on the CPU, 3 s for `bye`.
+  `DUCK_ECHO_EAR_TIMEOUT_SCALE` multiplies them all, from 0.25 to 10: no
+  value makes a wait endless. When time runs out the Ear is stopped and
+  the failure says it starts again on the next question.
+* **Failures**: the Ear cannot be asked at all (`Unavailable`:
+  `not_installed`, `will_not_start`, `no_hello`, `broken_hello`,
+  `protocol`), or one question failed (`Failure`: `timeout`,
+  `broken_answer`, `ear_stopped` with its exit code and last log lines,
+  the Ear's own error code, `not_running`). Every failure but the Ear's
+  own error stops the Ear.
+* **Stopping everything it started**: the Ear will start `llama-server`
+  (step 4). On Linux the Ear heads its own process group and the bridge
+  stops the whole group (`kill -KILL -- -<group>`); on Windows it is put
+  in a job object that kills everything in it when stopped or when Duck
+  Echo ends. And every Ear exits as soon as its stdin closes. A test
+  starts a pretend Ear with a child of its own and checks the child stops
+  after `stop`, after a drop and after a timeout.
+* **Determinism**: the Ear's answers are descriptions, never audio, and
+  are never written into a sound or its facts, so renders stay
+  byte-for-byte the same.
+
+### What agents get (`duck-echo-tools/src/ear.rs`)
+
+* **Where the Ear is**: `--ear-program PROGRAM` (the MCP server, `listen`
+  and `ear status`; the old spelling `--ear PROGRAM` still works, with a
+  note), else `DUCK_ECHO_EAR`, else the installed Ear in the Ear's
+  folder (`package/duck_ear_run.py`, run by the Ear's private Python in
+  `env`). Duck Echo starts the Ear with `DUCK_ECHO_EAR_HOME` set to that
+  folder, so both look in the same place.
+  The Ear's folder is `DUCK_ECHO_EAR_HOME`, else
+  `%LOCALAPPDATA%\DuckEcho\ear` on Windows and
+  `$XDG_DATA_HOME/duck-echo/ear` (usually `~/.local/share/duck-echo/ear`)
+  elsewhere. It holds `ear.log` and the answer cache.
+* **One Ear, kept** (`EarKeeper`): the MCP server's `Root` holds one
+  (`Root::with_ear`); a CLI command makes its own and stops it when done.
+  It starts the Ear on the first question and a background thread stops
+  it after 10 minutes with none. Duck Echo sends `describe_idle_seconds:
+  120` in `hello`: the Ear lets go of its describe model (`llama-server`,
+  and the graphics card's memory) after 2 minutes with no describe
+  question, and Duck Echo sends `load` before every `describe` or `ask`,
+  so starting it again has `load`'s own time limit.
+* **The answer cache**: every answer is a file in `answers/` (named by the
+  SHA-256 of its key, written whole then renamed). The key is the sound's
+  SHA-256, the method and its parameters without the sound's path, the
+  Ear's version and every model's revision. Duck Echo greets the Ear
+  before every question (starting it takes well under a second; models
+  load only when needed), so the revisions are always the Ear's own: a
+  new model, word list or calibration misses the cache. Each section says
+  `cached: true` when every answer came from it. Errors are never cached.
+* **The sound heard**: the render (or the WAV or OGG file) is written as a
+  16-bit WAV, at most its first 30 s, into the keeper's own temporary
+  folder, and deleted as soon as it was heard; the folder goes with the
+  keeper.
+* **Verdicts**: the score model's `match` says yes from its `yes_from`
+  and no below its `no_below`, which the Ear reports in `hello` with the
+  model (0.662 and 0.338 for LAION-CLAP, set from the test set:
+  `docs/ear-check.md`; 0.6 and 0.3 when an Ear gives none, as the stub);
+  with the describe model's answer, both must agree for a yes or a no,
+  otherwise `unsure`.
+* **`duck-echo ear check`** (`ear_check.rs`): renders every sound of a
+  test set, asks the Ear to score every text, and measures the parts in
+  `docs/phase4-design.md` section 8 against their bars. It suggests yes
+  and no lines, and writes `ear-check.json` and `ear-check.md`. When the
+  Ear has a describe model (`--part all`, the default, or `--part
+  describe`), it also asks what the model hears in every sound and a yes
+  or no for every true and wrong text, and measures: yes on true texts,
+  no on wrong texts, silence and noise, the verdict of both models with
+  its mistakes, the same words when asked again of an Ear started
+  afresh, and the times. `--fresh` asks the Ear everything again,
+  whatever the answer cache holds, so the times are that run's own.
+  `ear/tools/measure_describe_model.py` wraps it for a person: it
+  downloads a size's model (after asking) and runs the check.
+* **`closest`** (the Ear's own words that fit a sound best) is left out
+  of `listen`'s answer and summary unless asked for with `closest: true`
+  (`--closest`), and `analyze` never gives it: for short sounds it is
+  often wrong (`docs/ear-check.md`).
+
+### Installing the Ear (`ear_install.rs`, `ear_net.rs`, `ear_cards.rs`, `ear_try.rs`, `ear_home.rs`, `ear_test.rs`)
+
+Only a person starts any of this (the command line's `duck-echo ear
+...`, or the Studio's Settings > Duck Ear), after seeing the size. None
+of it is a command an AI assistant can run: it is not in
+`commands::TABLE`, so the MCP server does not have it.
+
+* **`ear/manifest.toml`**, built into Duck Echo: uv's wheel for each
+  kind of PC (address, size, SHA-256), the private Python's version, the
+  score model's release and files, where llama.cpp's releases are listed
+  and how its files are named, and the describe models (the same as
+  `ear/duck_ear/catalog.py`; a test compares them).
+* **Downloads** (`ear_net.rs`): the system's `curl` (Windows 10 and 11
+  and Linux have it; the Studio's update check uses it too), into
+  `<name>.part`, carried on from where it stopped (`--continue-at -`),
+  renamed only when the SHA-256 matches. A wrong file is deleted and
+  fetched once more, then refused by name. Free room is checked before a
+  download (`df` on Linux, PowerShell on Windows). Every failure has a
+  code and words: `no_curl`, `no_internet`, `not_found`, `no_room`,
+  `wrong_sha256`, `cancelled`. SHA-256 is Duck Echo's own, a piece at a
+  time (`asset::Sha256`), so a model file never has to fit in memory.
+* **Install** (`ear_install::install`): uv from its wheel; the Ear's own
+  code (built in with `include_str!`) written into `package/`; `uv sync
+  --frozen --no-dev --no-install-project` with `UV_PROJECT_ENVIRONMENT`,
+  `UV_PYTHON_INSTALL_DIR` and `UV_CACHE_DIR` inside the Ear's folder and
+  `UV_PYTHON_PREFERENCE=only-managed`, so a private Python is installed
+  and no Python on the PC is used; the score model, each file checked
+  against the release's `SHA256SUMS`; the self-test (a coin must score
+  higher for "a coin pickup" than for "an explosion"); then `ear.json`.
+  `installed()` is true only with `ear.json` and the program it names.
+  Installing again is updating: what is there and right is kept.
+  `DUCK_ECHO_EAR_SCORE_URL` points the score model's download elsewhere
+  (tests, CI, a mirror); `DUCK_ECHO_EAR_INSTALL_PYTHON` names a Python
+  to use instead of a private one (for building where the private one
+  cannot be downloaded).
+* **A stopped install** (`ear_install::state`): `installing.json` is
+  there while an install runs (who began it: the Studio or the command
+  line) and stays when it does not finish (how: stopped by a person, or
+  failed, with why). A running install writes the time into it every 3
+  seconds from a second thread, so 20 seconds without it means its
+  program was closed. `state()` reads installed, broken (what is
+  missing: the Python, the Ear's code, a score model file), stopped,
+  being installed now, or nothing. `install_from` takes uv's address for
+  tests that must not reach the internet.
+* **Remove** deletes only the Ear's own files and folders, by name.
+* **What the Ear's folder keeps besides the Ear** (`ear_home.rs`): the
+  person's device choice (`device.txt`: `cpu` for CPU only; every Ear
+  Duck Echo starts gets `DUCK_EAR_DEVICE=cpu` from it, unless that is
+  set already), the kept answers (counted and cleared here), and
+  `wanted.json`, which `listen` and `analyze` write when an assistant
+  asked and the installed Ear was missing (`EarConfig::notes_wanted`;
+  false for the Studio's own Ear). The Studio reads it and shows a note
+  once. Plain files, so the command line, the MCP server and the Studio
+  never need to talk to each other.
+* **Test** (`ear_test.rs`): the coin preset with "a coin pickup" and the
+  Duck Craft night song with "calm music", asked afresh (no kept answer
+  used or written), with each word, match and time. The Studio's
+  Settings > Duck Ear and `duck-echo ear test` both use it.
+* **The Studio's own Ear**: an `EarKeeper` made for Test with the usual
+  settings, so it keeps the MCP server's two rules (stopped 10 minutes
+  after its last question; a describe model let go after 2). Only the
+  real Studio looks at the person's Ear folder by itself (a test's
+  Studio has settings that are not saved to a file, and leaves it
+  alone).
+* **Graphics cards** (`ear_cards.rs`): the registry's display adapters
+  on Windows (`reg query`: name and memory for every maker),
+  `nvidia-smi` and the kernel's `mem_info_vram_total` on Linux. Graphics
+  built into the processor do not count. `DUCK_ECHO_EAR_CARDS` names
+  pretend cards for tests.
+* **Try a describe model** (`ear_try.rs`): offered by `needs_card_mb`
+  (Large: 16 GB). It downloads llama.cpp's newest build for this PC
+  (from the newest of its last ten releases that holds one, since a
+  release such as `v1.0.0` holds no programs; the Vulkan build with a
+  card, else the CPU build; the file is checked against the `digest`
+  GitHub lists), the model's files from Hugging
+  Face at their pinned revision, writes the built-in test set into the
+  Ear's folder, and runs `ear_check::check_watched` (`Part::Describe`,
+  fresh) with the model named to the Ear by `DUCK_EAR_DESCRIBE_MODEL`.
+  The results stay beside the model. **It never writes
+  `models/describe.txt`**: `use_model` does, and only for a model whose
+  last check on this PC reached every describe bar on the whole set.
+
+### The real Ear (`ear/duck_ear/`)
+
+A Python package, run as `duck-ear` (`duck_ear.server:main`). The score
+model answers `score`. The describe model, when one is installed with
+`llama-server`, answers `describe` and `ask`; without one they answer
+`not_available`, and `hello` says why in `not_available`.
+
+* **No PyTorch.** The models run in ONNX Runtime. The audio is prepared
+  in numpy (`audio.py`: the WAV reader, a sinc resampler and the mel
+  spectrogram, the same sums as the PyTorch code the models were trained
+  with), and texts are cut into tokens by `tokenizers`. Three libraries,
+  each needed: numpy for the sums, ONNX Runtime to run the models on any
+  PC (and graphics cards later), tokenizers for the exact tokens each
+  model was trained on.
+* **The score model** (`score.py`): a model folder holds `audio.onnx`,
+  `text.onnx`, the mel filters, the tokenizer, `reference.npy` (the
+  embeddings of Duck Echo's 43 presets and examples) and `model.json`
+  (source, revision, licence, settings, calibration, lines, every file's
+  SHA-256). `match` comes from the text's z-score against the reference
+  sounds. A sound quieter than -60 dBFS is not given to the model.
+* **Converting** (`ear/convert/convert_clap.py`, PyTorch): downloads a
+  model at a pinned revision, exports its audio part (from the mel
+  spectrogram on) and text part to ONNX, and fails unless the Ear's path
+  gives the original's embeddings (closeness 0.999 or more). Its own
+  `pyproject.toml`, so the Ear never needs PyTorch.
+* **Nothing leaves the PC** (`guard.py`): an audit hook refuses every
+  connection and name lookup that is not to this PC.
+* **The describe model** (`describe.py`): the Ear starts `llama-server`
+  (llama.cpp) on `127.0.0.1` with `--offline`, a free port and its own
+  log file (`llama-server.log`; never the Ear's pipes), and talks to its
+  `/v1/chat/completions`. No new Python library: the standard library's
+  `http.client`. The sound goes as data in the request (one channel, 16
+  kHz, 16-bit, padded with silence to at least 1 second).
+  * **Evidence first, in two turns.** First "What do you hear?", with no
+    hint; `describe` returns those words. A question (`ask`) is a second
+    turn after the model's own words. Asked in one turn, these models
+    hear whatever the question names. `llama-server` keeps what it worked
+    out for a sound (`cache_prompt`), so a second question about the same
+    sound does not listen to it all again.
+  * **The same words each time**: temperature 0, `top_k` 1, seed 42, and
+    a yes or no answer forced into the shape `{"answer": "yes" | "no" |
+    "partly", "reason": "..."}` (a JSON schema, which `llama-server` turns
+    into a grammar).
+  * **The graphics card is let go**: a thread stops `llama-server` after
+    `describe_idle_seconds` (120) with no describe question; `describe`
+    and `ask` then answer `model_not_loaded` until the next `load`, which
+    Duck Echo sends before each of them. The Ear stops it too when its
+    stdin closes.
+  * **Device**: `llama-server --list-devices` names the graphics cards
+    and their memory. The biggest real card is used, by name (`--device
+    Vulkan0`), so a model is never spread over a processor's built-in
+    graphics (which share the PC's memory and do not count as a card);
+    `hello` reports it (`device`, `device_name`, `device_memory_mb`). If
+    `llama-server` will not start on the card, it is started on the CPU
+    (`--device none`) and `hello` says why. `DUCK_EAR_DEVICE=cpu` asks
+    for the CPU, `DUCK_EAR_DEVICE=Vulkan1` for one device.
+  * **Why llama.cpp**: one program with ready builds for Windows and
+    Linux (Vulkan for any maker's card, or CPU only), MIT licence, and
+    it runs the GGUF files these models are published as. It is started
+    as a program, never linked: Duck Echo's Rust workspace gains no
+    library.
+  * **Models that think** before an answer in a forced shape (Gemma 4)
+    have `plain_answers` in their settings: they are asked plainly and
+    the Ear reads "Yes, ..." itself.
+  * **Silence** (peak below -60 dBFS) is answered without the model,
+    unless a request says `guard: false` (`ear check` does, to see what
+    the model itself says to silence).
+* **Three sizes** (`catalog.py`): Small has no describe model (scores
+  only: no describe model passed the listening test, so this is what
+  the Ear ships as), Full is Qwen2.5-Omni-7B, Large is
+  Qwen3-Omni-30B-A3B, offered only when a graphics card with 16 GB or
+  more is found. Each model's `listening_test` line says how it did. Each model is
+  two GGUF files at a pinned Hugging Face revision with their sizes and
+  SHA-256. `ear/tools/get_describe_model.py` (run by a person) downloads
+  one, checks it, writes its `model.json`, and names it in
+  `models/describe.txt`, which is the model the Ear uses
+  (`DUCK_EAR_DESCRIBE_MODEL` names another folder). The installer of step
+  5 takes this over.
+* **`analyze` with `ear: true`** adds an `ear` section after the numbers
+  (which do not change), puts the verdict on `expect.sounds_like`, and
+  ends the summary with the Ear's words, marked as advice (or "stub, not
+  listening"). `listen` and `ear_status` are commands
+  (`commands::TABLE`), so the MCP server and `duck-echo do` have them too.
 
 ## Diagnostics format
 
@@ -803,8 +1071,10 @@ output is one line per issue in the same order.
 | dirs 6 | studio | Where Documents and the settings folder really are: Windows' own answer (OneDrive often moves Documents), the XDG folders on Linux. The design named `windows-sys` for this, as Duck Forge uses; `windows-sys` would need `unsafe` code of ours to call Windows, and would leave Linux to us, so `dirs` (which wraps the same Windows call) does both. |
 | sha2 0.10 | studio | The SHA-256 fingerprint of a downloaded update, checked against the release's `SHA256SUMS` before it is used, as Duck Quill does.  The tools crate does not use it: the `recipe_hash` in a render's facts file comes from a 60-line SHA-256 in `tools::asset` (checked against the standard test vectors), so the command line and the MCP server gain no crate for one hash per render. |
 | rfd 0.18 | studio | The system's own Save As window for Export WAV: Windows' standard one, and on Linux the desktop's own through the XDG portal (spoken to over D-Bus in Rust, no system library; the AppImage still links only ALSA). Without a portal, "Export WAV to my Duck Echo folder" needs no window. |
+| miniz_oxide 0.8 | tools | Unpacks zip files, for the Duck Ear's installer: uv comes from PyPI as a wheel (a zip file) and llama.cpp's Windows builds are zip files. Windows has a `tar` that unzips, but Linux has no `unzip` by default, so the small zip reader in `ear_net.rs` does it on both. Pure Rust with no dependencies of its own (default features off); the Studio already had it through its picture libraries. |
 | toml_edit 0.25 | tools | Changes values inside a TOML file's text, so a person's comments and layout survive every command and the `edit` tool. It shares its parser and writer crates (`toml_parser`, `toml_writer`, `toml_datetime`) with `toml`, so it adds one crate. |
 | winresource 0.1 | studio (build only) | Puts the icon and the version into `DuckEchoStudio.exe`, as both siblings do. |
+| windows-sys 0.61 | ear (Windows only) | Four Windows calls that make a job object, so stopping the Ear also stops every program it started (`llama-server`, holding the graphics card's memory), even after a crash. It was already in `Cargo.lock` through other crates. These calls need `unsafe` code, the only `unsafe` code in Duck Echo: `duck-echo-ear` denies `unsafe` (the workspace forbids it), and its one module `windows_job.rs` allows it, with a comment on why each call is safe. On Linux the same is done with the system's `kill` program and a process group, with no `unsafe` code. |
 | assert_no_alloc | live (tests only) | Replaces the test program's allocator and counts every allocation and free inside a marked section, so a test fails if the audio block touches the allocator. Its default features switch the check off in release builds; here they are off and the counting ones are on, so it always runs. |
 
 The Studio's crates live only in `studio/`, a workspace of its own (its own

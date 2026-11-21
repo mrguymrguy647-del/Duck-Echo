@@ -219,13 +219,27 @@ is not checked then.
 | `loudness_lufs` | `[lowest, highest]` | Loudness. |
 | `peak_dbfs` | `[lowest, highest]` | Peak. |
 | `duration_seconds` | `[shortest, longest]` | Length. |
+| `sounds_like` | text, 1 to 200 characters | What it should sound like, in words, such as `"a soft coin pickup"`. Only the Duck Ear can check it (see below). |
 
 A range is two numbers, lowest first; anything else is an error at its
 path, with the fix as a suggestion.
 
 ```toml
 expect = { roughness = "high", loudness_lufs = [-20, -16] }   # a scream
+expect = { sounds_like = "a soft coin pickup", sharpness = "low" }
 ```
+
+**`sounds_like` and the Duck Ear.** The numbers cannot check words, so
+`sounds_like` is checked only by `analyze` with `ear: true` (`--ear` on
+the command line), when the Duck Ear (an optional listening program) is
+there. Its line then passes when the Ear's verdict is `yes`, fails when it
+is `no`, and has `pass: null` when the Ear is unsure. Without the Ear the
+line is listed with `pass: null` and the note "needs the Ear: analyze with
+ear: true", and the summary says "expect: all 2 met (sounds_like not
+checked)": a line that was not checked never fails. The Ear's answers are
+advice and can be wrong; see the guide's chapter on the Ear.
+
+A song has the same `expect` table (see "Song top level").
 
 ### `layers[].lfo`
 
@@ -574,6 +588,7 @@ Example songs, all pinned by fingerprint tests:
 |---|---|---|---|
 | `version` | integer | required | must be `0` |
 | `name`, `description`, `tags` | | none | metadata, not used by the renderer |
+| `expect` | table | none | what the song should measure and sound like, the same table as a recipe's (see `expect`), such as `{ sounds_like = "a calm, warm tune", loudness_lufs = [-19, -17] }`; checked by `analyze`, not with a solo or mute |
 | `tempo` | number | required | beats per minute, 20..=400 |
 | `beats_per_bar` | integer | `4` | 1..=16 |
 | `bars` | integer | computed | length in bars, 1 or more; when omitted the song ends at the bar line after its last note |

@@ -1,0 +1,47 @@
+# A calm loop: slow, soft piano chords over a warm pad, in C major, with a
+# big soft room. Made for the Ear's test set: the calm half of a calm/tense
+# pair.
+version = 0
+name = "calm_loop"
+description = "Calm, slow, soft piano and pad music."
+tempo = 66
+bars = 4
+loop = true
+
+[master]
+normalize_lufs = -20
+
+[[effects]]
+type = "reverb"
+size = 0.8
+decay = 2.5
+mix = 0.3
+
+[[tracks]]
+name = "pad"
+instrument = "pad"
+volume = 0.6
+notes = [
+  { bar = 1, beat = 0, note = "C4", length = 4, velocity = 0.5 },
+  { bar = 1, beat = 0, note = "E4", length = 4, velocity = 0.5 },
+  { bar = 2, beat = 0, note = "A3", length = 4, velocity = 0.5 },
+  { bar = 2, beat = 0, note = "C4", length = 4, velocity = 0.5 },
+  { bar = 3, beat = 0, note = "F3", length = 4, velocity = 0.5 },
+  { bar = 3, beat = 0, note = "A3", length = 4, velocity = 0.5 },
+  { bar = 4, beat = 0, note = "G3", length = 4, velocity = 0.5 },
+  { bar = 4, beat = 0, note = "B3", length = 4, velocity = 0.5 },
+]
+
+[[tracks]]
+name = "piano"
+instrument = "piano"
+volume = 0.7
+notes = [
+  { bar = 1, beat = 0, note = "E5", length = 2, velocity = 0.5 },
+  { bar = 1, beat = 2, note = "G5", length = 2, velocity = 0.45 },
+  { bar = 2, beat = 0, note = "C5", length = 2, velocity = 0.5 },
+  { bar = 2, beat = 2, note = "E5", length = 2, velocity = 0.45 },
+  { bar = 3, beat = 0, note = "A4", length = 2, velocity = 0.5 },
+  { bar = 3, beat = 2, note = "C5", length = 2, velocity = 0.45 },
+  { bar = 4, beat = 0, note = "B4", length = 4, velocity = 0.5 },
+]

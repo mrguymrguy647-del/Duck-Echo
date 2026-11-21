@@ -10,6 +10,7 @@ pub mod app;
 pub mod app_menu;
 pub mod connect;
 pub mod controls;
+pub mod ear_panel;
 pub mod editor;
 pub mod home;
 pub mod library;

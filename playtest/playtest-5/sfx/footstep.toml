@@ -1,0 +1,23 @@
+# Footstep: a short scuff of band-passed noise over a soft low tap.
+version = 0
+name = "footstep"
+description = "Copy of the footstep preset."
+tags = ["movement", "footstep", "short"]
+
+seed = 8
+variation = 0.3
+
+[master]
+trim_silence = true
+normalize_lufs = -20
+
+[[layers]]
+source = "noise"
+envelope = { attack = 0.002, decay = 0.035 }
+filter = { kind = "bandpass", cutoff = 500, resonance = 1.2 }
+
+[[layers]]
+source = "noise"
+volume = 1.2
+envelope = { attack = 0.001, decay = 0.03 }
+filter = { kind = "lowpass", cutoff = 300 }

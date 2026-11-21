@@ -1,0 +1,19 @@
+# A soft coin pickup: a sine blip with a gentle start, quiet, with a short
+# room. Made for the Ear's test set: the soft half of a soft/harsh pair.
+version = 0
+name = "coin_soft"
+description = "A soft, gentle coin pickup."
+
+[master]
+normalize_lufs = -24
+
+[[layers]]
+source = "sine"
+envelope = { attack = 0.02, hold = 0.05, decay = 0.35 }
+pitch = { start = "B5", arpeggio = { steps = [0, 5], step_time = 0.08, repeat = false } }
+
+[[effects]]
+type = "reverb"
+size = 0.3
+decay = 0.6
+mix = 0.2
